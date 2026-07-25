@@ -56,5 +56,7 @@ class JarvisSettings(BaseSettings):
     environment: Environment = Environment.DEVELOPMENT
     log_level: LogLevel = LogLevel.INFO
     llm_api_key: SecretStr | None = None
-    llm_provider: str = "openai"
+    llm_provider: str = "mock"
+    llm_base_url: str | None = None
     llm_model: str = "gpt-4"
+    memory_backend: str = "in_memory"

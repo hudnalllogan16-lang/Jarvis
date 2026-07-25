@@ -20,7 +20,7 @@ class TestJarvisSettings:
         settings = JarvisSettings()
         assert settings.environment is Environment.DEVELOPMENT
         assert settings.log_level is LogLevel.INFO
-        assert settings.llm_provider == "openai"
+        assert settings.llm_provider == "mock"
         assert settings.llm_model == "gpt-4"
         assert settings.llm_api_key is None
 
