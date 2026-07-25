@@ -272,6 +272,7 @@ Example:
 class RegistryError(Exception):
     """Base exception for all registry operations."""
 
+
 class DuplicateRegistrationError(RegistryError):
     """Raised when attempting to register an interface that is already registered."""
 ```

@@ -1,18 +1,18 @@
-"""Jarvis main entry point.
+"""Minimal entry point for Jarvis.
 
-This module serves as the primary entry point for the Jarvis
-personal AI operating system. It is intentionally minimal
-until the CLI and bootstrap subsystems are implemented.
+This module serves as the application bootstrap. In production,
+the DI container would be used to resolve and start services.
 """
 
-from kernel.config import load_settings
+from __future__ import annotations
+
+from kernel.config.loader import load_settings
 
 
 def main() -> None:
-    """Bootstrap and run Jarvis."""
+    """Bootstrap Jarvis."""
     settings = load_settings()
-    print(f"Jarvis {settings.APP_VERSION} starting...")
-    print(f"Environment: {settings.ENVIRONMENT}")
+    print(f"Jarvis starting in {settings.environment} mode...")
 
 
 if __name__ == "__main__":

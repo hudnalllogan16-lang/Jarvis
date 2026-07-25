@@ -1,25 +1,18 @@
-"""Production Service Registry for the Jarvis kernel.
+"""Service Registry implementation.
 
-The Service Registry maps abstract interfaces to concrete implementations
-with configurable lifetimes. It supports class registration, instance
-registration, and factory registration for both singleton and transient
-lifetimes.
+The Service Registry is the single source of truth for service registrations,
+singleton cache, lifetime management, factories, and descriptors within Jarvis.
+It provides thread-safe registration and resolution of services by interface type.
 
-Thread Safety:
-    All public methods are thread-safe using an internal reentrant lock.
-    Singleton instantiation and factory invocation are performed under the
-    lock to prevent race conditions during lazy initialization.
+The Registry does NOT perform dependency injection or constructor inspection;
+those responsibilities belong exclusively to the DI container.
 
-Design Notes:
-    - Constructor injection and dependency graph resolution are explicitly
-      out of scope; they are future milestones.
-    - The registry stores descriptors immutably and caches singleton instances
-      separately to support explicit replacement without stale instances.
-    - Factories are callables invoked with zero arguments. They integrate
-      naturally with the existing lifetime model.
-    - Transient services must be registered with a class or factory, not an
-      instance, since a new instance is created on every resolve.
+For simple registrations (factories, instances, or implementations with
+no-argument constructors), ``Registry.resolve()`` can be used directly.
+For implementations that require constructor injection, use the DI Container.
 """
+
+from __future__ import annotations
 
 import threading
 from collections.abc import Callable
@@ -30,362 +23,250 @@ from kernel.registry.exceptions import (
     InvalidRegistrationError,
     ServiceNotFoundError,
 )
-from kernel.registry.lifetime import Lifetime
-from kernel.registry.service_descriptor import ServiceDescriptor
+from kernel.registry.models import Lifetime, ServiceDescriptor
 
 T = TypeVar("T")
 
 
-class ServiceRegistry:
-    """Thread-safe service registry supporting singleton and transient lifetimes.
+class Registry:
+    """Thread-safe service registry supporting multiple lifetime policies.
 
-    The registry maps abstract interfaces to concrete implementations.
-    It does not perform constructor injection or dependency graph resolution.
+    The Registry maintains service descriptors and a singleton cache.
+    All public methods are thread-safe.
 
-    Example::
-
-        registry = ServiceRegistry()
-        registry.register_singleton(ILogger, ConsoleLogger)
-        logger = registry.resolve(ILogger)
-
-    Attributes:
-        _lock: Reentrant lock protecting all internal state.
-        _descriptors: Mapping from interface type to service descriptor.
-        _singletons: Cache of instantiated singleton instances.
+    This class is considered **stable** for the Milestone 2 baseline.
     """
 
     def __init__(self) -> None:
         """Initialize an empty registry."""
+        self._descriptors: dict[type, ServiceDescriptor] = {}
+        self._singletons: dict[type, Any] = {}
         self._lock = threading.RLock()
-        self._descriptors: dict[type[Any], ServiceDescriptor] = {}
-        self._singletons: dict[type[Any], Any] = {}
 
-    def _register(
+    def register(
         self,
-        interface: type[T],
-        implementation: type[T] | T | Callable[[], T],
-        lifetime: Lifetime,
+        interface: type,
+        implementation: type | None = None,
+        lifetime: Lifetime = Lifetime.TRANSIENT,
+        factory: Callable[..., Any] | None = None,
+        instance: Any | None = None,
     ) -> None:
-        """Internal registration logic shared by public register methods.
+        """Register a service with the registry.
+
+        Exactly one of ``implementation``, ``factory``, or ``instance`` must
+        be provided (except when ``instance`` is given, which implies singleton).
 
         Args:
-            interface: The abstract interface to register under.
-            implementation: The concrete class, instance, or factory.
-            lifetime: The service lifetime.
+            interface: The type used as the lookup key.
+            implementation: Concrete type to instantiate. Required unless
+                factory or instance is provided.
+            lifetime: Lifetime policy for this service. Ignored when instance
+                is provided (always treated as singleton).
+            factory: Callable that creates instances. Overrides implementation.
+            instance: Pre-created instance. Overrides factory and implementation
+                and forces lifetime to SINGLETON.
 
         Raises:
-            DuplicateRegistrationError: If the interface is already registered.
-        """
-        if interface in self._descriptors:
-            raise DuplicateRegistrationError(
-                f"Interface '{interface.__name__}' is already registered. "
-                f"Use replace_singleton() or replace_transient() to explicitly "
-                f"override, or unregister() first."
-            )
-        self._descriptors[interface] = ServiceDescriptor(
-            interface=interface,
-            implementation=implementation,
-            lifetime=lifetime,
-        )
-
-    def register_singleton(
-        self,
-        interface: type[T],
-        implementation: type[T] | T,
-    ) -> None:
-        """Register a singleton service from a class or instance.
-
-        If *implementation* is a class, it is lazily instantiated on first
-        :meth:`resolve`. If *implementation* is an instance, it is used directly.
-
-        Args:
-            interface: The abstract interface to register under.
-            implementation: The concrete class or pre-instantiated instance.
-
-        Raises:
-            DuplicateRegistrationError: If the interface is already registered.
+            DuplicateRegistrationError: If interface is already registered.
+            InvalidRegistrationError: If registration is inconsistent.
         """
         with self._lock:
-            self._register(interface, implementation, Lifetime.SINGLETON)
+            if interface in self._descriptors:
+                raise DuplicateRegistrationError(
+                    f"Service '{interface.__name__}' is already registered. "
+                    f"Unregister it first if you want to replace the registration."
+                )
 
-    def register_singleton_factory(
-        self,
-        interface: type[T],
-        factory: Callable[[], T],
-    ) -> None:
-        """Register a singleton service from a factory callable.
-
-        The factory is called lazily on first :meth:`resolve` and the result
-        is cached for all subsequent resolves.
-
-        Args:
-            interface: The abstract interface to register under.
-            factory: A callable that returns the service instance.
-
-        Raises:
-            DuplicateRegistrationError: If the interface is already registered.
-        """
-        with self._lock:
-            self._register(interface, factory, Lifetime.SINGLETON)
-
-    def register_transient(
-        self,
-        interface: type[T],
-        implementation: type[T],
-    ) -> None:
-        """Register a transient service from a class.
-
-        A new instance is created on every :meth:`resolve`. The *implementation*
-        must be a class (not an instance) since it needs to be instantiated
-        repeatedly.
-
-        Args:
-            interface: The abstract interface to register under.
-            implementation: The concrete class to instantiate.
-
-        Raises:
-            DuplicateRegistrationError: If the interface is already registered.
-            InvalidRegistrationError: If *implementation* is not a class.
-        """
-        with self._lock:
-            if not isinstance(implementation, type):  # type: ignore[reportUnnecessaryIsInstance]
+            if instance is not None:
+                descriptor = ServiceDescriptor(
+                    interface=interface,
+                    implementation=None,
+                    lifetime=Lifetime.SINGLETON,
+                    factory=None,
+                    instance=instance,
+                )
+            elif factory is not None:
+                descriptor = ServiceDescriptor(
+                    interface=interface,
+                    implementation=None,
+                    lifetime=lifetime,
+                    factory=factory,
+                    instance=None,
+                )
+            elif implementation is not None:
+                descriptor = ServiceDescriptor(
+                    interface=interface,
+                    implementation=implementation,
+                    lifetime=lifetime,
+                    factory=None,
+                    instance=None,
+                )
+            else:
                 raise InvalidRegistrationError(
-                    f"Transient registration for '{interface.__name__}' "
-                    f"requires a class, not an instance of type "
-                    f"'{type(implementation).__name__}'."
+                    f"Registration for '{interface.__name__}' must provide "
+                    "implementation, factory, or instance."
                 )
-            self._register(interface, implementation, Lifetime.TRANSIENT)
 
-    def register_transient_factory(
-        self,
-        interface: type[T],
-        factory: Callable[[], T],
-    ) -> None:
-        """Register a transient service from a factory callable.
-
-        The factory is called on every :meth:`resolve`, producing a new
-        instance each time.
-
-        Args:
-            interface: The abstract interface to register under.
-            factory: A callable that returns the service instance.
-
-        Raises:
-            DuplicateRegistrationError: If the interface is already registered.
-            InvalidRegistrationError: If *factory* is not callable.
-        """
-        with self._lock:
-            if not callable(factory):
-                raise InvalidRegistrationError(
-                    f"Transient factory registration for '{interface.__name__}' "
-                    f"requires a callable, not '{type(factory).__name__}'."
-                )
-            self._register(interface, factory, Lifetime.TRANSIENT)
-
-    def replace_singleton(
-        self,
-        interface: type[T],
-        implementation: type[T] | T,
-    ) -> None:
-        """Replace an existing singleton registration.
-
-        The old singleton instance (if any) is discarded. The new
-        implementation will be instantiated lazily on the next resolve.
-
-        Args:
-            interface: The abstract interface to replace.
-            implementation: The new concrete class or instance.
-
-        Raises:
-            ServiceNotFoundError: If the interface is not currently registered.
-        """
-        with self._lock:
-            if interface not in self._descriptors:
-                raise ServiceNotFoundError(
-                    f"Cannot replace '{interface.__name__}': not registered."
-                )
-            self._descriptors[interface] = ServiceDescriptor(
-                interface=interface,
-                implementation=implementation,
-                lifetime=Lifetime.SINGLETON,
-            )
-            self._singletons.pop(interface, None)
-
-    def replace_singleton_factory(
-        self,
-        interface: type[T],
-        factory: Callable[[], T],
-    ) -> None:
-        """Replace an existing singleton registration with a factory.
-
-        The old singleton instance (if any) is discarded. The factory
-        will be called lazily on the next resolve.
-
-        Args:
-            interface: The abstract interface to replace.
-            factory: A callable that returns the service instance.
-
-        Raises:
-            ServiceNotFoundError: If the interface is not currently registered.
-        """
-        with self._lock:
-            if interface not in self._descriptors:
-                raise ServiceNotFoundError(
-                    f"Cannot replace '{interface.__name__}': not registered."
-                )
-            self._descriptors[interface] = ServiceDescriptor(
-                interface=interface,
-                implementation=factory,
-                lifetime=Lifetime.SINGLETON,
-            )
-            self._singletons.pop(interface, None)
-
-    def replace_transient(
-        self,
-        interface: type[T],
-        implementation: type[T],
-    ) -> None:
-        """Replace an existing transient registration.
-
-        Args:
-            interface: The abstract interface to replace.
-            implementation: The new concrete class.
-
-        Raises:
-            ServiceNotFoundError: If the interface is not currently registered.
-            InvalidRegistrationError: If *implementation* is not a class.
-        """
-        with self._lock:
-            if interface not in self._descriptors:
-                raise ServiceNotFoundError(
-                    f"Cannot replace '{interface.__name__}': not registered."
-                )
-            if not isinstance(implementation, type):  # type: ignore[reportUnnecessaryIsInstance]
-                raise InvalidRegistrationError(
-                    f"Transient registration for '{interface.__name__}' "
-                    f"requires a class, not an instance."
-                )
-            self._descriptors[interface] = ServiceDescriptor(
-                interface=interface,
-                implementation=implementation,
-                lifetime=Lifetime.TRANSIENT,
-            )
-
-    def replace_transient_factory(
-        self,
-        interface: type[T],
-        factory: Callable[[], T],
-    ) -> None:
-        """Replace an existing transient registration with a factory.
-
-        Args:
-            interface: The abstract interface to replace.
-            factory: A callable that returns the service instance.
-
-        Raises:
-            ServiceNotFoundError: If the interface is not currently registered.
-            InvalidRegistrationError: If *factory* is not callable.
-        """
-        with self._lock:
-            if interface not in self._descriptors:
-                raise ServiceNotFoundError(
-                    f"Cannot replace '{interface.__name__}': not registered."
-                )
-            if not callable(factory):
-                raise InvalidRegistrationError(
-                    f"Transient factory registration for '{interface.__name__}' "
-                    f"requires a callable, not '{type(factory).__name__}'."
-                )
-            self._descriptors[interface] = ServiceDescriptor(
-                interface=interface,
-                implementation=factory,
-                lifetime=Lifetime.TRANSIENT,
-            )
+            self._descriptors[interface] = descriptor
 
     def resolve(self, interface: type[T]) -> T:
-        """Resolve the implementation for a registered interface.
+        """Resolve a service by its interface type.
 
-        For singletons, returns the same instance on every call.
-        For transients, creates and returns a new instance on every call.
+        .. note::
+
+            This method does **not** perform dependency injection. It calls
+            factories as-is and instantiates implementations with no arguments.
+            For constructor injection, use the DI Container.
+
+        Handles lifetime management:
+
+        - Singleton: returns the cached instance, creating it on first call.
+        - Transient: creates a new instance each time.
+        - Scoped: creates a new instance (scope caching is handled by the
+          DI container, not the Registry).
 
         Args:
-            interface: The abstract interface to resolve.
+            interface: The registered interface type.
 
         Returns:
-            The implementation instance.
+            An instance of the service.
 
         Raises:
-            ServiceNotFoundError: If the interface has not been registered.
+            ServiceNotFoundError: If interface is not registered.
         """
         with self._lock:
-            if interface not in self._descriptors:
+            descriptor = self._descriptors.get(interface)
+            if descriptor is None:
                 raise ServiceNotFoundError(
-                    f"No implementation registered for interface '{interface.__name__}'."
+                    f"Service '{interface.__name__}' is not registered. "
+                    f"Register it before attempting resolution."
                 )
 
-            descriptor = self._descriptors[interface]
+            if descriptor.instance is not None:
+                return descriptor.instance  # type: ignore[return-value]
 
-            if descriptor.lifetime == Lifetime.SINGLETON:
+            if descriptor.lifetime is Lifetime.SINGLETON:
                 if interface not in self._singletons:
-                    impl = descriptor.implementation
-                    if isinstance(impl, type):
-                        # Class registration: instantiate lazily.
-                        self._singletons[interface] = impl()
-                    elif callable(impl):
-                        # Factory registration: invoke the factory.
-                        self._singletons[interface] = impl()
-                    else:
-                        # Instance registration: use the pre-built instance.
-                        self._singletons[interface] = impl
-                return self._singletons[interface]
+                    self._singletons[interface] = self._create_instance(descriptor)
+                return self._singletons[interface]  # type: ignore[return-value]
 
-            # Transient: always invoke the implementation (class or factory).
-            return descriptor.implementation()
+            return self._create_instance(descriptor)  # type: ignore[return-value]
 
-    def unregister(self, interface: type[T]) -> None:
-        """Unregister a service by interface.
+    def create(self, interface: type[T]) -> T:
+        """Create a new instance, ignoring the singleton cache.
+
+        This is used by the DI container when it needs a fresh instance
+        for transient or scoped resolution while still delegating factory
+        and implementation invocation to the Registry.
 
         Args:
-            interface: The abstract interface to unregister.
+            interface: The registered interface type.
+
+        Returns:
+            A new instance of the service.
 
         Raises:
-            ServiceNotFoundError: If the interface is not registered.
+            ServiceNotFoundError: If interface is not registered.
         """
         with self._lock:
-            if interface not in self._descriptors:
-                raise ServiceNotFoundError(
-                    f"Cannot unregister '{interface.__name__}': not registered."
-                )
+            descriptor = self._descriptors.get(interface)
+            if descriptor is None:
+                raise ServiceNotFoundError(f"Service '{interface.__name__}' is not registered.")
+            return self._create_instance(descriptor)  # type: ignore[return-value]
+
+    def _create_instance(self, descriptor: ServiceDescriptor) -> Any:
+        """Create a new instance from a descriptor, ignoring lifetime policy.
+
+        Args:
+            descriptor: The service descriptor.
+
+        Returns:
+            A new service instance.
+
+        Raises:
+            InvalidRegistrationError: If the descriptor has no creation path.
+        """
+        if descriptor.factory is not None:
+            return descriptor.factory()
+        if descriptor.implementation is not None:
+            return descriptor.implementation()
+        raise InvalidRegistrationError(
+            f"Descriptor for '{descriptor.interface.__name__}' has no factory or implementation."
+        )
+
+    def unregister(self, interface: type) -> None:
+        """Remove a registration and clear its singleton cache.
+
+        Args:
+            interface: The interface type to unregister.
+        """
+        with self._lock:
             self._descriptors.pop(interface, None)
             self._singletons.pop(interface, None)
 
-    def contains(self, interface: type[Any]) -> bool:
-        """Check whether an interface is registered.
+    def contains(self, interface: type) -> bool:
+        """Check if an interface is registered.
 
         Args:
-            interface: The abstract interface to check.
+            interface: The type to check.
 
         Returns:
-            True if the interface has a registered implementation,
-            False otherwise.
+            True if the interface has been registered.
         """
         with self._lock:
             return interface in self._descriptors
 
-    def clear(self) -> None:
-        """Remove all registrations and singleton caches.
+    def get_descriptor(self, interface: type) -> ServiceDescriptor:
+        """Get the descriptor for a registered interface.
 
-        Primarily useful for testing and controlled shutdown.
+        Args:
+            interface: The registered interface type.
+
+        Returns:
+            The immutable service descriptor.
+
+        Raises:
+            ServiceNotFoundError: If interface is not registered.
         """
+        with self._lock:
+            descriptor = self._descriptors.get(interface)
+            if descriptor is None:
+                raise ServiceNotFoundError(f"Service '{interface.__name__}' is not registered.")
+            return descriptor
+
+    def descriptors(self) -> dict[type, ServiceDescriptor]:
+        """Return a shallow copy of all registered descriptors.
+
+        Returns:
+            Mapping from interface type to descriptor.
+        """
+        with self._lock:
+            return dict(self._descriptors)
+
+    def get_singleton(self, interface: type) -> Any | None:
+        """Get a cached singleton instance if one exists.
+
+        Args:
+            interface: The registered interface type.
+
+        Returns:
+            The cached singleton instance, or None if not yet created.
+        """
+        with self._lock:
+            return self._singletons.get(interface)
+
+    def set_singleton(self, interface: type, instance: Any) -> None:
+        """Cache a singleton instance.
+
+        Args:
+            interface: The registered interface type.
+            instance: The instance to cache.
+        """
+        with self._lock:
+            self._singletons[interface] = instance
+
+    def clear(self) -> None:
+        """Clear all registrations and singleton cache."""
         with self._lock:
             self._descriptors.clear()
             self._singletons.clear()
-
-    def __len__(self) -> int:
-        """Return the number of registered interfaces.
-
-        Returns:
-            The count of registered service descriptors.
-        """
-        with self._lock:
-            return len(self._descriptors)

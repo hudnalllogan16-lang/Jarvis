@@ -1,4 +1,7 @@
-"""Exceptions raised by the Jarvis Service Registry."""
+"""Exceptions for the Service Registry.
+
+All registry errors inherit from RegistryError for unified handling.
+"""
 
 
 class RegistryError(Exception):
@@ -10,8 +13,8 @@ class DuplicateRegistrationError(RegistryError):
 
 
 class ServiceNotFoundError(RegistryError):
-    """Raised when attempting to resolve or unregister an interface that has not been registered."""
+    """Raised when attempting to resolve an interface that has not been registered."""
 
 
 class InvalidRegistrationError(RegistryError):
-    """Raised when a registration is invalid (e.g., transient with an instance)."""
+    """Raised when a registration is malformed or inconsistent."""
