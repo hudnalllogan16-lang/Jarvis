@@ -1347,3 +1347,12 @@ for v1 measurement); model-reported KPI numbers (unauditable, violates complianc
   zero-cycle company.
 - **M7-F27 (verified good):** M6-F9 cycle-failure containment held for a second business type
   — FAILED cycle recorded in operator language, Manager parked alive on its wake timer.
+
+## M7-F40 … M7-F44 — reserve surface round (M7-R1)
+
+F3/F4 from the M6-5 re-review closed: word-boundary truncation with a "more in Details"
+affordance, the card label renamed "Latest update" (content and label now agree — the
+present-activity alternative would have crossed into jarvis/manager/, correctly declined),
+and the create-dialog error now uses the risk-coloured .formErr above the buttons. All
+live-verified on :8110. M7-F44 (open, trivial): a stale "Doing now" comment near
+jarvis/api/app.py:506 — one-line cleanup for whichever lane next touches app.py.
