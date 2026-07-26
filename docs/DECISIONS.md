@@ -1421,3 +1421,42 @@ degradation held for a second business type (M7-F54); version gate held on the u
   extension question for M8.
 - **M7-F46/F47/F51–F54 (verified good):** D-027 end-to-end; upgrade-path version gate;
   M7-F30/F31/F33 confirmed live exactly as predicted (F30 since fixed in M7-3d).
+
+---
+
+## M7-4 / M7-5 verdicts, and audit-required corrections to this record
+
+M7-4 (architecture): **MERGE with follow-ups** — D-014 survived as "a type is data" (three
+generic changes landed, all data-shaped, all demonstrated need — the honest phrasing, vs the
+plan's "zero changes"); D-027 sound; compliance framing holds in code (approvals/capabilities/
+security untouched across the whole span); the D-026 pilot strengthened rather than weakened
+discipline (8 merges, 3 unplanned lanes each packeted before code).
+
+M7-5 (product): **REVISE** — packeted as M7-5a: (1) a company's kind and the Finance
+read-only sentence are invisible after creation (all three companies render identically);
+(2) `health_parts` — the plain-language KPI components the API computes on every card
+request — is consumed by nothing in the repo; the first measured KPIs reach the operator
+nowhere.
+
+**Correction (audit F-A) — M7-F55 overstated "M7-F30 closed":** the direction field applies
+only to companies created after type 1.0.2. Contracts snapshot `default_kpi_targets` at
+creation and no refresh path exists (M7-F24), so Portfolio Watch's stored targets carry no
+direction and its freshness still scores ~0% — the live "attainment 45" is the UNFIXED
+arithmetic ((0.6 + 0.00002 + 0.75)/3); with direction it would be 78. Contract-refresh-on-
+upgrade is an open design question for M8 (with M7-F45); no refresh mechanism is to be
+invented inside M7.
+
+**Correction (audit F-B) — M7-F45 is the whole pre-wake snapshot:** the stale load also
+carries `day_ordinal` (drives D-021's daily wake allowance) and `wake_cycle_ceiling_usd`,
+not just `measures_kpis`. Not an authorization hole (lifecycle re-checked in-activity,
+M6-F1's fix). The fix packet must scope to the full snapshot.
+
+**Correction (audit F-C) — M7-F50's cause:** D-027.5 injects the owner's rules verbatim and
+four begin "During M7", so the milestone label reaches operator prose BY CONSTRUCTION. The
+term guard cannot and should not catch the rules themselves; M8 weighs both ends (prompt
+shaping vs platform-rendered narrative, the D-011 extension).
+
+**M7-F60 (new, from M7-5):** "Finishing its work: 100" rendered beside three consecutive
+failure narratives — invocation-success is not useful-output. Honest by the metric's
+definition, misleading to a human. D-027-amendment / capability-result-semantics input for
+M8; display-side wording may mitigate but must not fake a metric that does not exist.
