@@ -1476,3 +1476,19 @@ Newly *visible*, not newly created, both recorded for M8's contract-refresh desi
 (Portfolio Watch's pre-1.0.2 stored target renders "goal is at least 24 hours" — backwards
 for freshness), M7-F63 (the 3-of-5 structural cap now shows as measured-vs-goal). M7-F65:
 two of three companies necessarily share a kind label until a third type exists.
+
+## M7 closure — both gates cleared
+
+M7-4 (architecture): **MERGE with follow-ups** — the one tag-blocking item (correct the
+M7-F55 overstatement) is recorded above. M7-5 (product): after two narrow REVISE rounds,
+final verdict **SHIP** — all fixes live-verified, no regressions, M7-F62 explicitly ruled
+non-gating. Fix-round findings M7-F67 (false "Rounds completed" label → dynamic stuck-work
+reading), M7-F68 (scale + stutter), M7-F69 (escaping + card/drill-down agreement) all fixed.
+Milestone report: docs/reports/M7.md.
+
+Open ledger at closure, all scheduled: M8 design inputs — general builtin installer (M7-F1),
+pre-wake snapshot staleness (M7-F45+F-B), contract-refresh-on-upgrade (F-A/M7-F62/M7-F24),
+D-027 amendment pass (M7-F33/F49 metric semantics, M7-F32 idle-cycle measurement, M7-F60
+result-usefulness), D-011 extension for feed prose (M7-F50/F-C), M7-F48 (installed_at),
+M7-F65 (third type resolves naturally). Carried M6 ledger unchanged; M6-F33 workflow
+versioning remains required before any production posture.
