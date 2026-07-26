@@ -140,14 +140,65 @@ def test_wake_conditions_are_schedule_based_only() -> None:
     assert APPROVAL_DECIDED not in FINANCE.event_triggers
 
 
-def test_compliance_requirements_exist_for_owner_signoff() -> None:
-    """Defaults in Force: owner reviews and signs off per type before launch."""
-    assert len(FINANCE.compliance_requirements) >= 3
-    assert any("sign" in rule.lower() for rule in FINANCE.compliance_requirements)
-    assert any(
-        "recommend" in rule.lower() or "advice" in rule.lower()
-        for rule in FINANCE.compliance_requirements
-    )
+def test_compliance_requirements_carry_the_owner_approval() -> None:
+    """Defaults in Force: the owner reviews and approves per type before launch.
+
+    Approved 2026-07-26 with revisions (DECISIONS.md "M7 owner decision"); the
+    text in `finance.py` is the owner's, verbatim. Asserted on the load-bearing
+    clauses rather than on the whole strings, so re-wrapping a line does not
+    fail the build but dropping a rule does.
+    """
+    rules = FINANCE.compliance_requirements
+    assert len(rules) == 7
+    assert rules[-1] == "The owner approves these compliance requirements for the M7 launch."
+    joined = " ".join(rules).lower()
+    assert "observation-only mode" in joined
+    assert "must not place orders" in joined
+    assert "brokerage write operations" in joined
+    assert "do not constitute financial, investment, legal, or tax advice" in joined
+
+
+def test_restrictions_are_scoped_to_m7_rather_than_stated_as_permanent() -> None:
+    """The owner's revision, made mechanical.
+
+    The M7-1 draft framed the restrictions as permanent properties of the type.
+    The owner rejected that: the long-term roadmap includes trade
+    recommendation, brokerage management, and execution, so the restrictions
+    are scoped to M7 and rule 3 keeps the evolution path open — conditioned on
+    the architecture explicitly enabling it, which is a §12 amendment the owner
+    makes, not something a later packet may infer from this approval.
+    """
+    rules = FINANCE.compliance_requirements
+    restrictive = [r for r in rules if "must not" in r.lower() or "observation-only" in r.lower()]
+    assert restrictive, "the M7 restrictions must still be stated"
+    assert all(r.startswith("During M7,") for r in restrictive)
+
+    evolution = [r for r in rules if "may evolve" in r.lower()]
+    assert len(evolution) == 1
+    assert "once the architecture explicitly enables those capabilities" in evolution[0]
+
+
+def test_nothing_this_type_publishes_promises_it_will_never_recommend() -> None:
+    """The same direction, applied to every string this type actually ships.
+
+    The draft's "never a recommendation to buy, sell, or trade any asset"
+    framing had reached three places — the compliance rules, the operator-facing
+    description on the "New company" card, and the prompts the model is given —
+    and Part 0 of packet M7-3 rewrote only the first. A promise an operator
+    reads is as binding in practice as one in the rules, so all three are
+    checked here: what this type does during M7 is stated in the present tense,
+    never as a permanent guarantee about what it will never do.
+    """
+    published = {
+        "description": FINANCE.description,
+        **{f"rule {i}": r for i, r in enumerate(FINANCE.compliance_requirements, 1)},
+        **{f"prompt {k}": v for k, v in FINANCE.prompt_templates.items()},
+    }
+    for where, text in published.items():
+        assert "never" not in text.lower(), (
+            f"{where} makes a permanent promise the owner explicitly rejected "
+            '(DECISIONS.md "M7 owner decision")'
+        )
 
 
 async def test_finance_installs_through_the_same_generic_mechanism_as_affiliate(
