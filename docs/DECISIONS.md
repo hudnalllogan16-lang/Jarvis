@@ -1460,3 +1460,19 @@ shaping vs platform-rendered narrative, the D-011 extension).
 failure narratives — invocation-success is not useful-output. Honest by the metric's
 definition, misleading to a human. D-027-amendment / capability-result-semantics input for
 M8; display-side wording may mitigate but must not fake a metric that does not exist.
+
+## M7-F61 … M7-F66 — the REVISE round (M7-5a)
+
+Both REVISE defects fixed and live-verified: company kind on cards + read-only sentence in
+Details (stored type data, no new write path); health parts + goals drill-down rendered in
+Details (card keeps one meter, one sentence — ratified). F53's root cause was _summarise
+never seeing the overall score (M7-F61, fixed: "Healthy overall — goals need attention.").
+"Rounds completed" replaces "Finishing its work" (M7-F60 wording half; metric semantics
+untouched). Guard gains word-boundary M6/M7/M8/KPI/KPIs, model-prose paths only — a
+regression pin proves the owner's stored compliance rules stay OFF the guard path (they
+legitimately contain "During M7"). M7-F44 closed in passing.
+
+Newly *visible*, not newly created, both recorded for M8's contract-refresh design: M7-F62
+(Portfolio Watch's pre-1.0.2 stored target renders "goal is at least 24 hours" — backwards
+for freshness), M7-F63 (the 3-of-5 structural cap now shows as measured-vs-goal). M7-F65:
+two of three companies necessarily share a kind label until a third type exists.
