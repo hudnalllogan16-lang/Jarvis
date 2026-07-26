@@ -26,19 +26,21 @@ from __future__ import annotations
 from decimal import Decimal
 
 from jarvis.businesses.definition import BusinessTypeDefinition
-from jarvis.domain.contract import CapabilityPermission, CapabilityType, KpiTarget
+from jarvis.domain.contract import CapabilityPermission, CapabilityType, KpiDirection, KpiTarget
 from jarvis.domain.kpi import KpiMapping, KpiSource
 
 FINANCE = BusinessTypeDefinition(
     name="finance_tracking",
-    # 1.0.0 -> 1.0.1 for the KPI mappings below. `ensure_builtin_types` is
-    # version-gated (M6-F22, M7-F4: `install()` refuses a duplicate version and
-    # the caller compares), so a definition change that does not bump the
-    # version never reaches the live Registry — the M7-3 run installed 1.0.0 and
-    # would keep serving it. Minor, not major: A-003 resets graduation counters
-    # on a major bump, and nothing about measurement changes what this type may
-    # do, let alone what it has earned the right to do unattended.
-    version="1.0.1",
+    # 1.0.0 -> 1.0.1 for the KPI mappings; 1.0.1 -> 1.0.2 for
+    # `data_freshness_hours` declaring its direction (M7-F30). Same reasoning
+    # each time: `ensure_builtin_types` is version-gated (M6-F22, M7-F4:
+    # `install()` refuses a duplicate version and the caller compares), so a
+    # definition change that does not bump the version never reaches the live
+    # Registry — it would keep serving the stale one. Minor, not major: A-003
+    # resets graduation counters on a major bump, and nothing about
+    # measurement changes what this type may do, let alone what it has earned
+    # the right to do unattended.
+    version="1.0.2",
     display_name="Finance tracker",
     # Present tense, not "never": the owner rejected permanently encoding that
     # this type will not recommend trades (DECISIONS.md "M7 owner decision"),
@@ -98,6 +100,7 @@ FINANCE = BusinessTypeDefinition(
             operator_label="Data freshness",
             target_value=Decimal("24"),
             unit="hours since last check",
+            direction=KpiDirection.BELOW,
         ),
         KpiTarget(
             key="reports_delivered",
@@ -115,11 +118,9 @@ FINANCE = BusinessTypeDefinition(
     #
     # The three targets are fully mapped; nothing about this type is left
     # unmeasured. `data_freshness_hours` is the one whose direction runs the
-    # other way — lower is better — and `KpiEngine.attainment` compares every
-    # metric as higher-is-better, so an excellent freshness reading scores as a
-    # miss (M7-F30). Recorded rather than worked around here: the mapping is
-    # right, the comparison is what needs a direction, and `KpiTarget` has no
-    # field to carry one.
+    # other way — lower is better — which is why its target above declares
+    # `direction=KpiDirection.BELOW`: an excellent (low) freshness reading now
+    # scores as attainment instead of a miss (M7-F30, fixed).
     kpi_mappings=(
         KpiMapping(key="reports_delivered", source=KpiSource.SUCCEEDED_RESULTS_IN_CYCLE),
         KpiMapping(

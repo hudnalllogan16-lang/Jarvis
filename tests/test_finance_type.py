@@ -25,6 +25,7 @@ from jarvis.domain.contract import (
     BudgetPolicy,
     BusinessContract,
     CapabilityType,
+    KpiDirection,
     WakeConditions,
 )
 from jarvis.domain.kpi import KpiMapping, KpiSource
@@ -216,6 +217,18 @@ def test_kpi_mappings_are_declared_as_data() -> None:
         assert isinstance(mapping.source, KpiSource)
 
 
+def test_freshness_is_the_only_target_declared_lower_is_better() -> None:
+    """M7-F30: `data_freshness_hours` is the one metric this type owns whose
+    direction runs the other way — a low reading is the good outcome. The
+    other two targets are ordinary "more is better" counts and must keep the
+    default rather than opting into the new field by accident.
+    """
+    by_key = {t.key: t for t in FINANCE.default_kpi_targets}
+    assert by_key["data_freshness_hours"].direction is KpiDirection.BELOW
+    assert by_key["metrics_tracked"].direction is KpiDirection.ABOVE
+    assert by_key["reports_delivered"].direction is KpiDirection.ABOVE
+
+
 def test_every_target_this_type_sets_is_one_it_can_measure() -> None:
     """A target with no mapping is a goal nothing will ever score against.
 
@@ -232,13 +245,14 @@ def test_the_version_was_bumped_so_the_live_registry_adopts_the_mappings() -> No
 
     `install()` refuses a duplicate version and the caller compares before
     calling, so a definition edited without a version bump never reaches a
-    registry that already holds the old one — the type would keep serving
-    1.0.0 and measure nothing. Not a major bump, on purpose: A-003 resets
-    graduation counters on a major change, and measurement changes nothing
-    about what this type may do (the same call M6-F22 made for affiliate).
+    registry that already holds the old one — the type would keep serving a
+    stale definition. 1.0.1 -> 1.0.2 for `data_freshness_hours` declaring its
+    direction (M7-F30). Not a major bump, on purpose: A-003 resets graduation
+    counters on a major change, and measurement changes nothing about what
+    this type may do (the same call M6-F22 made for affiliate).
     """
-    assert FINANCE.version == "1.0.1"
-    assert FINANCE.version != "1.0.0", "an unbumped definition never reaches a live registry"
+    assert FINANCE.version == "1.0.2"
+    assert FINANCE.version != "1.0.1", "an unbumped definition never reaches a live registry"
     assert FINANCE.major_version == 1
 
 

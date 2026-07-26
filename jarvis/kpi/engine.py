@@ -24,7 +24,7 @@ from decimal import Decimal
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from jarvis.domain.contract import BusinessContract
+from jarvis.domain.contract import BusinessContract, KpiDirection
 from jarvis.events.bus import Event, EventBus
 from jarvis.events.types import KPI_THRESHOLD_BREACHED
 from jarvis.kernel.ids import BusinessId, EventId, new_event_id
@@ -186,7 +186,17 @@ class KpiEngine:
             actual = await self.latest(contract.business_id, target.key)
             if actual is None or target.target_value == 0:
                 continue
-            ratios.append(min(actual / target.target_value, Decimal(1)))
+            if target.direction is KpiDirection.BELOW:
+                # Lower is better (M7-F30): a freshness reading of 1 hour
+                # against a 24-hour target is excellent, not a 4% miss. Zero
+                # is the best possible actual for this direction and would
+                # divide by zero, so it is scored as full attainment rather
+                # than guessed at.
+                ratios.append(
+                    Decimal(1) if actual == 0 else min(target.target_value / actual, Decimal(1))
+                )
+            else:
+                ratios.append(min(actual / target.target_value, Decimal(1)))
         if not ratios:
             return 0
         return int(sum(ratios) / len(ratios) * 100)
