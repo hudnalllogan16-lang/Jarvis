@@ -6,7 +6,7 @@ from decimal import Decimal
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from jarvis.domain.contract import BusinessContract, KpiTarget
+from jarvis.domain.contract import BusinessContract, KpiDirection, KpiTarget
 from jarvis.kpi.engine import EARLY_DAYS_SUMMARY, STALLED_CYCLE_THRESHOLD, KpiEngine
 from jarvis.persistence.models import DeadLetterRow, DecisionLogRow
 
@@ -67,6 +67,74 @@ async def test_partial_attainment(session: AsyncSession, contract: BusinessContr
     engine = KpiEngine(session)
     await engine.record(business_id=contract.business_id, key="revenue_mtd", value=Decimal("250"))
     assert await engine.attainment(_with_target(contract)) == 25
+
+
+def _with_below_target(contract: BusinessContract, target_value: str = "24") -> BusinessContract:
+    payload = contract.model_dump()
+    payload["kpi_targets"] = [
+        KpiTarget(
+            key="data_freshness_hours",
+            operator_label="Data freshness",
+            target_value=Decimal(target_value),
+            unit="hours since last check",
+            direction=KpiDirection.BELOW,
+        ).model_dump()
+    ]
+    return BusinessContract.model_validate(payload)
+
+
+async def test_a_below_target_scores_a_good_reading_as_full_attainment(
+    session: AsyncSession, contract: BusinessContract
+) -> None:
+    """M7-F30, the fix: 1 hour against a 24-hour lower-is-better target is an
+    excellent reading, not the 4% miss `KpiEngine.attainment` used to compute
+    when it compared every metric as higher-is-better."""
+    engine = KpiEngine(session)
+    below = _with_below_target(contract)
+    await engine.record(
+        business_id=contract.business_id, key="data_freshness_hours", value=Decimal("1")
+    )
+    assert await engine.attainment(below) == 100
+
+
+async def test_a_below_target_still_scores_a_bad_reading_as_a_miss(
+    session: AsyncSession, contract: BusinessContract
+) -> None:
+    """Negative control on the fix itself: direction changes which way the
+    ratio runs, not whether it can still register a miss. Stale data (48h
+    against a 24h target) must score below full attainment."""
+    engine = KpiEngine(session)
+    below = _with_below_target(contract)
+    await engine.record(
+        business_id=contract.business_id, key="data_freshness_hours", value=Decimal("48")
+    )
+    assert await engine.attainment(below) == 50  # 24 / 48
+
+
+async def test_a_zero_actual_on_a_below_target_is_the_best_reading_not_an_error(
+    session: AsyncSession, contract: BusinessContract
+) -> None:
+    """Guards the zero-actual division the direction-aware ratio introduces:
+    zero hours since the last check is the best possible freshness reading,
+    not an undefined ``target / 0``."""
+    engine = KpiEngine(session)
+    below = _with_below_target(contract)
+    await engine.record(
+        business_id=contract.business_id, key="data_freshness_hours", value=Decimal("0")
+    )
+    assert await engine.attainment(below) == 100
+
+
+async def test_an_above_target_is_unaffected_by_the_direction_field(
+    session: AsyncSession, contract: BusinessContract
+) -> None:
+    """Negative control: a target that never sets `direction` defaults to
+    ABOVE and scores exactly as it did before M7-F30's fix."""
+    engine = KpiEngine(session)
+    with_target = _with_target(contract)
+    assert with_target.kpi_targets[0].direction is KpiDirection.ABOVE
+    await engine.record(business_id=contract.business_id, key="revenue_mtd", value=Decimal("250"))
+    assert await engine.attainment(with_target) == 25
 
 
 async def test_healthy_company_scores_well(

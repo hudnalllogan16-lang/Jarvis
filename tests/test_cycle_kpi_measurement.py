@@ -452,20 +452,19 @@ async def test_an_observation_that_misses_its_target_scores_below_it(
     assert attainment == int((Decimal("0.25") + Decimal("0.6")) / 2 * 100)
 
 
-async def test_freshness_attainment_reads_a_good_reading_as_a_miss(
+async def test_freshness_attainment_reads_a_good_reading_as_a_near_full_score(
     kernel: PlatformKernel,
 ) -> None:
-    """Recorded defect, pinned so the fix has somewhere to land (M7-F30).
+    """M7-F30, fixed: attainment now learns direction.
 
-    `KpiEngine.attainment` compares every metric as higher-is-better, and
-    `data_freshness_hours` is lower-is-better: data refreshed an hour ago
-    against a 24-hour target scores 4%, and the fresher it is the worse it
-    scores. The mapping is right — the comparison is what lacks a direction,
-    and `KpiTarget` carries no field for one, which makes the fix a contract
-    change rather than a line in this packet.
-
-    This asserts today's behaviour, not the desired behaviour. It fails when
-    direction is fixed, which is the point: that change should be deliberate.
+    `data_freshness_hours` is lower-is-better and declares
+    `direction=KpiDirection.BELOW` on Finance's target (`jarvis/businesses/
+    finance.py`, version 1.0.2). `KpiEngine.attainment` now computes
+    `target / actual` (capped at 1) for a BELOW metric instead of `actual /
+    target`, so data refreshed an hour ago against a 24-hour target reads as
+    essentially full attainment rather than the 4% miss this test used to pin
+    as a recorded defect. Combined with the other two targets, which are
+    genuinely at target, every metric now scores 1.0.
     """
     contract = await _company(kernel, FINANCE)
     biz = contract.business_id
@@ -475,9 +474,9 @@ async def test_freshness_attainment_reads_a_good_reading_as_a_miss(
         await engine.record(business_id=biz, key="reports_delivered", value=Decimal("4"))
         await engine.record(business_id=biz, key="metrics_tracked", value=Decimal("5"))
         attainment = await engine.attainment(contract)
-    # 1/24 -> 0.0417 for an excellent reading, against 1.0 from each of the two
-    # metrics that are genuinely at target.
-    assert attainment == 68
+    # freshness: min(24/1, 1) -> 1.0; reports_delivered 4/4 -> 1.0;
+    # metrics_tracked 5/5 -> 1.0.
+    assert attainment == 100
 
 
 # ── 4. the planning prompt carries the owner's rules verbatim ──────────────

@@ -135,6 +135,25 @@ class WakeConditions(_Contract):
     own capability results can oscillate indefinitely within budget."""
 
 
+class KpiDirection(StrEnum):
+    """Which way a metric's value must move to count as attainment (M7-F30).
+
+    Most metrics are "more is better" (revenue, reports delivered); some are
+    "less is better" (hours since the data was last refreshed, error counts).
+    `KpiEngine.attainment` reads this to choose which ratio it computes — the
+    type declares which kind of metric this is, as data, so the comparison
+    stays generic (D-014's discipline, applied to the comparison and not just
+    the value)."""
+
+    ABOVE = "above"
+    """Higher is better: ``actual / target``, capped at 1."""
+
+    BELOW = "below"
+    """Lower is better: ``target / actual``, capped at 1, with a zero actual
+    (the best possible reading) scored as full attainment rather than a
+    division by zero."""
+
+
 class KpiTarget(_Contract):
     """A KPI target set by the Executive Layer (spec §3.1) for a Manager to
     execute against tactically (spec §2.1).
@@ -149,6 +168,13 @@ class KpiTarget(_Contract):
 
     target_value: Decimal
     unit: str
+
+    direction: KpiDirection = KpiDirection.ABOVE
+    """Which way attainment runs for this metric (M7-F30). Defaults to
+    ``ABOVE`` so a target stored before this field existed — the three live
+    companies' contract JSON among them — deserializes unchanged: additive
+    with a default, not a migration (proven against a pre-field contract
+    snapshot in ``tests/test_contract.py``)."""
 
 
 class BusinessContract(_Contract):

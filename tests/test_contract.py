@@ -12,6 +12,7 @@ from jarvis.domain.contract import (
     BudgetPolicy,
     BusinessContract,
     CapabilityType,
+    KpiDirection,
     WakeConditions,
 )
 
@@ -69,3 +70,30 @@ def test_contract_is_immutable(contract: BusinessContract) -> None:
     """The Executive Layer reads contracts; only the Registry writes them."""
     with pytest.raises(ValidationError):
         contract.display_name = "Renamed"  # type: ignore[misc]
+
+
+def test_a_stored_kpi_target_without_direction_still_loads_and_defaults_to_above(
+    contract: BusinessContract,
+) -> None:
+    """M7-F30: `direction` must be additive with a default, not a migration.
+
+    The three live companies' stored contract JSON predates this field
+    entirely. Built by hand-writing the payload a pre-`direction` `KpiTarget`
+    would actually have serialized to — no `direction` key at all — rather
+    than by constructing `KpiTarget` and stripping it, so this proves what a
+    real stored row deserializes to, not just what the Python default does
+    when the caller already knows to omit the field.
+    """
+    payload = contract.model_dump()
+    pre_field_target = {
+        "key": "posts_published",
+        "operator_label": "Posts published",
+        "target_value": "20",
+        "unit": "posts/month",
+    }
+    assert "direction" not in pre_field_target
+    payload["kpi_targets"] = [pre_field_target]
+
+    loaded = BusinessContract.model_validate(payload)
+
+    assert loaded.kpi_targets[0].direction is KpiDirection.ABOVE
