@@ -1277,3 +1277,25 @@ demonstrated failure); D-007 concepts enforced by construction are not text-matc
 
 Wave-0 pilot data (D-026 meta-goal): two lanes ran concurrently (M7-1 ~11 min, M7-2 ~24 min,
 fully overlapping); merge conflicts: 0; both merges composed green on first try (643 → 660).
+
+---
+
+## M7 owner decision — compliance requirements approved (revised), launch unblocked
+
+The owner approved the Finance compliance requirements 2026-07-26 with revisions that scope
+the restrictions to M7 rather than defining the type permanently: observation-only during M7
+(collect data, calculate KPIs, evaluate portfolio health, produce research reports); no orders,
+order modifications, fund transfers, or brokerage writes during M7; figures cite a source,
+come from an approved provider, or are marked estimated/unavailable; access only what the
+architecture and isolation rules authorize; M7 reports are informational, not financial/
+investment/legal/tax advice. The owner explicitly directed that "Finance will never recommend
+trades" NOT be permanently encoded — the long-term roadmap includes recommendation, brokerage
+management, and execution.
+
+Manager flag, recorded so it is not forgotten: rule 3's condition ("once the architecture
+explicitly enables those capabilities") is the operative gate. The spec currently routes
+recommendation/execution through the Trading Analysis (Step 5) and Live Trading (Step 7)
+types, and §8's hard constraints (approval-by-default for capital actions; no autonomy
+graduation for trade execution in v1; live trading last) bind any future Finance evolution.
+Enabling Finance to recommend or execute is therefore a §12 spec amendment owned by the owner
+when its milestone arrives — not something a packet may infer from this approval.
