@@ -1356,3 +1356,31 @@ present-activity alternative would have crossed into jarvis/manager/, correctly 
 and the create-dialog error now uses the risk-coloured .formErr above the buttons. All
 live-verified on :8110. M7-F44 (open, trivial): a stale "Doing now" comment near
 jarvis/api/app.py:506 — one-line cleanup for whichever lane next touches app.py.
+
+## D-027 implementation notes (ratified) and M7-F30 … M7-F36 (M7-3b)
+
+Ratified into D-027: the mapping vocabulary is `KpiSource` (an enumeration of platform facts)
++ `KpiMapping`, living in `jarvis/domain/kpi.py` so M4 and M5 packages can share it without a
+forward import; `CycleContext.measures_kpis` gates the cycle activity and is a recorded
+result, which is what makes old histories replay honestly (negative control proves the gate
+is load-bearing). A source is an enum, not an expression — the platform owns the arithmetic.
+
+- **M7-F30 (open, scheduled M7-3d):** attainment is direction-blind — `data_freshness_hours`
+  is lower-is-better, so fresher data scores *worse* (1h against a 24h target reads 4%).
+  Needs a direction on `KpiTarget` + engine comparison + finance data update. Pinned by a
+  characterization test that fails when fixed.
+- **M7-F31 (open):** mature-company partial attainment still reads "Behind on its goals."
+  beside a healthy badge — M7-F26's class, outside D-027.4's young-company wording.
+- **M7-F32 (open):** idle/failed cycles record nothing, so freshness stops being re-observed
+  exactly when staleness sets in. Watch item; a measurement-on-idle policy is a D-027
+  amendment if it bites.
+- **M7-F33 (open, judgement):** `reports_delivered` counts every SUCCEEDED result — a
+  research+finance cycle scores 2 for one report. Capability-scoped mappings would change the
+  metric's meaning; deliberately not decided inside the packet.
+- **M7-F34 (fixed):** `KpiEngine.record` was never in the deferred-completion ledger — four
+  milestones of invisible debt; row added and retired.
+- **M7-F35 (informational hazard):** a future type declaring mappings AND subscribing to
+  KPI_THRESHOLD_BREACHED would re-wake itself from its own measurement (M6-F10's shape). Not
+  reachable today; install-time validation is the candidate guard.
+- **M7-F36 (verified good):** the version gate held for the second type — 1.0.1 bump required
+  for the live registry to adopt mappings, exactly as designed.
