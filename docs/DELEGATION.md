@@ -442,6 +442,88 @@ of Tier A throughput: it makes cheap work safe without spending Manager attentio
 
 ---
 
+## Lanes, worktrees, and the merge queue
+
+Adopted with the sub-agent organization (`docs/reports/SUBAGENT-ORG.md`, D-026) after M6
+measured what actually serialized development: the environment, not the files. Everything in
+this section is process; nothing changes the architecture, the packet format, or the review
+model above.
+
+### The lane workflow
+
+An implementation packet that edits code runs in its **own git worktree**, not the main
+checkout:
+
+```
+git worktree add ../Jarvis-lanes/<packet-id> -b lane/<packet-id>
+```
+
+- The worker is pointed at the worktree as its project root and never sees the main checkout.
+- The lane gets its own environment: `.env` copied from the main checkout, then overridden
+  per-lane where the packet needs live services (see "Lane environments" below).
+- `bash scripts/gates.sh` runs **in the worktree** before the worker reports; its `.jarvis-run/`
+  records and pytest state are naturally isolated.
+- Read-only agents (auditor, product-reviewer, spec-archaeologist) and docs-only packets do not
+  need a lane; they run against the main checkout and are always parallel-safe.
+- A lane that produced garbage is discarded with `git worktree remove --force` and costs
+  `main` nothing. This replaces sequential caution as the failure-containment mechanism.
+
+### Lane environments
+
+Live-verification work parameterizes the shared local stack instead of assuming exclusive
+ownership of it: a per-lane Postgres database (same server), a per-lane Temporal namespace,
+and a per-lane API port, all set via the lane's `.env` (`JARVIS_DATABASE_URL`,
+`JARVIS_TEMPORAL_NAMESPACE`, plus the API port variable). `scripts/lane_env.py` provisions and
+tears these down. Postgres-backed tests must be marker-gated and skip *visibly* when the stack
+is unreachable — a skip is reported, never counted as verified (D-025.2, M5-F5 discipline).
+
+### The merge queue
+
+**Only the Manager merges.** One lane at a time, in dependency order — data/migrations first,
+security next, platform/workflow, surface, docs last — so the riskiest changes land earliest
+and reviews see final state.
+
+1. Lane gates pass in the worktree (the worker's report says so, with the exit code).
+2. The Manager merges the lane branch into `main` (`--no-ff` for multi-commit lanes is fine;
+   a clean fast-forward is fine too).
+3. **Main gates run on the merged result.** A packet is *done* only when this passes — lane
+   gates prove the packet, main gates prove the composition.
+4. The worktree and lane branch are removed.
+5. A lane whose merge conflicts is bounced back to its worker with the conflict text. Another
+   lane never resolves it; the Manager never resolves it silently.
+
+### Serial resources, allocated up front
+
+Named in the org report as merge hotspots; the packet-writing step allocates them so lanes
+never contend:
+
+- **Migrations:** the linear chain is data-engineer's exclusive lane; the Manager pre-allocates
+  the next migration number in the packet text.
+- **Finding and decision numbers:** the Manager allocates a per-packet range (e.g. "your
+  findings are M7-F10–F19") so parallel reports cannot collide. `DECISIONS.md` remains
+  Manager-only.
+- **`tests/conftest.py` and shared fixtures:** test-engineer custody. Other lanes add
+  per-domain fixture modules; they do not edit shared conftest.
+- **`pyproject.toml` / `uv.lock`:** workers propose dependencies in reports; the Manager
+  applies and re-locks at wave boundaries.
+- **`jarvis/api/static/index.html`:** region ownership stated in any two packets that touch it
+  (the M6-4a/M6-5a precedent) until a surface milestone justifies splitting the file.
+
+### Waves and scheduling
+
+The Manager opens a milestone by classifying packets into **waves**: wave 0 is the independent
+set (one lane each, dispatched together), wave *n+1* depends on wave *n*'s outputs. Rules that
+came from M6 evidence: security packets lead their wave; read-only work always overlaps
+implementation; schedule at most ~70% of capacity, because findings will spawn packets that do
+not exist yet. Warm resumption (`SendMessage` to an existing worker) is preferred over a cold
+respawn whenever the same territory continues. A failed worker is resumed with an explicit
+"verify your own prior state first" instruction — never replaced cold without a tree-state
+check.
+
+M7 runs this workflow at **2 implementation lanes** as the deliberate pilot before M8 scales it.
+
+---
+
 ## What must not change here
 
 This document governs implementation *process*. It has no authority over the architecture.

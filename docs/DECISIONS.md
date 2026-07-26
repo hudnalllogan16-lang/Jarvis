@@ -1209,3 +1209,25 @@ D-025.2 implementation (Postgres test lane).
   with M6-0 regression tests) because of parametrization. The larger number is the real one.
 - Flagged for the M6-4 audit: `execute_approved_action` derives its business from the approval
   row rather than `RuntimeIdentity` — audit against D-002.
+
+---
+
+## D-026 — the development organization runs on lanes, worktrees, and a merge queue
+
+**Fills:** nothing architectural — a process amendment under the D-019 bar, justified by a
+demonstrated failure: M6 ran ~95% serialized because the environment (single tree, single live
+stack, shared gate state) forced it, as measured in `docs/reports/SUBAGENT-ORG.md`.
+
+Adopted, owner-approved: (1) implementation packets run in per-lane git worktrees with lane
+gates before merge and main gates after (a packet is done only when the merged result passes);
+(2) live verification parameterizes the shared stack per lane (database, Temporal namespace,
+API port) via `scripts/lane_env.py`, with Postgres-backed tests marker-gated and visibly
+skipping when the stack is down (implements D-025.2); (3) the Manager merges one lane at a
+time in dependency order, and serial resources (migration numbers, finding-number ranges,
+shared conftest, dependency manifests, the static dashboard file) are allocated at
+packet-writing time. Full protocol: DELEGATION.md "Lanes, worktrees, and the merge queue".
+
+**Rejected:** repository restructuring for parallelism (no evidence of file-level contention;
+§14/D-019 forbid the speculation). M7 pilots the workflow at 2 implementation lanes.
+
+**Reversal cost:** none — process only; reverting is a DELEGATION.md edit.
