@@ -15,6 +15,7 @@ import json
 from collections import Counter
 from collections.abc import Callable
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import Any, NamedTuple, TypeGuard
 
 from temporalio import activity
@@ -31,6 +32,7 @@ from jarvis.capabilities.request import (
 )
 from jarvis.capabilities.tools import DESTINATION_PARAM
 from jarvis.domain.contract import BusinessContract, CapabilityPermission, CapabilityType
+from jarvis.domain.kpi import KpiSource
 from jarvis.domain.lifecycle import accepts_dispatch
 from jarvis.kernel.container import KernelServices, PlatformKernel
 from jarvis.kernel.errors import ScopeViolationError
@@ -49,6 +51,7 @@ from jarvis.llm.base import CompletionRequest, Message, Role
 from jarvis.manager.state import PlanItem, TacticalPlan
 from jarvis.manager.types import (
     CycleContext,
+    CycleKpiRequest,
     DependentContextRequest,
     DispatchSequence,
     PlanRequest,
@@ -105,6 +108,15 @@ characters is roughly two thousand tokens — comfortably above the 400-700 word
 drafts the Affiliate flow threads, so the bound truncates a runaway rather than
 the normal case."""
 
+CAPABILITY_SUCCEEDED_EVENT = "capability.succeeded"
+"""The audit entry a capability invocation writes when it returns usable output
+(`CapabilityPool._execute_with_retry`). Named here because D-027.2 makes it a
+KPI source: it is where the *completion* of a piece of work is recorded (§11),
+and a freshness metric has nowhere else to read one from. Duplicated as a
+string rather than imported because `capabilities` writes audit names inline;
+`test_cycle_kpi_measurement.py` dispatches through a real pool and reads the
+row back, so the two cannot drift apart silently."""
+
 DEPENDENCY_UNKNOWN_REF = "names a step that is not in this plan"
 DEPENDENCY_SELF_REFERENCE = "declares itself as its own input"
 DEPENDENCY_CYCLE = "is part of a loop of steps that wait on each other"
@@ -147,13 +159,18 @@ class ManagerActivities:
         """Load everything a cycle needs from outside the workflow.
 
         Includes the day ordinal: the workflow needs today's date for wake-rate
-        accounting and cannot read a clock itself (D-004).
+        accounting and cannot read a clock itself (D-004). It also includes
+        whether this business's type declares KPI mappings (D-027.2), for the
+        same reason one step further out — the workflow has to know whether the
+        cycle has a measurement step, and reading a type definition is a
+        Registry read.
         """
         identity = RuntimeIdentity.from_activity()
         await self._assert_identity(identity, business_id, reached="contract")
         async with self._kernel.services() as svc:
             contract = await svc.registry.get_contract(BusinessId(business_id))
             state = await svc.registry.get_state(BusinessId(business_id))
+            definition = await self._kernel.type_definition(svc, contract.business_type)
             interval = _interval_seconds(contract.wake_conditions.schedule_cron)
             return CycleContext(
                 business_id=BusinessId(business_id),
@@ -163,6 +180,7 @@ class ManagerActivities:
                 max_cycles_per_day=contract.wake_conditions.max_cycles_per_day,
                 wake_cycle_ceiling_usd=contract.budget.wake_cycle_ceiling_usd,
                 day_ordinal=datetime.now(UTC).date().toordinal(),
+                measures_kpis=bool(_declared_kpi_mappings(definition)),
             ).model_dump(mode="json")
 
     @activity.defn(name="plan_cycle")
@@ -207,10 +225,23 @@ class ManagerActivities:
                 or "- none set yet"
             )
             allowed = [p.capability.value for p in contract.capability_permissions]
+            # D-027.5, closing M7-F22: the rules the owner approved for this
+            # type were stored on the contract at creation and read by nothing,
+            # so a planner has been proposing work with no knowledge of the
+            # constraints its company operates under. Included *verbatim* from
+            # the stored values — the same discipline D-011 applies to approval
+            # text, for the same reason: a rule paraphrased into the prompt is a
+            # rule the owner never approved. Bounded by construction (a fixed
+            # tuple per type, seven short lines for Finance today, not a
+            # per-cycle accumulation), so D-005's bounded working set and
+            # D-021's cycle ceiling are unaffected.
+            rules = "\n".join(f"- {rule}" for rule in contract.compliance_requirements)
+            must_follow = f"Rules it must follow:\n{rules}\n" if rules else ""
 
             prompt = (
                 f"Business: {contract.display_name}\n"
                 f"Goals set for it:\n{targets}\n"
+                f"{must_follow}"
                 f"Woken because: {', '.join(request.wake_reasons) or 'scheduled round'}\n"
                 f"Work it can do: {', '.join(allowed) or 'none'}\n\n"
                 'Return JSON: {"rationale": str, "items": '
@@ -671,6 +702,147 @@ class ManagerActivities:
             )
             return {"executed": True, "replayed": replayed, "result": result}
 
+    @activity.defn(name="record_cycle_kpis")
+    async def record_cycle_kpis(self, request: CycleKpiRequest) -> dict[str, str]:
+        """Measure what this cycle did against the type's mappings (D-027.1).
+
+        The activity M7-F21 found missing. `KpiEngine.record` existed from M3
+        and no production caller ever reached it, so `kpi_values` had never held
+        a row: every company's attainment was structurally zero, and §13 Step
+        3's "exercises the KPI/dashboard pattern" was a claim nothing tested.
+
+        Two rules make the numbers trustworthy, and they are the whole point of
+        doing this here rather than asking the synthesis model for figures:
+
+        1. **Facts only.** Each observation comes from something the platform
+           recorded — this cycle's terminal results, the contract, the audit
+           log. Nothing on this path reads model output (D-027.2, D-011's
+           reasoning applied to numbers; Finance's compliance rule 4 requires
+           every reported figure to have a source).
+        2. **Declared, not inferred.** A type says which fact each metric is
+           (`kpi_mappings`, data — D-014). A type that declares none records
+           nothing at all (D-027.3): the negative case is silence, because a
+           company scored zero on a metric nobody defined reads as failing
+           rather than as unmeasured.
+
+        No `target` is passed to the engine, so this writes a series and
+        publishes no threshold breach. Deliberate on both counts. The engine's
+        own contract says the caller decides what a breach means "because the
+        engine should not guess the direction" — and direction is exactly what
+        a `KpiTarget` does not carry, so a caller passing one would be guessing
+        on the engine's behalf. Finance's wake conditions are schedule-only by
+        owner-approved scope in any case (M7-F2), so a breach event would wake
+        nobody today.
+
+        Returns:
+            What was written, key to value, so the recorded activity result
+            shows the figures rather than only that measurement ran. An
+            unmappable metric is absent rather than zero.
+        """
+        identity = RuntimeIdentity.from_activity()
+        # A KPI series is what an owner reads as "is this company working", and
+        # the health band the dashboard shows is computed from it — writing one
+        # company's numbers under another's identity would misreport both.
+        await self._assert_identity(identity, request.business_id, reached="KPI series")
+        async with self._kernel.services() as svc:
+            contract = await svc.registry.get_contract(request.business_id)
+            definition = await self._kernel.type_definition(svc, contract.business_type)
+            mappings = _declared_kpi_mappings(definition)
+            if not mappings:
+                return {}
+
+            engine = self._kernel.build_kpis(svc)
+            recorded: dict[str, str] = {}
+            for mapping in mappings:
+                value = await self._observed(str(mapping.source), request, contract, svc)
+                if value is None:
+                    # No fact, no observation. A metric the platform cannot
+                    # measure yet leaves a gap in the series, which is honest;
+                    # filling it with a zero would be a measurement nobody made.
+                    logger.info(
+                        "kpi mapping had nothing to measure",
+                        extra={
+                            "context": {
+                                "business_id": request.business_id,
+                                "cycle_id": request.cycle_id,
+                                "key": str(mapping.key),
+                            }
+                        },
+                    )
+                    continue
+                await engine.record(
+                    business_id=BusinessId(contract.business_id),
+                    key=str(mapping.key),
+                    value=value,
+                )
+                recorded[str(mapping.key)] = str(value)
+
+            logger.info(
+                "recorded cycle KPIs",
+                extra={
+                    "context": {
+                        "business_id": request.business_id,
+                        "cycle_id": request.cycle_id,
+                        "recorded": recorded,
+                    }
+                },
+            )
+            return recorded
+
+    async def _observed(
+        self,
+        source: str,
+        request: CycleKpiRequest,
+        contract: BusinessContract,
+        services: KernelServices,
+    ) -> Decimal | None:
+        """Read one platform fact, or None when there is not one yet (D-027.2).
+
+        The whole of the mapping vocabulary lives here, in the platform. A type
+        selects a member; it never describes how the member is computed, which
+        is what keeps the arithmetic behind a KPI inside the thing being
+        audited.
+        """
+        if source == KpiSource.SUCCEEDED_RESULTS_IN_CYCLE:
+            # Filtered to this business, not counted blindly: the results
+            # arrive in a payload, and a payload's account of whose work it was
+            # is the malformed-request case D-002 exists for.
+            return Decimal(
+                sum(
+                    1
+                    for result in request.results
+                    if result.status is InvocationStatus.SUCCEEDED
+                    and result.business_id == contract.business_id
+                )
+            )
+
+        if source == KpiSource.CONFIGURED_KPI_TARGET_COUNT:
+            return Decimal(len(contract.kpi_targets))
+
+        if source == KpiSource.HOURS_SINCE_NEWEST_SUCCEEDED_RESULT:
+            completed = await services.audit.latest_entry_time(
+                BusinessId(contract.business_id), CAPABILITY_SUCCEEDED_EVENT
+            )
+            if completed is None:
+                return None
+            if completed.tzinfo is None:
+                # SQLite hands back what Postgres stores with an offset. The
+                # rows are written from `datetime.now(UTC)` either way, so a
+                # naive value is UTC — said here rather than assumed, because
+                # the alternative is a `TypeError` in the one dialect the test
+                # suite runs on.
+                completed = completed.replace(tzinfo=UTC)
+            hours = (datetime.now(UTC) - completed).total_seconds() / 3600
+            return max(Decimal("0"), Decimal(str(round(hours, 4))))
+
+        # A mapping naming a source this platform does not implement is a
+        # definition ahead of its runtime — recorded and skipped, never guessed.
+        logger.warning(
+            "kpi mapping names an unknown source",
+            extra={"context": {"business_id": request.business_id, "source": source}},
+        )
+        return None
+
     @activity.defn(name="record_cycle_decision")
     async def record_cycle_decision(self, payload: dict[str, str]) -> str:
         """Write the cycle's Decision Log entry (spec §2.1, §11.5).
@@ -924,6 +1096,23 @@ class ManagerActivities:
             logger.warning("model returned unparseable JSON; treating as no plan")
             return {}
         return parsed if _is_object_dict(parsed) else {}
+
+
+def _declared_kpi_mappings(definition: Any) -> tuple[Any, ...]:
+    """Return the KPI mappings a business type declares (D-027.2/.3).
+
+    Duck-typed, like `_effect_binding`'s read of `tool_registry` and for the
+    same reason: `manager` is M4 and `businesses` is M5, so the layering
+    invariant forbids importing `BusinessTypeDefinition` here and the Kernel
+    hands the definition over as `Any`. What the mappings *mean* is not
+    duck-typed — `KpiSource` lives in `domain`, which both sides may read.
+
+    Tolerant of a definition that predates the field or is absent entirely: an
+    uninstalled type measures nothing rather than failing a cycle over it.
+    """
+    if definition is None:
+        return ()
+    return tuple(getattr(definition, "kpi_mappings", ()) or ())
 
 
 def _is_object_dict(value: object) -> TypeGuard[dict[str, object]]:
@@ -1271,6 +1460,7 @@ def all_manager_activities(kernel: PlatformKernel) -> list[Callable[..., object]
         instance.synthesize_results,
         instance.request_approval,
         instance.execute_approved_action,
+        instance.record_cycle_kpis,
         instance.record_cycle_decision,
     ]
 

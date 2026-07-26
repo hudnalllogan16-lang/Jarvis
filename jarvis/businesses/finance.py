@@ -27,10 +27,18 @@ from decimal import Decimal
 
 from jarvis.businesses.definition import BusinessTypeDefinition
 from jarvis.domain.contract import CapabilityPermission, CapabilityType, KpiTarget
+from jarvis.domain.kpi import KpiMapping, KpiSource
 
 FINANCE = BusinessTypeDefinition(
     name="finance_tracking",
-    version="1.0.0",
+    # 1.0.0 -> 1.0.1 for the KPI mappings below. `ensure_builtin_types` is
+    # version-gated (M6-F22, M7-F4: `install()` refuses a duplicate version and
+    # the caller compares), so a definition change that does not bump the
+    # version never reaches the live Registry — the M7-3 run installed 1.0.0 and
+    # would keep serving it. Minor, not major: A-003 resets graduation counters
+    # on a major bump, and nothing about measurement changes what this type may
+    # do, let alone what it has earned the right to do unattended.
+    version="1.0.1",
     display_name="Finance tracker",
     # Present tense, not "never": the owner rejected permanently encoding that
     # this type will not recommend trades (DECISIONS.md "M7 owner decision"),
@@ -98,6 +106,28 @@ FINANCE = BusinessTypeDefinition(
             unit="reports/month",
         ),
     ),
+    # D-027.2 — what each of the targets above is measured from. Every source
+    # is a fact the platform already records, so nothing here can be authored
+    # by a model (D-011's reasoning, applied to numbers instead of prose, and
+    # the mechanism behind compliance rule 4's "cite its source"). The keys
+    # match `default_kpi_targets` above, which is what lets attainment compare
+    # an observation with the goal it belongs to.
+    #
+    # The three targets are fully mapped; nothing about this type is left
+    # unmeasured. `data_freshness_hours` is the one whose direction runs the
+    # other way — lower is better — and `KpiEngine.attainment` compares every
+    # metric as higher-is-better, so an excellent freshness reading scores as a
+    # miss (M7-F30). Recorded rather than worked around here: the mapping is
+    # right, the comparison is what needs a direction, and `KpiTarget` has no
+    # field to carry one.
+    kpi_mappings=(
+        KpiMapping(key="reports_delivered", source=KpiSource.SUCCEEDED_RESULTS_IN_CYCLE),
+        KpiMapping(
+            key="data_freshness_hours",
+            source=KpiSource.HOURS_SINCE_NEWEST_SUCCEEDED_RESULT,
+        ),
+        KpiMapping(key="metrics_tracked", source=KpiSource.CONFIGURED_KPI_TARGET_COUNT),
+    ),
     # Owner-approved 2026-07-26, verbatim (DECISIONS.md "M7 owner decision";
     # packet M7-3 Part 0). These replace the M7-1 draft, which stated the
     # restrictions as permanent properties of the type. The owner's revision
@@ -108,9 +138,10 @@ FINANCE = BusinessTypeDefinition(
     # gate: enabling any of that is a §12 spec amendment owned by the owner,
     # not something a packet may infer from this approval.
     #
-    # The version stays 1.0.0 because this type has never been installed in
-    # the live registry — there is no installed 1.0.0 carrying the old text
-    # for a bump to supersede.
+    # These are also now read at runtime, not only stored: `plan_cycle` puts
+    # them in the planning prompt verbatim (D-027.5, closing M7-F22). They are
+    # stored owner-approved values, so quoting them is D-011's direction, not
+    # against it — the model is told the rules, never asked to restate them.
     compliance_requirements=(
         "During M7, Finance operates in observation-only mode. It may collect "
         "data, calculate KPIs, evaluate portfolio health, and produce research "

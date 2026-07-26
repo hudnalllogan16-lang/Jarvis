@@ -67,6 +67,15 @@ class HealthScore:
     ``stuck_count`` does: a company that ships nothing is not healthy no
     matter how untouched its budget is."""
 
+    early_days: bool = False
+    """True when the business has targets and zero attainment but has not yet
+    completed :data:`STALLED_CYCLE_THRESHOLD` cycles (D-027.4).
+
+    The other side of the same threshold, and deliberately *not* a band
+    override: a young company is genuinely healthy, which is why the grace
+    period exists. It changes only what :attr:`summary` says, so the sentence
+    an owner reads agrees with the badge beside it (M7-F26)."""
+
     @property
     def band(self) -> str:
         """Return ``healthy``, ``watch``, or ``at_risk``.
@@ -207,9 +216,16 @@ class KpiEngine:
         attainment = await self.attainment(contract)
 
         zero_attainment_stall = False
+        early_days = False
         if contract.kpi_targets and attainment == 0:
+            # One read, two answers: past the threshold this is a stall (D-020
+            # amendment), below it the company is simply new (D-027.4). Before
+            # D-027 the second case had no name and fell through to "Behind on
+            # its goals." beside a healthy badge — M7-F26, and the recurrence
+            # of M6-5's finding 5.
             completed_cycles = await self._completed_cycle_count(contract.business_id)
             zero_attainment_stall = completed_cycles >= STALLED_CYCLE_THRESHOLD
+            early_days = not zero_attainment_stall
 
         # Reliability is weighted heaviest because a company that cannot finish
         # its work is broken in a way that budget headroom cannot compensate for.
@@ -220,9 +236,12 @@ class KpiEngine:
             budget_headroom=headroom,
             reliability=reliability,
             kpi_attainment=attainment,
-            summary=_summarise(headroom, stuck_count, attainment, zero_attainment_stall),
+            summary=_summarise(
+                headroom, stuck_count, attainment, zero_attainment_stall, early_days
+            ),
             stuck_count=stuck_count,
             zero_attainment_stall=zero_attainment_stall,
+            early_days=early_days,
         )
 
     async def _completed_cycle_count(self, business_id: BusinessId) -> int:
@@ -243,8 +262,24 @@ class KpiEngine:
         return int(count or 0)
 
 
+EARLY_DAYS_SUMMARY = "Just getting started — no goals hit yet."
+"""D-027.4's sentence for a company inside its grace period.
+
+Same fact as "Behind on its goals.", read the way it should be read on day one.
+The badge says healthy — correctly, because :data:`STALLED_CYCLE_THRESHOLD`
+cycles have not passed — and a summary calling that company behind contradicts
+the badge next to it, which is how an owner learns not to trust either
+(M7-F26). It only became visible with measurement real: before D-027 nothing
+ever wrote a KPI value, so *every* company sat at zero attainment forever and
+this sentence would have been wrong for all of them (M7-F21)."""
+
+
 def _summarise(
-    headroom: int, stuck_count: int, attainment: int, zero_attainment_stall: bool
+    headroom: int,
+    stuck_count: int,
+    attainment: int,
+    zero_attainment_stall: bool,
+    early_days: bool = False,
 ) -> str:
     """Return the one-line reason behind a health score, in operator language."""
     if stuck_count:
@@ -254,6 +289,8 @@ def _summarise(
         return "Close to its spending limit."
     if zero_attainment_stall:
         return "Set goals but hasn't hit any of them yet."
+    if early_days:
+        return EARLY_DAYS_SUMMARY
     if attainment < 50:
         return "Behind on its goals."
     return "Running normally."

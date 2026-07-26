@@ -22,6 +22,7 @@ succeeds cannot describe the caller failing.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
@@ -183,6 +184,29 @@ class AuditLog:
             payload=redact(payload or {}),
             cost_usd=cost_usd,
         )
+
+    async def latest_entry_time(self, business_id: BusinessId, event_type: str) -> datetime | None:
+        """Return when this business last recorded ``event_type``, or None.
+
+        §11 makes this log the place a thing is *recorded to have happened*, so
+        "when did this company last finish a piece of work" has an answer here
+        and nowhere else: a capability result is terminal and does not persist
+        (D-001), and the ledger row records what the work cost rather than when
+        it landed. D-027.2 admits exactly this class of fact as a KPI source.
+
+        Returns the timestamp as stored. Postgres keeps its offset; SQLite,
+        under test, hands it back naive — so a caller doing arithmetic against
+        an aware `now` has to say what a naive value means rather than assume.
+        This returns the fact; it does not paper over the dialect.
+        """
+        stmt = (
+            select(AuditLogRow.recorded_at)
+            .where(AuditLogRow.business_id == business_id)
+            .where(AuditLogRow.event_type == event_type)
+            .order_by(AuditLogRow.recorded_at.desc())
+            .limit(1)
+        )
+        return await self._session.scalar(stmt)
 
     async def for_business(
         self, business_id: BusinessId, *, limit: int = 100

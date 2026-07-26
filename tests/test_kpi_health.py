@@ -7,7 +7,7 @@ from decimal import Decimal
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from jarvis.domain.contract import BusinessContract, KpiTarget
-from jarvis.kpi.engine import KpiEngine
+from jarvis.kpi.engine import EARLY_DAYS_SUMMARY, STALLED_CYCLE_THRESHOLD, KpiEngine
 from jarvis.persistence.models import DeadLetterRow, DecisionLogRow
 
 
@@ -164,6 +164,81 @@ async def test_a_new_company_gets_a_grace_period(
     assert health.kpi_attainment == 0
     assert health.zero_attainment_stall is False
     assert health.band == "healthy"
+
+
+async def test_a_young_company_reads_as_new_rather_than_behind(
+    session: AsyncSession, contract: BusinessContract
+) -> None:
+    """D-027.4, closing M7-F26: the words must agree with the badge.
+
+    The live M7 run showed a healthy band beside "Behind on its goals." on a
+    company that had not finished a round of work yet — the recurrence of M6-5's
+    finding 5. Inside the grace period the band is right and the sentence was
+    not, so the sentence changes: the same fact (nothing hit yet) read the way
+    it should be read on day one.
+    """
+    with_target = _with_target(contract)
+    await _add_completed_cycles(session, contract, 2, prefix="young")
+    health = await KpiEngine(session).health(with_target, spend_usd=Decimal("0"))
+
+    assert health.band == "healthy"
+    assert health.early_days is True
+    assert health.summary == EARLY_DAYS_SUMMARY
+    assert "Behind" not in health.summary
+
+
+async def test_the_stall_wording_is_unchanged_past_the_threshold(
+    session: AsyncSession, contract: BusinessContract
+) -> None:
+    """The other direction of the same threshold (D-020 amendment, D-027.4).
+
+    A company past the grace period has stopped being new, and its summary must
+    stop saying so. Without this the new sentence would be an excuse a stalled
+    company could hide behind indefinitely.
+    """
+    with_target = _with_target(contract)
+    await _add_completed_cycles(session, contract, 5, prefix="past")
+    health = await KpiEngine(session).health(with_target, spend_usd=Decimal("0"))
+
+    assert health.early_days is False
+    assert health.zero_attainment_stall is True
+    assert health.band == "watch"
+    assert health.summary == "Set goals but hasn't hit any of them yet."
+
+
+async def test_a_healthy_young_company_never_reads_as_behind(
+    session: AsyncSession, contract: BusinessContract
+) -> None:
+    """Wording and band agree across the whole grace period, not at one point.
+
+    Walked cycle by cycle up to the threshold, because the disagreement M7-F26
+    found was at a specific age and a single-point test can pass on either side
+    of it while the boundary is wrong.
+    """
+    with_target = _with_target(contract)
+    engine = KpiEngine(session)
+    for completed in range(STALLED_CYCLE_THRESHOLD):
+        health = await engine.health(with_target, spend_usd=Decimal("0"))
+        assert health.band == "healthy", f"after {completed} cycles"
+        assert health.summary == EARLY_DAYS_SUMMARY, f"after {completed} cycles"
+        await _add_completed_cycles(session, contract, 1, prefix=f"walk_{completed}")
+
+    health = await engine.health(with_target, spend_usd=Decimal("0"))
+    assert health.band == "watch", "the grace period has to end somewhere"
+    assert health.summary != EARLY_DAYS_SUMMARY
+
+
+async def test_the_new_company_wording_needs_targets_to_appear(
+    session: AsyncSession, contract: BusinessContract
+) -> None:
+    """Negative control: a company with no targets is not "not hitting" them.
+
+    It scores 100 on attainment by design — it cannot fail objectives nobody
+    set — so the grace-period sentence must not reach it.
+    """
+    health = await KpiEngine(session).health(contract, spend_usd=Decimal("0"))
+    assert health.early_days is False
+    assert health.summary == "Running normally."
 
 
 async def test_health_exposes_its_components(

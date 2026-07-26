@@ -567,11 +567,15 @@ class _ScriptedActivities:
 def drive(monkeypatch: pytest.MonkeyPatch) -> Callable[..., Any]:
     """Return a driver that runs one cycle against a scripted activity boundary."""
 
-    async def _run(**scripted: object) -> tuple[ManagerState, _ScriptedActivities, Any]:
+    async def _run(
+        ctx: CycleContext | None = None, **scripted: object
+    ) -> tuple[ManagerState, _ScriptedActivities, Any]:
         activities = _ScriptedActivities(**scripted)
         monkeypatch.setattr(workflow_module, "workflow", activities)
         manager = BusinessManagerWorkflow()
-        state = await manager._run_cycle(ManagerState(business_id=BIZ), _ctx(), ["scheduled"])
+        state = await manager._run_cycle(
+            ManagerState(business_id=BIZ), ctx or _ctx(), ["scheduled"]
+        )
         return state, activities, manager.last_cycle()
 
     return _run
@@ -583,6 +587,67 @@ async def test_a_healthy_cycle_still_completes(drive: Callable[..., Any]) -> Non
     assert cycle.outcome is CycleOutcome.COMPLETED
     assert state.cycles_completed == 1
     assert activities.payload("record_cycle_decision")["outcome"] == "completed"
+
+
+# ── Part 2b: the cycle measures itself when its type maps KPIs (D-027) ─────
+
+
+async def test_a_measuring_type_records_kpis_between_synthesis_and_the_entry(
+    drive: Callable[..., Any],
+) -> None:
+    """D-027.1, asserted on what the workflow actually commands.
+
+    The determinism gate reads the source and the replay test reads a captured
+    history; this reads the sequence of calls one cycle makes, which is where
+    an ordering mistake would show up as a decision entry describing figures
+    that had not been taken yet.
+    """
+    _, activities, cycle = await drive(
+        ctx=_ctx(measures_kpis=True),
+        record_cycle_kpis={"reports_delivered": "1"},
+    )
+    assert cycle.outcome is CycleOutcome.COMPLETED
+
+    names = [name for name, _ in activities.calls]
+    assert names.index("record_cycle_kpis") > names.index("synthesize_results")
+    assert names.index("record_cycle_kpis") < names.index("record_cycle_decision")
+
+    payload = activities.payload("record_cycle_kpis")
+    assert payload.cycle_id == CYCLE_ID, "observations belong to the cycle that produced them"
+    assert [r.invocation_id for r in payload.results] == ["inv_1"]
+
+
+async def test_a_type_that_maps_nothing_issues_no_measurement_command(
+    drive: Callable[..., Any],
+) -> None:
+    """D-027.3 at the workflow layer, and the hinge that keeps §11 true.
+
+    A cycle whose context does not say its type measures anything issues the
+    exact command sequence it issued before D-027 existed — which is why the
+    captured history in `test_manager_replay.py` still replays.
+    """
+    _, activities, _ = await drive()
+    assert not activities.called("record_cycle_kpis")
+
+
+async def test_measurement_failing_ends_the_cycle_rather_than_the_manager(
+    drive: Callable[..., Any],
+) -> None:
+    """M6-F9's posture, extended to the new step.
+
+    A measurement that exhausts its retries is not suppressed — M7-F21 is what
+    silent non-measurement looks like a milestone later — but it must not take
+    the Manager down with it either: the cycle ends `FAILED`, says so in the
+    operator's language, and the workflow returns to its wake loop.
+    """
+    state, activities, cycle = await drive(
+        ctx=_ctx(measures_kpis=True),
+        record_cycle_kpis=_exhausted(),
+    )
+    assert cycle.outcome is CycleOutcome.FAILED
+    assert activities.payload("record_cycle_decision")["outcome"] == "failed"
+    assert not contains_technical_language(activities.payload("record_cycle_decision")["summary"])
+    assert state.cycles_completed == 1
 
 
 async def test_exhausted_activity_ends_the_cycle_instead_of_the_manager(
