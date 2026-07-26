@@ -152,6 +152,14 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     database_url: SecretStr = SecretStr("postgresql+asyncpg://jarvis:jarvis@localhost:5432/jarvis")
     redis_url: SecretStr = SecretStr("redis://localhost:6379/0")
+    api_port: int = Field(default=8000, gt=0, le=65535)
+    """Port the operator API and dashboard bind to (`JARVIS_API_PORT`).
+
+    Previously hardcoded in both topologies (`jarvis/api/server.py` and
+    `jarvis/shell/launcher.py`), which meant two of them could never run on
+    one host at once. Configurable so a lane environment (D-026.2) can give
+    each lane its own port the same way it already gets its own database and
+    Temporal namespace — `scripts/lane_env.py` prints one alongside those."""
 
     llm: LLMSettings
     budget: BudgetSettings = Field(default_factory=BudgetSettings)
