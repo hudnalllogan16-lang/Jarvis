@@ -1,0 +1,207 @@
+"""Business type installation and company creation (spec §4, §0.1).
+
+§4 distinguishes two things this module keeps separate: installing a *type* is a
+development activity, and creating an *instance* of an installed type is
+configuration the operator performs through a wizard. The wizard applies to
+instantiating known types, never to building new ones.
+
+Creation is also the point where §2.1's "exactly one Business Manager per
+business" becomes real, so it publishes `business.activated` rather than
+starting a workflow directly — §2 forbids direct calls between workers, and the
+bus gives deduplication (A-002) so a replayed activation cannot start two
+Managers for one business.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+from decimal import Decimal
+
+from jarvis.businesses.definition import BusinessTypeDefinition
+from jarvis.domain.contract import BudgetPolicy, BusinessContract, WakeConditions
+from jarvis.domain.lifecycle import LifecycleState
+from jarvis.events.bus import Event, EventBus
+from jarvis.events.types import BUSINESS_ACTIVATED
+from jarvis.kernel.errors import ConfigurationError
+from jarvis.kernel.ids import (
+    BusinessId,
+    BusinessTypeName,
+    EventId,
+    new_business_id,
+    new_decision_id,
+    new_event_id,
+)
+from jarvis.kernel.logging import get_logger
+from jarvis.registry.registry import BusinessRegistry
+
+logger = get_logger(__name__)
+
+
+class ProvisioningService:
+    """Installs business types and creates companies from them (spec §4)."""
+
+    def __init__(
+        self,
+        registry: BusinessRegistry,
+        bus: EventBus,
+        *,
+        default_wake_ceiling_usd: Decimal | None = None,
+    ) -> None:
+        """Args:
+        registry: Business Registry (spec §0.1).
+        bus: Event bus, for activation signalling (spec §2).
+        default_wake_ceiling_usd: The configured platform default for §2.1's
+            per-cycle ceiling, applied when the operator names none. Injected
+            rather than read from settings here, because this package holds no
+            configuration handle; the Kernel is the composition root that does.
+            None falls back to the type's suggestion — the shape a test or a
+            caller with no settings gets, never an absent ceiling (M6-F23).
+        """
+        self._registry = registry
+        self._bus = bus
+        self._default_wake_ceiling_usd = default_wake_ceiling_usd
+
+    async def install(self, definition: BusinessTypeDefinition) -> None:
+        """Install a business type, refusing incomplete ones.
+
+        Raises:
+            ConfigurationError: If any permitted capability lacks a prompt
+                template. Refused at install time rather than at first dispatch:
+                the same defect surfaces either way, but here it reaches a
+                developer instead of an operator watching a company do nothing.
+        """
+        missing = definition.missing_templates()
+        if missing:
+            raise ConfigurationError(
+                f"business type {definition.name} permits capabilities with no prompt "
+                f"template: {list(missing)} (spec §4)"
+            )
+        await self._registry.install_business_type(
+            name=BusinessTypeName(definition.name),
+            version=definition.version,
+            display_name=definition.display_name,
+            metadata={
+                "description": definition.description,
+                "prompt_templates": definition.prompt_templates,
+                "definition": definition.model_dump(mode="json"),
+            },
+        )
+        logger.info("business type installed", extra={"context": {"name": definition.name}})
+
+    async def create_company(
+        self,
+        *,
+        definition: BusinessTypeDefinition,
+        display_name: str,
+        budget_usd: Decimal | None = None,
+        wake_ceiling_usd: Decimal | None = None,
+    ) -> BusinessId:
+        """Create and activate one company from an installed type.
+
+        Args:
+            definition: The installed type.
+            display_name: Operator-chosen company name.
+            budget_usd: Spending cap. Defaults to the type's suggestion.
+            wake_ceiling_usd: How much one round of work may spend (§2.1).
+                Optional here, never optional in the contract: an unnamed
+                ceiling resolves to the configured platform default and, failing
+                that, to the type's suggestion. The spec's Defaults in Force
+                require an explicit ceiling before a business launches, and a
+                default that is applied and recorded is explicit — an absent one
+                is not, which is what M6-F23 found.
+
+        Returns:
+            The permanent business identifier.
+
+        Raises:
+            ConfigurationError: If no ceiling can be resolved from any of the
+                three sources. Refused rather than defaulted a fourth time: a
+                business launched with a ceiling nobody chose is the failure
+                Defaults in Force exists to prevent.
+        """
+        business_id = new_business_id()
+        ceiling = self._resolved_wake_ceiling(wake_ceiling_usd, definition)
+        contract = BusinessContract(
+            business_id=business_id,
+            business_type=BusinessTypeName(definition.name),
+            display_name=display_name,
+            budget=BudgetPolicy(
+                business_cap_usd=budget_usd or definition.suggested_budget_usd,
+                wake_cycle_ceiling_usd=ceiling,
+            ),
+            wake_conditions=WakeConditions(
+                schedule_cron=definition.schedule_cron,
+                event_triggers=definition.event_triggers,
+            ),
+            capability_permissions=definition.capability_permissions,
+            autonomy_policies=definition.autonomy_policies,
+            kpi_targets=definition.default_kpi_targets,
+            compliance_requirements=definition.compliance_requirements,
+        )
+        await self._registry.register_instance(contract)
+
+        await self._registry.transition(
+            business_id,
+            LifecycleState.ACTIVE,
+            decision_id=new_decision_id(),
+            reason=f"You created {display_name} and started it.",
+        )
+        await self._bus.publish(
+            Event(
+                event_id=EventId(new_event_id()),
+                event_type=BUSINESS_ACTIVATED,
+                business_id=business_id,
+                payload={"display_name": display_name, "business_type": definition.name},
+            )
+        )
+        logger.info(
+            "company created",
+            extra={
+                "context": {
+                    "business_id": business_id,
+                    "business_type": definition.name,
+                    # Recorded because the ceiling is now applied from three
+                    # possible sources; which one won is the fact an operator
+                    # asking "why did it stop early" needs (D-021, M6-F23).
+                    "wake_cycle_ceiling_usd": str(ceiling),
+                    "ceiling_chosen_explicitly": wake_ceiling_usd is not None,
+                }
+            },
+        )
+        return business_id
+
+    def _resolved_wake_ceiling(
+        self, requested: Decimal | None, definition: BusinessTypeDefinition
+    ) -> Decimal:
+        """Return the per-cycle ceiling this company launches with (§2.1).
+
+        Precedence, most specific first: what the operator asked for, then the
+        platform's configured default, then the type's suggestion. The
+        configured default sits above the type's suggestion deliberately —
+        it is the one of the two an owner sets, and M6-F23 was precisely that
+        it sat above nothing at all and was never read.
+
+        Raises:
+            ConfigurationError: If none of the three yields a positive amount.
+        """
+        for candidate in (requested, self._default_wake_ceiling_usd):
+            if candidate is not None and candidate > 0:
+                return candidate
+        suggested = definition.suggested_wake_ceiling_usd
+        if suggested > 0:
+            return suggested
+        raise ConfigurationError(
+            f"business type {definition.name} has no spending limit for a single round of "
+            "work and none was given (spec §2.1, Defaults in Force)"
+        )
+
+    async def available_types(self) -> Sequence[BusinessTypeDefinition]:
+        """Return installed types, for the create-a-company flow (spec §4)."""
+        out: list[BusinessTypeDefinition] = []
+        for row in await self._registry.installed_types():
+            if not getattr(row, "enabled", True):
+                continue  # disabled types are invisible to creation (D-017)
+            raw = (row.plugin_metadata or {}).get("definition")
+            if raw:
+                out.append(BusinessTypeDefinition.model_validate(raw))
+        return out

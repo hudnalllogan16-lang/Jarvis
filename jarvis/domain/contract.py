@@ -1,0 +1,249 @@
+"""Standard Business Contract (spec §5).
+
+Every business MUST implement these fields. The Executive Layer interacts with
+businesses only through this contract and MUST NOT contain business-specific
+logic (spec §5), so nothing in this module may reference a concrete business
+type.
+
+Per spec §5, "Workers" is *not* a contract field: it is replaced by
+`capability_permissions` — which capabilities a business may call, and with what
+scopes.
+"""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime
+from decimal import Decimal
+from enum import StrEnum
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from jarvis.domain.lifecycle import LifecycleState
+from jarvis.kernel.ids import BusinessId, BusinessTypeName
+
+
+class CapabilityType(StrEnum):
+    """The standard capability set (spec §2.2).
+
+    Additional capabilities MAY be added; the set MUST NOT be duplicated per
+    business. These are pool-wide generic capabilities, never per-business
+    specialists.
+    """
+
+    RESEARCH = "research"
+    FINANCE = "finance"
+    DEVELOPMENT = "development"
+    CONTENT = "content"
+    DESIGN = "design"
+    COMPLIANCE = "compliance"
+    OPERATIONS = "operations"
+
+
+class _Contract(BaseModel):
+    """Base for contract models: immutable, strict, no extra fields."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", str_strip_whitespace=True)
+
+
+class CapabilityPermission(_Contract):
+    """One capability a business is permitted to invoke, and its scope ceiling.
+
+    This is the authorization record consulted at the capability-pool boundary
+    (D-002). A scoped request is admissible only if every scope it asks for is a
+    subset of the permission recorded here. The request itself is never the
+    authority on its own scope (spec §10).
+    """
+
+    capability: CapabilityType
+    tool_scope: frozenset[str] = Field(default_factory=frozenset)
+    """Tool identifiers this business may reach through this capability."""
+
+    memory_read: bool = True
+    memory_write: bool = False
+    """Memory access is business-local only (spec §7); there is no field here to
+    grant another business's memory, by construction."""
+
+    credential_refs: frozenset[str] = Field(default_factory=frozenset)
+    """Handles resolved by the secrets manager at the tool-execution boundary.
+    Never secret material — secrets MUST NOT appear in prompts (spec §10)."""
+
+    max_invocation_budget_usd: Decimal = Field(default=Decimal("0.50"), ge=0)
+    """Per-invocation ceiling (spec §2.2), the innermost debit scope in D-003."""
+
+
+class AutonomyPolicy(_Contract):
+    """Per-action-type autonomy configuration (spec §5, §8; identity per A-003).
+
+    Approval is required by default for every money-moving, trade-executing, or
+    external-commitment action, with no exception at launch (spec §8).
+    """
+
+    action_type: str = Field(pattern=r"^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$")
+    """Namespaced to the business *type*, e.g. ``affiliate.publish_post`` (A-003)."""
+
+    requires_approval: bool = True
+    graduation_threshold: int = Field(ge=1)
+    """Consecutive clean approvals required before friction is reduced (spec §8).
+    Explicit configuration, set at business creation — never defaulted silently."""
+
+    graduation_eligible: bool = True
+    """False for trade execution and any direct movement of real capital: those
+    MUST NOT be eligible for graduation in v1 (spec §8, hard constraint)."""
+
+    @field_validator("graduation_threshold")
+    @classmethod
+    def _threshold_must_be_meaningful(cls, v: int) -> int:
+        if v < 3:
+            msg = "graduation_threshold below 3 defeats the purpose of the ladder (spec §8)"
+            raise ValueError(msg)
+        return v
+
+
+class BudgetPolicy(_Contract):
+    """Business-scoped budget ceilings (spec §5, §2.1; hierarchy per D-003)."""
+
+    business_cap_usd: Decimal = Field(gt=0)
+    """Halts dispatch for this business alone when breached (D-003 rule 2), so a
+    single business cannot trip the platform breaker for everyone (spec §10)."""
+
+    wake_cycle_ceiling_usd: Decimal = Field(gt=0)
+    """Maximum reasoning budget for one Manager wake cycle (spec §2.1). MUST be
+    explicit before a business launches — there is no platform default."""
+
+    max_cycles_before_continuation: int = Field(default=100, ge=1)
+    """Wake cycles before the Manager workflow continues-as-new (D-005), which
+    is what keeps durable workflow state bounded."""
+
+
+class WakeConditions(_Contract):
+    """When a Business Manager wakes (spec §2.1).
+
+    MUST be explicitly configured per business, never left implicit. A business
+    with no wake condition at all can never act, so at least one is required.
+    """
+
+    schedule_cron: str | None = None
+    """Cron expression for schedule-based waking, e.g. a daily planning cycle."""
+
+    event_triggers: frozenset[str] = Field(default_factory=frozenset)
+    """Event types that wake this Manager, e.g. ``approval.decided`` — which is
+    what makes the continuation approval model work (D-006)."""
+
+    max_cycles_per_day: int = Field(default=48, ge=1)
+    """Bounds wake *frequency*. The spec's cost ceiling bounds a single cycle but
+    nothing bounds how often cycles start; without this a Manager woken by its
+    own capability results can oscillate indefinitely within budget."""
+
+
+class KpiTarget(_Contract):
+    """A KPI target set by the Executive Layer (spec §3.1) for a Manager to
+    execute against tactically (spec §2.1).
+
+    The Manager may not change these — that is the strategy/execution split.
+    """
+
+    key: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+    operator_label: str
+    """Plain metric name shown in the UI, e.g. "Monthly Revenue" — never
+    ``KPI: revenue_mtd`` (spec §12.5)."""
+
+    target_value: Decimal
+    unit: str
+
+
+class BusinessContract(_Contract):
+    """The full Standard Business Contract for one business instance (spec §5).
+
+    This is the only surface through which the Executive Layer may interact with
+    a business (spec §5). It carries no reference to Temporal, to the capability
+    pool's internals, or to any business-specific type.
+    """
+
+    business_id: BusinessId
+    business_type: BusinessTypeName
+    display_name: str = Field(min_length=1, max_length=120)
+    """Operator-facing company name (spec §12.5: Business -> Company)."""
+
+    lifecycle_state: LifecycleState = LifecycleState.PROVISIONING
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+    budget: BudgetPolicy
+    wake_conditions: WakeConditions
+    capability_permissions: tuple[CapabilityPermission, ...] = ()
+    autonomy_policies: tuple[AutonomyPolicy, ...] = ()
+    kpi_targets: tuple[KpiTarget, ...] = ()
+    goals: tuple[str, ...] = ()
+    compliance_requirements: tuple[str, ...] = ()
+    """Drafted for the owner, signed off per business type before launch
+    (spec, Defaults in Force)."""
+
+    @field_validator("wake_conditions")
+    @classmethod
+    def _must_have_a_wake_condition(cls, v: WakeConditions) -> WakeConditions:
+        if v.schedule_cron is None and not v.event_triggers:
+            msg = (
+                "wake conditions MUST be explicitly configured, not left implicit "
+                "(spec §2.1): set schedule_cron, event_triggers, or both"
+            )
+            raise ValueError(msg)
+        return v
+
+    @field_validator("autonomy_policies")
+    @classmethod
+    def _action_types_unique(cls, v: tuple[AutonomyPolicy, ...]) -> tuple[AutonomyPolicy, ...]:
+        seen = [p.action_type for p in v]
+        if len(seen) != len(set(seen)):
+            msg = "duplicate action_type in autonomy_policies; identity must be unique (A-003)"
+            raise ValueError(msg)
+        return v
+
+    def permission_for(self, capability: CapabilityType) -> CapabilityPermission | None:
+        """Return this business's permission record for ``capability``.
+
+        Args:
+            capability: The capability type being requested.
+
+        Returns:
+            The permission record, or None if this business may not invoke it.
+        """
+        return next((p for p in self.capability_permissions if p.capability is capability), None)
+
+    @property
+    def declared_action_types(self) -> frozenset[str]:
+        """Return the actions this business is configured to be able to take.
+
+        The set is snapshotted from the business type's definition at creation
+        (spec §4, D-014), and every member matches A-003's identifier pattern
+        because `AutonomyPolicy.action_type` enforces it.
+
+        This is the authority on what an action *is*. §8's four facts, the
+        graduation counters (D-010, A-003), and the approval rendering (D-011)
+        all key on the action type string, so a string outside this set names no
+        action: it can never graduate, no tool implements it, and an operator
+        approving it would authorise nothing. A proposal carrying one is
+        therefore an invalid proposal rather than an action needing approval —
+        which is the difference between §8's "unknown actions require approval"
+        and D-013's "the model proposes, the platform validates".
+        """
+        return frozenset(p.action_type for p in self.autonomy_policies)
+
+    def declares_action(self, action_type: str) -> bool:
+        """Return whether ``action_type`` is an action this business can take."""
+        return action_type in self.declared_action_types
+
+    def autonomy_for(self, action_type: str) -> AutonomyPolicy | None:
+        """Return the autonomy policy for ``action_type``, if configured.
+
+        A missing policy means approval is required: absence of configuration is
+        never permission (spec §8).
+        """
+        return next((p for p in self.autonomy_policies if p.action_type == action_type), None)
+
+    def requires_approval(self, action_type: str) -> bool:
+        """Return whether ``action_type`` requires human approval right now.
+
+        Defaults to True for unknown action types (spec §8: approval by default,
+        no exception at launch).
+        """
+        policy = self.autonomy_for(action_type)
+        return True if policy is None else policy.requires_approval

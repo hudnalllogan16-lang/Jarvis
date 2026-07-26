@@ -1,0 +1,171 @@
+# Milestone Dependency Graph
+
+Companion to [`ROADMAP.md`](ROADMAP.md). The roadmap says *what order*; this says *why*, edge by
+edge, so a future reordering can be argued from the graph instead of from memory.
+
+**Maintained, not decorative.** Update rules are at the bottom. The layering invariant below is
+enforced by `tests/test_layering.py`, so the parts of this document that can rot are checked.
+
+Last updated: M6-4 architecture audit's doc-rot correction (packet M6-4a), mid-M6 — the
+REVISE round (M6-4b, M6-5a) is still in flight.
+
+---
+
+## The graph
+
+```mermaid
+graph TD
+    M1["M1 · Platform Kernel<br/><i>registry, contract, logs</i>"]
+    M2["M2 · Execution spine<br/><i>bus, budget, pool</i>"]
+    M3["M3 · Operator surface<br/><i>approvals, health, UI</i>"]
+    M4["M4 · Manager + scheduler<br/><i>the thing that decides</i>"]
+    M5["M5 · Activation path<br/><i>create, templates, wake loop</i>"]
+    M6["M6 · Affiliate Business"]
+    M7["M7 · Finance Tracking"]
+    M8["M8 · Plugin framework"]
+    M9["M9 · Executive Layer"]
+    M10["M10 · Trading Analysis"]
+    M11["M11 · Additional types"]
+    M12["M12 · Live Trading"]
+
+    M1 --> M2
+    M1 --> M3
+    M2 --> M3
+    M2 --> M4
+    M3 --> M4
+    M4 --> M5
+    M5 --> M6
+    M6 -.->|§13 order only| M7
+    M6 --> M8
+    M7 --> M8
+    M6 --> M9
+    M7 --> M9
+    M8 --> M10
+    M10 --> M12
+    M11 -.->|§13 order only| M12
+
+    classDef done fill:#1F7A5A,stroke:#12151D,color:#fff
+    classDef next fill:#E9ECF2,stroke:#33415C,color:#12151D
+    class M1,M2,M3,M4,M5 done
+    class M6 next
+```
+
+Solid edges are real dependencies. Dashed edges are §13 ordering with no technical dependency
+behind them — they are binding, but for a different reason, and that distinction is the point of
+this document.
+
+**M8 and M9 have no edge between them.** The roadmap lists the plugin framework before the
+Executive Layer, but nothing requires it. Both depend only on two business types existing. They
+could be swapped or run in parallel. This is recorded because a dependency that does not exist is
+exactly the kind of thing that gets invented later to justify an ordering nobody remembers
+choosing.
+
+---
+
+## Edge table
+
+| Edge | Type | What breaks if inverted |
+|---|---|---|
+| M1 → M2 | Hard | The pool authorises through the Registry (D-002) and the ledger reads ceilings off the Standard Business Contract. Without M1 there is no identity to derive and no ceiling to enforce. |
+| M1 → M3 | Hard | Approvals read autonomy policies from the contract; Health reads the budget cap and KPI targets. Both are §5 contract fields. |
+| M2 → M3 | Hard, **narrow** | Health counts unresolved dead letters and the dashboard reads platform spend. One import path (`api → budget`). Narrow enough that M3 could have been built first against stubs — worth knowing before anyone treats this edge as immovable. |
+| M2 → M4 | Hard | The Manager's whole job is dispatching capabilities. Without the pool it has nothing to do. |
+| M3 → M4 | Hard | D-006's continuation model ends a cycle by raising an approval and resumes on the answer. Without the approval subsystem there is nothing to continue from, and the Manager would have to block — which D-006 exists to avoid. |
+| M4 → M5 | Hard + **evidential** | The activation path starts Manager workflows and closes the D-006 wake loop; both require the Manager to exist. Produced roadmap revision 2. |
+| M5 → M6 | Hard + **evidential** | A business type is prompt templates plus configuration (§4). Without template loading, business creation, and a closed wake loop, an Affiliate "business" would be a row in a table. Produced roadmap revision 3. |
+| M6 ⇢ M7 | §13 order only | Finance Tracking imports nothing from Affiliate. §13 Step 3 binds the order; no technical dependency does. |
+| M6, M7 → M8 | Hard | §13 Step 4 generalises "once two business types exist for real comparison". Generalising from one instance produces a framework shaped like that instance. |
+| M6, M7 → M9 | Hard | §3.1 gives the Executive Layer capital allocation, portfolio balancing, and cross-business optimisation. All three are undefined with fewer than two businesses. |
+| M8 → M10 | Hard | Trading Analysis is the first business type built *after* generalisation, so installing it through the plugin framework tests whether §4's "configuration only" claim survives a complex type. |
+| M10 → M12 | Hard | §13 Step 7: live trading only after Trading Analysis "has run stably". A safety gate, not a build dependency. |
+| M11 ⇢ M12 | §13 order only | §13 requires Live Trading be the final business type introduced. |
+
+---
+
+## Layering invariant
+
+Milestones map to packages, and **a package may only import packages from its own milestone or
+earlier** — with exactly three exceptions.
+
+| Package | Milestone | | Package | Milestone |
+|---|---|---|---|---|
+| `kernel`, `domain`, `registry`, `observability`, `persistence`, `llm` | 1 | | `approvals`, `notifications`, `kpi`, `api` | 3 |
+| `events`, `budget`, `capabilities`, `security`, `runtime` | 2 | | `manager`, `scheduler` | 4 |
+| `businesses`, `shell` | 5 |
+| | | | `businesses`, `shell` | 5 |
+
+**Permitted exceptions — composition roots:**
+
+- `jarvis/shell/launcher.py` — the Developer Shell (roadmap revision 3): composes the
+  development topology and holds no logic (enforced by test).
+
+- `jarvis/kernel/container.py` — the DI container constructs everything, so by definition it
+  imports everything.
+- `jarvis/runtime/worker.py` — the entrypoint registers the workflow and the scheduler.
+
+All three are composition roots: they wire the graph rather than sit in it. Every *other* module must
+import backward only. `tests/test_layering.py` asserts this, because the failure mode is gradual
+— one forward import in a service module is invisible in review and the layering is gone a few
+months later with no single commit to blame.
+
+---
+
+## Deferred completion ledger
+
+Components built before their caller existed. Tracked explicitly because dormant code is
+unverified code wearing a test suite, and because the accumulation of these is what triggered
+roadmap revision 2.
+
+| Component | Built | Caller arrived | Status |
+|---|---|---|---|
+| `FairQueue` (§2.2, A-004) | M2 | M4 — `CapabilityGate` | Retired |
+| Approval 24h / 7d timers (§9) | M3 | M4 — `Scheduler.sweep` | Retired |
+| `CredentialManager` (§10) | M2 | M6-3 — `execute_approved_action` / the publish tool (M6-F28) | Retired |
+| Business Manager workflow (§2.1) | M4 | M5 — started by `ManagerLifecycle` | Retired |
+
+**Deferred at M5.** `CredentialManager` was scheduled to gain a caller here through generic tool
+execution. Building it found the plan self-defeating: a tool-execution layer with no concrete tool
+to run would be dormant infrastructure justifying dormant infrastructure — the exact pattern that
+produced revision 2. Moved to M6, where the Affiliate Business defines tools that actually need
+credentials.
+
+A component may be built ahead of its caller when the *boundary* must be decided before anything
+exists to put on the wrong side of it — which is why `CredentialManager` was written in M2. But
+each entry is a debt, and a milestone that adds more than it retires deserves the scrutiny that
+produced revision 2.
+
+---
+
+## Evidence behind revision 2
+
+The M4 → M5 edge was not in the original roadmap. It was added after three components in a row
+shipped with no caller — `CredentialManager`, `FairQueue`, and the approval timers — all of them
+waiting on the same missing thing: something that wakes up and decides.
+
+Recorded here rather than only in the roadmap because it is the graph's one worked example of a
+dependency discovered by implementation rather than derived from the specification, and it is the
+pattern to watch for when proposing the next adjustment.
+
+---
+
+## Maintenance rules
+
+**When a milestone completes.** Move its node to the `done` class in the diagram, and update every
+deferred-completion row whose caller it provided.
+
+**When proposing a new milestone.** State its inbound edges and classify each: Hard, Evidential,
+§13 ordering, or Soft. A milestone that cannot name a hard inbound edge is probably schedulable
+earlier than assumed.
+
+**When splitting or merging.** Redraw the affected edges *before* writing code, and say what the
+new arrangement makes checkable that the old one did not. Revision 2's answer was that a generic
+Manager makes §4's "configuration only" requirement testable; if a split has no such answer, it is
+bookkeeping rather than a dependency change.
+
+**When adding a package.** Assign it a milestone in the layering table above and in
+`tests/test_layering.py`. An unassigned package is exempt from the invariant by accident.
+
+**What must not change here.** This document records implementation sequence only. Edges derive
+from the architecture; they never justify altering it. A proposed change that would move a
+responsibility between layers, add or remove a layer, or weaken an invariant is an architecture
+amendment under §12 and belongs in a different conversation than this one.

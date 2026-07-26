@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jarvis</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#E9ECF2; --ink:#12151D; --quiet:#5D6779; --line:#CBD2DE;
+  --card:#FFFFFF; --slate:#33415C;
+  --healthy:#1F7A5A; --watch:#9A6B10; --risk:#A11D42;
+  --display:"Bricolage Grotesque",system-ui,sans-serif;
+  --body:"IBM Plex Sans",system-ui,sans-serif;
+  --data:"IBM Plex Mono",ui-monospace,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--paper);color:var(--ink);font-family:var(--body);line-height:1.5;
+  -webkit-font-smoothing:antialiased}
+.wrap{max-width:1080px;margin:0 auto;padding:28px 20px 80px}
+
+/* ── masthead ───────────────────────────────────────────────── */
+.top{display:flex;align-items:baseline;justify-content:space-between;gap:16px;
+  flex-wrap:wrap;padding-bottom:14px;border-bottom:2px solid var(--ink)}
+.mark{font-family:var(--display);font-weight:800;font-size:26px;letter-spacing:-.02em}
+.strip{font-family:var(--data);font-size:12px;color:var(--quiet);display:flex;gap:18px;flex-wrap:wrap}
+.strip b{color:var(--ink);font-weight:500}
+.halted{color:var(--risk);font-weight:500}
+
+/* ── section headings ───────────────────────────────────────── */
+.head{font-family:var(--data);font-size:11px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--quiet);margin:34px 0 12px;display:flex;align-items:center;gap:10px}
+.head .count{background:var(--ink);color:var(--paper);border-radius:2px;padding:1px 6px;
+  font-size:11px}
+.head button{margin-left:auto}
+.field{margin-bottom:14px}
+.field label{display:block;font-family:var(--data);font-size:10px;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--quiet);margin-bottom:5px}
+.field input,.field select{width:100%;padding:9px 11px;border:1px solid var(--line);
+  background:var(--card);font-family:var(--body);font-size:14px;color:var(--ink)}
+.field input:focus,.field select:focus{outline:2px solid var(--slate);outline-offset:-1px}
+.hint{font-size:13px;color:var(--quiet);margin-top:5px}
+.head.urgent{color:var(--risk)}
+.head.urgent .count{background:var(--risk);color:#fff}
+
+/* ── approvals: the loud object when it exists ──────────────── */
+.ask{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--risk);
+  padding:20px;margin-bottom:12px}
+.ask h2{font-family:var(--display);font-size:19px;font-weight:600;letter-spacing:-.01em;
+  margin-bottom:14px}
+.facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));
+  gap:14px 22px;padding:14px 0;border-top:1px solid var(--line)}
+.fact dt{font-family:var(--data);font-size:10px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--quiet);margin-bottom:3px}
+.fact dd{font-size:14px}
+.acts{display:flex;gap:10px;align-items:center;padding-top:14px;border-top:1px solid var(--line)}
+.waited{font-family:var(--data);font-size:11px;color:var(--quiet);margin-left:auto}
+
+/* the exact thing being authorised, on the card that authorises it */
+.outgoing{margin-top:0;border-top:1px solid var(--line);padding-top:14px}
+.outgoing .fld{margin-top:11px}
+.outgoing .fld label{display:block;font-family:var(--data);font-size:10px;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--quiet);margin-bottom:4px}
+.outgoing .fld input,.outgoing .fld textarea{width:100%;padding:8px 10px;
+  border:1px solid var(--line);background:var(--card);font-family:var(--body);font-size:14px;
+  color:var(--ink);line-height:1.5}
+.outgoing .fld textarea{min-height:180px;resize:vertical}
+.outgoing .fld input:focus,.outgoing .fld textarea:focus{outline:2px solid var(--slate);
+  outline-offset:-1px}
+.outgoing .fld pre{white-space:pre-wrap;max-height:none}
+.outgoing .why{font-size:13px;color:var(--quiet);margin-top:11px}
+
+button{font-family:var(--body);font-size:14px;font-weight:500;padding:9px 18px;
+  border:1px solid var(--ink);background:var(--card);color:var(--ink);cursor:pointer}
+button:hover{background:var(--ink);color:var(--paper)}
+button:focus-visible{outline:2px solid var(--slate);outline-offset:2px}
+button.yes{background:var(--ink);color:var(--paper)}
+button.yes:hover{background:var(--slate);border-color:var(--slate)}
+button.small{font-size:12px;padding:5px 11px}
+
+/* ── company cards ──────────────────────────────────────────── */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(292px,1fr));gap:12px}
+.co{background:var(--card);border:1px solid var(--line);padding:18px;display:flex;
+  flex-direction:column;gap:13px}
+.co.paused{background:#F2F4F8;color:var(--quiet)}
+.co-top{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.co-name{font-family:var(--display);font-size:17px;font-weight:600;letter-spacing:-.01em}
+.state{font-family:var(--data);font-size:10px;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--quiet);display:flex;align-items:center;gap:5px;white-space:nowrap}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--quiet)}
+.co.running .dot{background:var(--healthy);animation:breathe 2.6s ease-in-out infinite}
+@keyframes breathe{0%,100%{opacity:1}50%{opacity:.28}}
+
+/* signature: a segmented need-meter, not a progress bar */
+.meter{display:flex;gap:2px}
+.seg{flex:1;height:14px;background:var(--line)}
+.seg.on{background:var(--healthy)}
+.watch .seg.on{background:var(--watch)}
+.at_risk .seg.on{background:var(--risk)}
+.meter-row{display:flex;align-items:baseline;justify-content:space-between;
+  font-family:var(--data);font-size:10px;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--quiet);margin-bottom:5px}
+.reason{font-size:13px;color:var(--quiet)}
+.money{font-family:var(--data);font-size:12px;color:var(--quiet)}
+.money b{color:var(--ink);font-weight:500}
+.doing{font-size:14px;border-top:1px solid var(--line);padding-top:12px}
+.doing span{display:block;font-family:var(--data);font-size:10px;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--quiet);margin-bottom:4px}
+.co-acts{display:flex;gap:8px;margin-top:auto;padding-top:4px}
+
+/* ── detail panel ───────────────────────────────────────────── */
+.panel{position:fixed;inset:0;background:rgba(18,21,29,.5);display:none;
+  align-items:flex-start;justify-content:center;padding:32px 16px;overflow-y:auto;z-index:10}
+.panel.open{display:flex}
+.sheet{background:var(--paper);max-width:640px;width:100%;padding:26px;border:1px solid var(--ink)}
+.sheet h2{font-family:var(--display);font-size:22px;font-weight:700;letter-spacing:-.02em}
+.entry{border-top:1px solid var(--line);padding:13px 0}
+.entry time{font-family:var(--data);font-size:10px;color:var(--quiet)}
+.entry p{font-size:14px;margin-top:3px}
+.entry .why{color:var(--quiet);font-size:13px;margin-top:4px}
+.stuck{background:#FBEEF2;border-left:3px solid var(--risk);padding:11px 13px;
+  font-size:13px;margin-bottom:8px}
+details{margin-top:20px;border-top:1px solid var(--line);padding-top:14px}
+summary{font-family:var(--data);font-size:11px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--quiet);cursor:pointer}
+summary:focus-visible{outline:2px solid var(--slate);outline-offset:3px}
+pre{font-family:var(--data);font-size:11px;background:var(--card);border:1px solid var(--line);
+  padding:12px;overflow-x:auto;margin-top:11px;max-height:340px}
+
+/* ── empty states are invitations, not apologies ────────────── */
+.calm{font-size:15px;color:var(--quiet);padding:14px 0}
+.hbar{border-left:3px solid var(--watch);background:#FAF3E3;padding:10px 14px;
+  margin:16px 0 0;font-size:13px}
+.hbar.down{border-color:var(--risk);background:#FBEEF2}
+.hbar b{font-weight:600}
+.note{border-left:3px solid var(--slate);background:var(--card);padding:10px 14px;
+  margin:10px 0 0;font-size:13px;display:flex;gap:10px;align-items:baseline}
+.note time{font-family:var(--data);font-size:10px;color:var(--quiet);margin-left:auto;
+  white-space:nowrap}
+.field{display:block;width:100%;font-family:var(--body);font-size:14px;padding:9px 11px;
+  border:1px solid var(--ink);background:var(--card);margin:6px 0 14px}
+.field:focus-visible{outline:2px solid var(--slate);outline-offset:1px}
+.formErr{color:var(--risk);font-size:13px;margin:0 0 10px;min-height:1.2em}
+.tmpl{border:1px solid var(--line);background:var(--card);padding:13px;margin-bottom:8px;
+  cursor:pointer;width:100%;text-align:left;font-family:var(--body)}
+.tmpl:hover{border-color:var(--ink)}
+.tmpl b{font-family:var(--display);font-size:15px;display:block;margin-bottom:3px}
+.tmpl span{font-size:13px;color:var(--quiet)}
+.empty{background:var(--card);border:1px dashed var(--line);padding:34px;text-align:center}
+.empty p{font-family:var(--display);font-size:17px;font-weight:600;margin-bottom:5px}
+.empty span{font-size:14px;color:var(--quiet)}
+
+@media (prefers-reduced-motion:reduce){*{animation:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="mark">Jarvis</div>
+    <div class="strip" id="strip"></div>
+    <button class="small" id="newco" onclick="openNew()">New company</button>
+    <button class="small" onclick="openSettings()">Settings</button>
+  </header>
+
+  <div id="healthbar"></div>
+  <div id="flash"></div>
+  <div id="notes"></div>
+
+  <section id="asks"></section>
+
+  <h2 class="head">Your companies</h2>
+  <div class="grid" id="cos"></div>
+</div>
+
+<div class="panel" id="panel" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+  <div class="sheet" id="sheet"></div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const get = async p => (await fetch(p)).json();
+const money = n => '$' + Number(n).toFixed(2);
+
+function ago(iso){
+  const mins = Math.floor((Date.now() - new Date(iso)) / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return mins + 'm ago';
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return hrs + 'h ago';
+  return Math.floor(hrs / 24) + 'd ago';
+}
+
+async function paint(){
+  const [summary, approvals, companies] = await Promise.all([
+    get('/api/summary'), get('/api/approvals'), get('/api/companies')
+  ]);
+
+  $('strip').innerHTML =
+    `<span><b>${summary.running}</b> of ${summary.companies} running</span>` +
+    `<span>spent today <b>${money(summary.spent_today)}</b> of ${money(summary.spend_limit)}</span>` +
+    (summary.spending_paused
+      ? `<span class="halted">Jarvis paused spending — daily limit reached</span>` : '');
+
+  // The page's centre of gravity moves. When something needs the operator it
+  // takes the top and is loud; when nothing does it collapses to one quiet line
+  // and the companies become the hero.
+  if (!editing()) $('asks').innerHTML = approvals.length
+    ? `<h2 class="head urgent">Needs your OK <span class="count">${approvals.length}</span></h2>`
+      + approvals.map(askCard).join('')
+    : `<h2 class="head">Needs your OK</h2>
+       <p class="calm">Nothing needs you right now.</p>`;
+
+  $('cos').innerHTML = companies.length
+    ? companies.map(coCard).join('')
+    : `<div class="empty"><p>No companies yet</p>
+       <span>Use <b>New company</b> up top to create your first one — it starts running
+       straight away, and asks before doing anything that spends money.</span>
+       <div style="margin-top:16px"><button class="yes" onclick="openNew()">New company</button></div></div>`;
+}
+
+// Shown when an action fails outside a dialog that already has its own error
+// slot (decide/toggle, from anywhere in the page) — a plain sentence, never a
+// silently swallowed non-2xx response.
+function flash(msg){
+  $('flash').innerHTML = `<div class="hbar down">${esc(msg)}</div>`;
+  clearTimeout(flash._t);
+  flash._t = setTimeout(() => { $('flash').innerHTML = ''; }, 6000);
+}
+
+// Everything below composes an approval card. Nothing on that card is trusted
+// text: the sentences come from stored values a model authored, and the fields
+// are content the company read off the open internet. So every value is escaped
+// before it becomes markup — an approval card that could be made to run script
+// is a card that could press its own Approve button.
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g,
+  c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+
+function askCard(a){
+  const facts = Object.entries(a.detail)
+    .map(([k,v]) => `<div class="fact"><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join('');
+  return `<article class="ask">
+    <h2>${esc(a.ask)}</h2>
+    <dl class="facts">${facts}</dl>
+    ${outgoing(a)}
+    <div class="acts">
+      <button class="yes" onclick="decide('${esc(a.id)}','approve')">Approve</button>
+      <button onclick="decide('${esc(a.id)}','deny')">Say no</button>
+      <button class="small" onclick="openCo('${esc(a.company_id)}')">Why?</button>
+      <span class="waited">waiting ${ago(a.waiting_since)}</span>
+    </div></article>`;
+}
+
+// What the yes actually authorises. Shown open, in full, and never trimmed: an
+// operator who approves a summary of the words has not approved the words.
+function outgoing(a){
+  const fields = a.payload || [];
+  if (!fields.length) return '';
+  const editable = !!a.payload_correctable;
+  const rows = fields.map(f => {
+    const at = `${esc(a.id)}-${esc(f.key)}`;
+    const control = !editable
+      ? `<pre>${esc(f.value)}</pre>`
+      : String(f.value).length > 90 || String(f.value).includes('\n')
+        // A newline straight after the tag is dropped by the parser, so one is
+        // added: the text put back must be the text taken out, character for
+        // character, or an untouched field would look like an edit.
+        ? `<textarea id="f-${at}" data-key="${esc(f.key)}" data-was="${esc(f.value)}"
+>${esc(f.value)}</textarea>`
+        : `<input id="f-${at}" data-key="${esc(f.key)}" data-was="${esc(f.value)}"
+             value="${esc(f.value)}">`;
+    return `<div class="fld"><label for="f-${at}">${esc(f.label)}</label>${control}</div>`;
+  }).join('');
+  return `<details class="outgoing" open id="out-${esc(a.id)}">
+    <summary>What will go out</summary>${rows}
+    <p class="why">${editable
+      ? 'Change it here before you say yes. If you change it, Jarvis keeps asking you about this one.'
+      : 'This is exactly what gets sent.'}</p></details>`;
+}
+
+// Returns the edited fields, or null when nothing changed. Only a real change
+// may travel: an unchanged field sent back as a change would count against the
+// company, because changing something before saying yes means Jarvis keeps
+// asking.
+function corrections(id){
+  const box = document.getElementById('out-' + id);
+  const fields = box ? [...box.querySelectorAll('[data-key]')] : [];
+  if (!fields.length) return null;
+  const edited = {};
+  let changed = false;
+  for (const f of fields){
+    edited[f.dataset.key] = f.value;
+    if (f.value !== f.dataset.was) changed = true;
+  }
+  return changed ? edited : null;
+}
+
+// The 15-second repaint must not delete what someone is part-way through typing
+// into a request they are about to authorise.
+function editing(){
+  const fields = [...document.querySelectorAll('#asks [data-key]')];
+  return fields.some(f => f.value !== f.dataset.was)
+    || fields.includes(document.activeElement);
+}
+
+function coCard(c){
+  const lit = Math.round(c.health / 10);
+  const segs = Array.from({length:10},(_,i)=>
+    `<span class="seg${i < lit ? ' on' : ''}"></span>`).join('');
+  return `<article class="co ${c.health_band} ${c.running ? 'running' : 'paused'}">
+    <div class="co-top">
+      <div class="co-name">${esc(c.name)}</div>
+      <div class="state"><span class="dot"></span>${c.status}</div>
+    </div>
+    <div>
+      <div class="meter-row"><span>Health</span><span>${c.health}</span></div>
+      <div class="meter">${segs}</div>
+      <p class="reason">${c.health_reason}</p>
+    </div>
+    <p class="money">spent <b>${money(c.spent)}</b> of ${money(c.budget)}</p>
+    <div class="doing"><span>Doing now</span>${esc(c.doing)}</div>
+    <div class="co-acts">
+      <button class="small" onclick="openCo('${c.id}')">Details</button>
+      <button class="small" onclick="toggle('${c.id}',${c.running})">
+        ${c.running ? 'Pause' : 'Start'}</button>
+    </div></article>`;
+}
+
+// The single create-company dialog (M6-5a item 2: one flow, not two). The
+// header button's onclick calls this directly.
+async function openNew(){
+  const templates = await get('/api/company-templates');
+  if (!templates.length){
+    $('sheet').innerHTML = `<h2 id="sheetTitle">No templates installed</h2>
+      <p class="reason" style="margin:10px 0 18px">A company template describes what a company
+      does. Install the starter template, then come back here to create a company from it.</p>
+      <div class="acts" style="border:0">
+        <button class="yes" onclick="installTemplates(this)">Install starter template</button>
+        <button onclick="closeCo()">Close</button>
+      </div>`;
+    $('panel').classList.add('open');
+    return;
+  }
+  const opts = templates.map(t =>
+    `<option value="${esc(t.id)}" data-budget="${t.suggested_budget}"
+      data-round="${t.suggested_round_limit}">${esc(t.name)}</option>`).join('');
+  $('sheet').innerHTML = `
+    <h2 id="sheetTitle">New company</h2>
+    <div class="field" style="margin-top:16px">
+      <label for="tpl">What should it do</label>
+      <select id="tpl">${opts}</select>
+      <p class="hint" id="tplWhat">${esc(templates[0].what_it_does)}</p>
+    </div>
+    <div class="field">
+      <label for="nm">Call it</label>
+      <input id="nm" placeholder="e.g. Weekend Reviews" autocomplete="off">
+    </div>
+    <div class="field">
+      <label for="bg">Spending limit</label>
+      <input id="bg" type="number" min="1" step="1" value="${templates[0].suggested_budget}">
+      <p class="hint">It stops on its own at this limit. You can change it later.</p>
+    </div>
+    <div class="field">
+      <label for="rd">Most it can spend per work session</label>
+      <input id="rd" type="number" min="0.01" step="0.01" value="${templates[0].suggested_round_limit}">
+      <p class="hint">A cap on one round of work, inside the spending limit above.</p>
+    </div>
+    <div class="acts" style="border:0">
+      <button class="yes" onclick="createCo()">Create and start</button>
+      <button onclick="closeCo()">Cancel</button>
+      <span class="waited" id="newErr"></span>
+    </div>`;
+  $('panel').classList.add('open');
+  $('tpl').addEventListener('change', ev => {
+    const opt = templates.find(t => t.id === ev.target.value);
+    $('tplWhat').textContent = opt.what_it_does;
+    $('bg').value = opt.suggested_budget;
+    $('rd').value = opt.suggested_round_limit;
+  });
+  $('nm').focus();
+}
+
+async function createCo(){
+  const name = $('nm').value.trim();
+  if (!name){ $('newErr').textContent = 'Give it a name first.'; $('nm').focus(); return; }
+  const res = await fetch('/api/companies',{
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({
+      template: $('tpl').value,
+      name,
+      budget_usd: Number($('bg').value),
+      per_round_limit_usd: Number($('rd').value) || null
+    })
+  });
+  if (!res.ok){
+    const body = await res.json().catch(() => ({}));
+    // Never render a raw object or array at the operator (§12.5) — the
+    // backend always sends a plain sentence, but stay defensive.
+    $('newErr').textContent = (typeof body.detail === 'string' && body.detail)
+      ? body.detail
+      : "Jarvis couldn't create that company. Please try again.";
+    return;
+  }
+  closeCo(); paint();
+}
+
+async function decide(id, verb){
+  const body = {};
+  if (verb === 'approve'){
+    const edited = corrections(id);
+    if (edited) body.modified_parameters = edited;
+  }
+  const res = await fetch(`/api/approvals/${id}/${verb}`,{
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
+  });
+  if (!res.ok){
+    const failure = await res.json().catch(() => ({}));
+    flash(typeof failure.detail === 'string' && failure.detail
+      ? failure.detail : "That didn't go through. Please try again.");
+    return;
+  }
+  paint();
+}
+
+async function toggle(id, running){
+  const res = await fetch(`/api/companies/${id}/${running ? 'pause' : 'resume'}`,{method:'POST'});
+  if (!res.ok){
+    const body = await res.json().catch(() => ({}));
+    flash(typeof body.detail === 'string' && body.detail
+      ? body.detail : "That didn't go through. Please try again.");
+    return;
+  }
+  paint();
+}
+
+// can_do_alone entries are action-type identifiers ("affiliate.publish_post"),
+// namespaced machinery — the operator reads what the company can do, not its
+// dotted internal name.
+function humanizeAction(actionType){
+  const noPrefix = actionType.includes('.')
+    ? actionType.slice(actionType.indexOf('.') + 1) : actionType;
+  return noPrefix.replace(/_/g, ' ');
+}
+
+async function openCo(id){
+  const c = await get(`/api/companies/${id}`);
+  const stuck = (c.stuck||[]).map(s => `<div class="stuck">${esc(s.what)}</div>`).join('');
+  const alone = (c.can_do_alone||[]).map(a =>
+    `<div class="entry"><p>${esc(c.name)} can now do this on its own: ${esc(humanizeAction(a))}
+     <button class="small" onclick="revoke('${esc(id)}','${esc(a)}')">Undo</button></p></div>`).join('');
+  const feed = (c.activity||[]).map(e =>
+    `<div class="entry"><time>${ago(e.when)}</time><p>${esc(e.what)}</p>
+     <p class="why">${esc(e.why)}</p></div>`).join('')
+    || `<div class="entry"><p class="why">Nothing has happened yet.</p></div>`;
+
+  $('sheet').innerHTML = `
+    <h2 id="sheetTitle">${esc(c.name)}</h2>
+    <p class="reason" style="margin:6px 0 16px">${c.health_reason}
+       &middot; health ${c.health}</p>
+    <p class="money">spent <b>${money(c.spent)}</b> of ${money(c.budget)}
+       &middot; most per work session <b>${money(c.per_round_limit)}</b></p>
+    ${stuck}${alone}
+    <h3 class="head">What ${esc(c.name)} is doing</h3>
+    ${feed}
+    <details><summary>Full details</summary><pre id="raw">Loading…</pre></details>
+    <div class="acts" style="border:0;margin-top:18px">
+      <button onclick="closeCo()">Close</button></div>`;
+  $('panel').classList.add('open');
+
+  // Raw audit detail is fetched only when the operator opens it. Drill-down is
+  // opt-in per §12.5, and loading it eagerly would make it part of the default
+  // view in everything but appearance.
+  $('sheet').querySelector('details').addEventListener('toggle', async ev => {
+    if (ev.target.open && !ev.target.dataset.loaded){
+      ev.target.dataset.loaded = '1';
+      $('raw').textContent = JSON.stringify(await get(`/api/companies/${id}/full-details`), null, 2);
+    }
+  });
+}
+
+async function revoke(id, action){
+  await fetch(`/api/companies/${id}/revoke/${action}`,{method:'POST'});
+  openCo(id);
+}
+
+function closeCo(){ $('panel').classList.remove('open'); }
+$('panel').addEventListener('click', e => { if (e.target.id === 'panel') closeCo(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeCo(); });
+
+async function paintHealth(){
+  try{
+    const h = await get('/api/health');
+    const bad = h.components.filter(c => c.status !== 'ok');
+    $('healthbar').innerHTML = bad.length
+      ? bad.map(c => `<div class="hbar ${c.status === 'down' ? 'down' : ''}">
+          <b>${c.summary}</b>${c.remedy ? ' ' + c.remedy : ''}</div>`).join('')
+      : '';
+  }catch(e){
+    $('healthbar').innerHTML =
+      `<div class="hbar down"><b>Jarvis isn't responding.</b> Is it still running?</div>`;
+  }
+}
+
+async function paintNotes(){
+  const notes = await get('/api/notifications');
+  $('notes').innerHTML = notes.slice(0,5).map(n =>
+    `<div class="note"><span><b>${esc(n.title)}</b> — ${esc(n.body)}</span>
+     <button class="small" onclick="dismissNote('${esc(n.id)}')">Dismiss</button>
+     <time>${ago(n.when)}</time></div>`).join('');
+}
+
+async function dismissNote(id){
+  await fetch(`/api/notifications/${id}/dismiss`,{method:'POST'});
+  paintNotes();
+}
+
+async function openSettings(){
+  const subs = await get('/api/settings/subsystems');
+  const parts = (await get('/api/health').catch(() => ({parts: []}))).parts || [];
+  $('sheet').innerHTML = `
+    <h2 id="sheetTitle">Settings</h2>
+    <h3 class="head">What Jarvis can run</h3>
+    <p class="reason" style="margin:0 0 10px">Turning something off hides it from
+      "New company". Companies you already have keep their own pause switch.</p>
+    ${subs.map(t => `<div class="entry"><p><b>${esc(t.name)}</b>
+        <span class="why">${t.companies} compan${t.companies === 1 ? 'y' : 'ies'}</span>
+        <button class="small" style="float:right"
+          onclick="toggleSub('${esc(t.id)}', ${!t.enabled})">
+          ${t.enabled ? 'Turn off' : 'Turn on'}</button></p></div>`).join('')
+      || '<p class="calm">Nothing installed yet.</p>'}
+    <h3 class="head">Parts of the app</h3>
+    ${parts.map(p => `<div class="entry"><p>${p.name}
+        <span class="why">${p.state === 'running' ? 'running' :
+          p.state === 'restarting' ? 'restarting itself' : p.state}</span></p></div>`).join('')}
+    <div class="acts" style="border:0;margin-top:14px">
+      <button onclick="closeCo()">Close</button></div>`;
+  $('panel').classList.add('open');
+}
+
+async function toggleSub(id, enabled){
+  await fetch(`/api/settings/subsystems/${id}`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({enabled})
+  });
+  openSettings();
+}
+
+async function installTemplates(btn){
+  if(btn){ btn.disabled = true; btn.textContent = 'Installing…'; }
+  const res = await fetch('/api/company-templates/install-builtin', {method:'POST'});
+  if(!res.ok){
+    if(btn){ btn.disabled = false; btn.textContent = 'Install starter template'; }
+    return;
+  }
+  openNew();  // reopen with templates now present
+}
+
+function paintAll(){ paint(); paintHealth(); paintNotes(); }
+paintAll();
+setInterval(paintAll, 15000);
+</script>
+</body>
+</html>
