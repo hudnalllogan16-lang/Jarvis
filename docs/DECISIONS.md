@@ -1384,3 +1384,12 @@ is load-bearing). A source is an enum, not an expression — the platform owns t
   reachable today; install-time validation is the candidate guard.
 - **M7-F36 (verified good):** the version gate held for the second type — 1.0.1 bump required
   for the live registry to adopt mappings, exactly as designed.
+
+## M7-F55 … M7-F59 — attainment direction round (M7-3d)
+
+M7-F30 closed: `KpiDirection` on `KpiTarget` (additive, default ABOVE — stored contracts
+proven compatible by snapshot test, no migration), direction-aware attainment, Finance
+freshness declared BELOW, type at 1.0.2 (version gate held a third time, M7-F57). Zero-actual
+on a BELOW target scores full attainment — ratified: zero is the best possible reading for a
+lower-is-better metric (M7-F56). M7-F31 (mature partial-attainment wording) and M7-F33
+(reports_delivered semantics) remain the two open KPI items, deliberately.
