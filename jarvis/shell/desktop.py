@@ -31,7 +31,14 @@ logger = get_logger(__name__)
 
 DASHBOARD_HOST = "127.0.0.1"
 DASHBOARD_PORT = 8000
-DASHBOARD_URL = f"http://{DASHBOARD_HOST}:{DASHBOARD_PORT}"
+"""Fallback used only when a caller omits ``port``. The launcher passes
+`Settings().api_port` explicitly at every call below (D-026.2, so two lane
+environments can each bind their own port) — this module stays ignorant of
+*where* that number comes from, per the module docstring above."""
+
+
+def _dashboard_url(port: int) -> str:
+    return f"http://{DASHBOARD_HOST}:{port}"
 
 
 def headless() -> bool:
@@ -54,10 +61,11 @@ def window_available() -> bool:
     return True
 
 
-def wait_for_dashboard(*, timeout: float = 30.0) -> bool:
+def wait_for_dashboard(*, port: int = DASHBOARD_PORT, timeout: float = 30.0) -> bool:
     """Block until the dashboard's port accepts connections.
 
     Args:
+        port: The port the dashboard is bound to (`Settings().api_port`).
         timeout: Seconds to wait before giving up.
 
     Returns:
@@ -72,34 +80,41 @@ def wait_for_dashboard(*, timeout: float = 30.0) -> bool:
     while time.monotonic() < deadline:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
             probe.settimeout(0.5)
-            if probe.connect_ex((DASHBOARD_HOST, DASHBOARD_PORT)) == 0:
+            if probe.connect_ex((DASHBOARD_HOST, port)) == 0:
                 return True
         time.sleep(0.25)
     return False
 
 
-def run_window_blocking() -> None:
+def run_window_blocking(*, port: int = DASHBOARD_PORT) -> None:
     """Open the native window and block until the operator closes it.
 
     MUST be called from the main thread. Returns when the window is closed, which
     the launcher treats as the signal to shut Jarvis down — closing the window
     quits the app, as in any desktop program.
+
+    Args:
+        port: The port the dashboard is bound to (`Settings().api_port`).
     """
     import webview
 
     # pywebview ships no py.typed / complete stubs; create_window's own signature
     # resolves to a partially Unknown type regardless of how it is called here.
     webview.create_window(  # pyright: ignore[reportUnknownMemberType]
-        "Jarvis", DASHBOARD_URL, width=1160, height=800
+        "Jarvis", _dashboard_url(port), width=1160, height=800
     )
     webview.start()
 
 
-def open_browser() -> None:
-    """Fallback: open the default browser to the dashboard."""
+def open_browser(*, port: int = DASHBOARD_PORT) -> None:
+    """Fallback: open the default browser to the dashboard.
+
+    Args:
+        port: The port the dashboard is bound to (`Settings().api_port`).
+    """
     if headless():
         return
     try:
-        webbrowser.open(DASHBOARD_URL)
+        webbrowser.open(_dashboard_url(port))
     except Exception:
-        logger.info("couldn't open a browser; dashboard is at %s", DASHBOARD_URL)
+        logger.info("couldn't open a browser; dashboard is at %s", _dashboard_url(port))

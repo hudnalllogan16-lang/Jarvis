@@ -49,9 +49,11 @@ BANNER = r"""
    Jarvis — starting up
 """
 
-READY_BANNER = "\n   Jarvis — your companies, running\n   Dashboard: http://localhost:8000\n"
-"""Printed only once startup actually reaches the point of serving it — never
-as an upfront claim that may turn out false."""
+
+def _ready_banner(port: int) -> str:
+    """Printed only once startup actually reaches the point of serving it — never
+    as an upfront claim that may turn out false."""
+    return f"\n   Jarvis — your companies, running\n   Dashboard: http://localhost:{port}\n"
 
 
 async def _try_start_services() -> bool:
@@ -94,8 +96,8 @@ def _apply_migrations() -> None:
     command.upgrade(Config("alembic.ini"), "head")
 
 
-async def _serve_api(kernel: PlatformKernel, supervisor: Supervisor) -> None:
-    """Serve the operator API and dashboard."""
+async def _serve_api(kernel: PlatformKernel, supervisor: Supervisor, port: int) -> None:
+    """Serve the operator API and dashboard on ``port`` (`Settings().api_port`)."""
     app = create_app(kernel)
 
     @app.get("/api/health")
@@ -122,7 +124,7 @@ async def _serve_api(kernel: PlatformKernel, supervisor: Supervisor) -> None:
         ]
         return payload
 
-    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=8000, log_level="warning"))
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
     await server.serve()
 
 
@@ -174,7 +176,8 @@ async def launch(
         stop: Watched for shutdown requests from another thread.
     """
     print(BANNER)
-    kernel = PlatformKernel(Settings())  # type: ignore[call-arg]
+    settings = Settings()  # type: ignore[call-arg]
+    kernel = PlatformKernel(settings)
 
     report = await run_preflight(kernel)
     if not report.can_serve and await _try_start_services():
@@ -204,23 +207,23 @@ async def launch(
     await asyncio.to_thread(_apply_migrations)
     await kernel.ensure_builtin_types()
 
-    print(READY_BANNER)
+    print(_ready_banner(settings.api_port))
     supervisor = Supervisor()
-    supervisor.add("api", "Dashboard", lambda: _serve_api(kernel, supervisor))
+    supervisor.add("api", "Dashboard", lambda: _serve_api(kernel, supervisor, settings.api_port))
     supervisor.add("worker", "Company runner", lambda: _run_worker_when_possible(kernel))
     supervisor.add("scheduler", "Timers and reminders", lambda: _run_scheduler(kernel))
 
     # Signal readiness only once the port is actually bound. Opening a window or a
     # browser tab before then shows a connection error as the operator's first
     # impression of the application.
-    bound = await asyncio.to_thread(desktop.wait_for_dashboard)
+    bound = await asyncio.to_thread(desktop.wait_for_dashboard, port=settings.api_port)
     if not bound:
         logger.warning("dashboard did not bind within the timeout")
     if startup is not None:
         startup.serving = bound
         startup.done.set()
     elif bound:
-        desktop.open_browser()
+        desktop.open_browser(port=settings.api_port)
 
     print("\n  Ready. Close the window or press Ctrl-C to stop.\n")
     watchers = [supervisor.run_until_stopped()]
@@ -292,15 +295,20 @@ def main() -> None:
         stop.set()
         return
 
+    # `launch()` already built its own `Settings()` on the services thread; this
+    # one is for the main thread, which never sees that instance. Settings reads
+    # only the environment and `.env`, so building it twice costs nothing and
+    # keeps this thread's view of the port consistent with the one that bound it.
+    port = Settings().api_port  # type: ignore[call-arg]
     try:
-        desktop.run_window_blocking()
+        desktop.run_window_blocking(port=port)
     except KeyboardInterrupt:
         pass
     except Exception:
         # A window that cannot open must not take the application down: fall back
         # to the browser and keep serving.
         logger.exception("couldn't open the app window; falling back to the browser")
-        desktop.open_browser()
+        desktop.open_browser(port=port)
         try:
             while services.is_alive():
                 services.join(timeout=0.5)

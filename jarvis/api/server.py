@@ -23,9 +23,12 @@ async def _run() -> None:
     (`jarvis/shell/launcher.py::launch`) never hits this because setup and
     serving both run under one `asyncio.run()` call; mirrored here.
     """
-    kernel = PlatformKernel(Settings())  # type: ignore[call-arg]
+    settings = Settings()  # type: ignore[call-arg]
+    kernel = PlatformKernel(settings)
     await kernel.ensure_builtin_types()
-    server = uvicorn.Server(uvicorn.Config(create_app(kernel), host="127.0.0.1", port=8000))
+    server = uvicorn.Server(
+        uvicorn.Config(create_app(kernel), host="127.0.0.1", port=settings.api_port)
+    )
     try:
         await server.serve()
     finally:
@@ -33,7 +36,7 @@ async def _run() -> None:
 
 
 def main() -> None:
-    """Run the operator API and dashboard on port 8000."""
+    """Run the operator API and dashboard on `Settings().api_port` (default 8000)."""
     asyncio.run(_run())
 
 
