@@ -1393,3 +1393,31 @@ freshness declared BELOW, type at 1.0.2 (version gate held a third time, M7-F57)
 on a BELOW target scores full attainment — ratified: zero is the best possible reading for a
 lower-is-better metric (M7-F56). M7-F31 (mature partial-attainment wording) and M7-F33
 (reports_delivered semantics) remain the two open KPI items, deliberately.
+
+## M7-F45 … M7-F54 — the live Finance cycle (M7-3c)
+
+The milestone's live proof: two COMPLETED cycles on Portfolio Watch, the first kpi_values
+rows ever (reports_delivered 3, data_freshness_hours 0.0005, metrics_tracked 3), attainment
+0 → 45 on the dashboard, 7/7 compliance rules asserted at the outbound prompt boundary,
+zero approvals, affiliate evidence checksum-identical, live history captured as a second
+replay fixture with its own negative control. Spend $0.1169. D-023 waves and D-013
+degradation held for a second business type (M7-F54); version gate held on the upgrade path
+(M7-F47).
+
+- **M7-F45 (open, defect — Manager direction recorded):** cycle context loads BEFORE the
+  wake, so the first cycle after any type upgrade runs on a snapshot up to a wake-period old
+  (observed: cycle 1 measured nothing; cycle 2 measured). Direction: load context after the
+  wake — D-021 already says the cycle begins when planning begins, and a pre-wake load
+  contradicts that spirit. Workflow-shape change with two replay fixtures to keep honest →
+  its own packet, scheduled by the M7-4 audit's verdict (REVISE item or early-M8).
+- **M7-F48 (open, trivial):** `installed_at` not refreshed on upgrade; one-liner for the next
+  registry lane.
+- **M7-F49 (open, judgement):** `metrics_tracked` measures the contract's own target count
+  against a target of 5 — structurally capped at 60% as shipped. What it should measure is a
+  D-027.2 meaning question; with M7-F33 for the D-027 amendment pass.
+- **M7-F50 (open, §12.5-adjacent):** model prose reaches the operator feed unfiltered and now
+  echoes internal framing ("the M7 targets"). Joins the runtime-§12.5 thread (M6 audit
+  finding 5, M6-F34): whether Decision Log narrative should be platform-rendered is a D-011
+  extension question for M8.
+- **M7-F46/F47/F51–F54 (verified good):** D-027 end-to-end; upgrade-path version gate;
+  M7-F30/F31/F33 confirmed live exactly as predicted (F30 since fixed in M7-3d).
