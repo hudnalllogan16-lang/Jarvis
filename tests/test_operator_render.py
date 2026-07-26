@@ -27,6 +27,31 @@ def test_platform_ids_are_stripped_from_live_prose() -> None:
     assert "1a161be0303c4cf5910e51e50c7d6775" not in rendered
 
 
+def test_id_only_parenthetical_is_dropped_whole() -> None:
+    """M6 product re-review F2: id-stripping used to leave the parenthetical
+    behind — "An approval request (something) is pending review." — which
+    reads as a bug, not a redaction. The live-observed sentence now collapses
+    to plain prose with the vestigial parens gone entirely."""
+    raw = "An approval request (apr_1a161be0303c4cf5910e51e50c7d6775) is pending review."
+    assert render_operator_text(raw) == "An approval request is pending review."
+    assert "(something)" not in render_operator_text(raw)
+
+
+def test_id_only_parenthetical_with_multiple_ids_is_dropped_whole() -> None:
+    """The same vestigial-parens shape with more than one id inside."""
+    raw = "Linked to the pending request (apr_1a2b3c4d5e6f, biz_1a2b3c4d5e6f) already."
+    assert render_operator_text(raw) == "Linked to the pending request already."
+
+
+def test_parenthetical_mixing_an_id_with_other_words_keeps_its_parens() -> None:
+    """Only a parenthetical that is *nothing but* ids is vestigial. One that
+    also carries real words is left with its parens intact — id-stripped, not
+    id-and-parens-stripped, or real content would be silently deleted."""
+    raw = "The report (see apr_1a2b3c4d5e6f for detail) is ready."
+    rendered = render_operator_text(raw)
+    assert rendered == "The report (see something for detail) is ready."
+
+
 def test_business_and_cycle_ids_are_also_stripped() -> None:
     raw = "biz_5908873296374587aa15121f0a369ec1 finished cyc_23f8c78a79e24105ad11a97079cb568d."
     rendered = render_operator_text(raw)

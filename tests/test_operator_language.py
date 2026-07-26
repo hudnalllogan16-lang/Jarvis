@@ -40,6 +40,7 @@ FORBIDDEN = [
     "prompt",
     "token",
     "wake cycle",
+    "woken",
     "temporal",
     "event bus",
     "orchestration",
@@ -47,7 +48,13 @@ FORBIDDEN = [
     "retry",
     "dead-letter",
     "dead letter",
+    "business",
 ]
+"""§12.5's own list, plus two morphological gaps the runtime guard
+(`contains_technical_language`) also had to close (M6 product re-review,
+runtime term coverage): "woken" is a form of "wake cycle" a phrase check
+never catches, and "business" is D-007's own Business -> Company term, never
+previously listed at all."""
 
 
 def _visible_text(html: str) -> str:
@@ -176,6 +183,41 @@ def test_the_detector_actually_detects() -> None:
     assert contains_technical_language("the workflow failed")
     assert contains_technical_language("retry 2/3")
     assert not contains_technical_language("Affiliate Co is publishing today's post")
+
+
+def test_detector_catches_morphological_variants_missed_live() -> None:
+    """Runtime term coverage (M6 product re-review, carried into M7-2):
+    "woken" and "business" passed the guard live because a plain phrase/word
+    check for "wake cycle" and a missing "business" entry both left a gap a
+    model's own prose walked straight through."""
+    assert contains_technical_language("Acme Co was woken by a new order.")
+    assert contains_technical_language("The business is waiting on your OK.")
+    # Plurals/inflections that a bare word-boundary match on the singular
+    # form would silently stop catching (word boundaries need a non-word
+    # character on both sides, so "worker" alone does not match "workers").
+    assert contains_technical_language("Two workers picked up the task.")
+    assert contains_technical_language("Both capabilities are unavailable.")
+
+
+def test_detector_does_not_false_positive_on_related_english_words() -> None:
+    """The boundary this guard has to hold, chosen deliberately rather than
+    copied: a word-boundary match must not flag a real word that merely
+    contains a forbidden one as a substring, or every sentence using ordinary
+    English becomes a false alarm.
+
+    "awoken" is the sharpest case here, not a softball one: it is a genuine
+    morphological sibling of "woken" (both inflect "wake"), and a naive
+    substring check would have flagged it for free since "woken" sits inside
+    it literally. A word-boundary match does not, because there is no
+    boundary between the "a" and "woken" in "awoken" -- which is exactly the
+    property this fix relies on elsewhere to avoid banning "businesslike" for
+    containing "business". Both stand or fall on the same mechanism, so both
+    are asserted here rather than assumed.
+    """
+    assert not contains_technical_language("Acme Co finally awoken from its slow start.")
+    assert not contains_technical_language("A businesslike tone suits this reply.")
+    assert not contains_technical_language("The team stayed busy all week.")
+    assert not contains_technical_language("Affiliate Co is publishing today's post.")
 
 
 def test_no_duplicate_request_models() -> None:

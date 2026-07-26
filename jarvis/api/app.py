@@ -491,14 +491,27 @@ def create_app(kernel: PlatformKernel) -> FastAPI:
 
     @app.get("/api/notifications")
     async def notifications() -> list[dict[str, Any]]:  # pyright: ignore[reportUnusedFunction]
-        """Return unread notifications in operator language."""
+        """Return unread notifications in operator language.
+
+        `title`/`body` are stored, not templated (spec §12.5's own reasoning
+        for why: a stack trace or error code never gets a chance to reach a
+        field the dashboard renders). But `body` in particular can carry a
+        live Manager's `action_summary` prose (`request_approval`,
+        `jarvis/manager/activities.py`) — the same kind of model-authored
+        text the Decision Log carries — so it needs the same laundering
+        before it reaches the strip (M6 product re-review F6): platform ids
+        stripped, raw lifecycle words translated, and a §12.5 technical-term
+        fallback. Full text, uncapped, like the activity feed's "what"/"why"
+        — a notification is already one or two sentences, not the card's
+        one-line "Doing now", so `DOING_NOW_LIMIT` does not apply here.
+        """
         async with kernel.services() as svc:
             service = NotificationService(svc.session)
             return [
                 {
                     "id": row.notification_id,
-                    "title": row.title,
-                    "body": row.body,
+                    "title": render_operator_text(row.title),
+                    "body": render_operator_text(row.body),
                     "kind": row.kind,
                     "when": row.created_at.isoformat(),
                 }
