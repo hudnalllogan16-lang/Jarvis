@@ -239,8 +239,8 @@ a new business type.
 | 5 | Affiliate Business (definition + provisioning) | §13 Step 2 | Merged |
 | — | Developer Shell + desktop application | operational | Merged |
 | 6 | Affiliate vertical slice — prove the platform end to end | §2.1, §6, §8, §13 | Merged (report: `docs/reports/M6.md`) |
-| 7 | **Finance Tracking Business** | §13 Step 3 | **Current** |
-| 8 | Plugin framework | §13 Step 4, §4 | Planned |
+| 7 | Finance Tracking Business | §13 Step 3 | Merged (report: `docs/reports/M7.md`) |
+| 8 | **Plugin framework** | §13 Step 4, §4 | **Next** |
 | 9 | Executive Layer | §3, §3.1 | Planned |
 | 10 | Trading Analysis Business | §13 Step 5 | Planned |
 | 11 | Additional business types | §13 Step 6 | Planned |
