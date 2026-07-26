@@ -28,6 +28,7 @@ import copy
 import json
 import pathlib
 from datetime import datetime, timedelta
+from decimal import Decimal
 from typing import Any
 
 import pytest
@@ -37,6 +38,7 @@ from temporalio.contrib.pydantic import pydantic_data_converter
 from temporalio.worker import Replayer
 
 from jarvis.businesses.affiliate import AFFILIATE
+from jarvis.businesses.finance import FINANCE
 from jarvis.manager.state import ManagerState
 from jarvis.manager.types import CycleContext
 from jarvis.manager.workflow import BusinessManagerWorkflow
@@ -46,6 +48,29 @@ WORKFLOW_ID = "bm-biz_6f548e12d9b145bfb53ed2e72f764b8b"
 
 RAW_HISTORY = json.loads(HISTORY_PATH.read_text(encoding="utf-8"))
 EVENTS: list[dict[str, object]] = RAW_HISTORY["events"]
+
+FINANCE_HISTORY_PATH = pathlib.Path(__file__).parent / "fixtures" / "finance_cycle_history.json"
+FINANCE_WORKFLOW_ID = "bm-biz_08122842a3034381abe3726d47464f16"
+"""The Finance counterpart, captured live in M7-3c from `Portfolio Watch`
+(run `11e3a4ab-097d-4f33-aef4-0ef25ed82895`) against a real model.
+
+Added alongside the Affiliate history rather than replacing it, because the two
+prove opposite halves of the same D-027 claim and neither is redundant. The
+Affiliate history predates `measures_kpis` and shows an unmeasured cycle still
+replaying; this one is the first history in the project's life that actually
+scheduled `record_cycle_kpis`, and shows a *measured* cycle replaying. Before
+it, the only committed evidence for the measured path was
+`test_measuring_this_cycle_would_have_diverged` — a history patched in memory,
+which proves the gate can fail but not that a real measured cycle survives it.
+
+It spans three cycles of one workflow, including the M7-F20 credential failure
+and the first cycle after it, which is why the counts below are per-history
+rather than per-cycle. Captured whole and never edited: a history with its
+payloads trimmed would be a fixture about our editing, not about what the
+Manager did."""
+
+FINANCE_RAW_HISTORY = json.loads(FINANCE_HISTORY_PATH.read_text(encoding="utf-8"))
+FINANCE_EVENTS: list[dict[str, object]] = FINANCE_RAW_HISTORY["events"]
 
 SCHEDULED = "EVENT_TYPE_ACTIVITY_TASK_SCHEDULED"
 STARTED = "EVENT_TYPE_ACTIVITY_TASK_STARTED"
@@ -273,6 +298,128 @@ def test_dispatch_capability_runs_in_parallel() -> None:
     assert max(starts) < min(completions), (
         "a dispatch started only after another finished — dispatch is serial"
     )
+
+
+# ── the measured half: a live Finance history that did record KPIs ─────────
+
+
+def _finance_history() -> WorkflowHistory:
+    """Return the captured Finance history in the form the replayer consumes."""
+    return WorkflowHistory.from_json(FINANCE_WORKFLOW_ID, FINANCE_RAW_HISTORY)
+
+
+def _finance_scheduled_names() -> list[str]:
+    """Activity names in the order the Finance history scheduled them."""
+    return [_activity_name(e) for e in FINANCE_EVENTS if e["eventType"] == SCHEDULED]
+
+
+def _finance_recorded_result(activity_name: str, *, occurrence: int = 0) -> dict[str, Any]:
+    """Return what one activity returned in the captured Finance run.
+
+    `occurrence` selects which completion, because this history holds three
+    cycles: `load_cycle_context` ran before D-027 shipped *and* after, and the
+    first one is not the one the measured cycle read.
+    """
+    scheduled = {
+        e["eventId"]: _activity_name(e) for e in FINANCE_EVENTS if e["eventType"] == SCHEDULED
+    }
+    seen = 0
+    for event in FINANCE_EVENTS:
+        attrs = event.get("activityTaskCompletedEventAttributes")
+        if not isinstance(attrs, dict):
+            continue
+        if scheduled.get(attrs["scheduledEventId"]) != activity_name:
+            continue
+        if seen != occurrence:
+            seen += 1
+            continue
+        decoded = json.loads(base64.b64decode(attrs["result"]["payloads"][0]["data"]).decode())
+        assert isinstance(decoded, dict)
+        return decoded
+    raise AssertionError(f"{activity_name} has no completion #{occurrence} in this history")
+
+
+async def test_captured_finance_cycle_replays_without_divergence() -> None:
+    """A cycle that measured itself replays command for command (spec §11).
+
+    The D-027 gate's first live test. `record_cycle_kpis` is the newest
+    command in the cycle body and the only one behind a condition, so it is
+    the one most likely to be issued out of step on recovery — and a Manager
+    that diverges on recovery is exactly what D-004 exists to prevent.
+    """
+    replayer = Replayer(
+        workflows=[BusinessManagerWorkflow],
+        data_converter=pydantic_data_converter,
+    )
+    await replayer.replay_workflow(_finance_history())
+
+
+async def test_the_finance_replay_check_actually_fires() -> None:
+    """Negative control, per fixture: a guard that cannot fail is not one.
+
+    The Affiliate history has its own control above. This repeats it for the
+    Finance history rather than borrowing that result, because a fixture that
+    failed to load, or loaded as an empty event list, would let the replay
+    above pass while proving nothing.
+    """
+    replayer = Replayer(
+        workflows=[_DivergentManagerWorkflow],
+        data_converter=pydantic_data_converter,
+    )
+    with pytest.raises(Exception) as caught:
+        await replayer.replay_workflow(_finance_history())
+    assert "nondeterminism" in str(caught.value).lower()
+
+
+def test_the_finance_history_actually_measured_a_cycle() -> None:
+    """The fixture guard: this history's whole point is the measurement step.
+
+    Without this, a regenerated capture from an unmeasured cycle would still
+    replay — and would silently stop covering the one command it was added for.
+    """
+    assert _finance_scheduled_names().count("record_cycle_kpis") == 1
+
+
+def test_the_measured_cycle_read_a_context_that_enabled_measurement() -> None:
+    """Why the command was issued at all (D-027.3), read off the record.
+
+    `measures_kpis` is a recorded activity result, so replay re-reads the
+    answer the platform gave *then*. The first `load_cycle_context` completion
+    in this history has no such field — it was captured before D-027 shipped,
+    and it is the reason the cycle before this one measured nothing.
+    """
+    before = _finance_recorded_result("load_cycle_context", occurrence=0)
+    assert "measures_kpis" not in before
+    assert CycleContext.model_validate(before).measures_kpis is False
+
+    enabling = _finance_recorded_result("load_cycle_context", occurrence=2)
+    assert CycleContext.model_validate(enabling).measures_kpis is True
+
+
+def test_the_recorded_observations_match_the_type_s_declared_mappings() -> None:
+    """The honesty half (D-027.2): the numbers came from Finance's own data.
+
+    The activity returns what it wrote, so the recorded result is the audit
+    trail for a KPI series. Comparing its keys with `FINANCE.kpi_mappings`
+    ties the live figures to the type definition that selected them, rather
+    than to whatever the platform happened to measure that day.
+    """
+    recorded = _finance_recorded_result("record_cycle_kpis")
+    assert set(recorded) == {mapping.key for mapping in FINANCE.kpi_mappings}
+    assert all(Decimal(value) >= 0 for value in recorded.values())
+
+
+def test_measurement_ran_after_synthesis_and_before_the_decision_record() -> None:
+    """D-027.1's placement, observed rather than asserted against the source.
+
+    After synthesis, so a cycle's own results are already terminal when they
+    are counted; before the decision record, so the entry an operator reads is
+    written by a cycle that has finished measuring itself.
+    """
+    ordered = _finance_scheduled_names()
+    measured = ordered.index("record_cycle_kpis")
+    assert ordered.index("synthesize_results") < measured
+    assert measured < len(ordered) - 1 - ordered[::-1].index("record_cycle_decision")
 
 
 def test_cycle_wrote_a_decision_log_entry_last() -> None:
