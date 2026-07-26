@@ -328,7 +328,7 @@ function coCard(c){
       <div class="co-name">${esc(c.name)}</div>
       <div class="state"><span class="dot"></span>${c.status}</div>
     </div>
-    <p class="kind">${c.kind}</p>
+    <p class="kind">${esc(c.kind)}</p>
     <div>
       <div class="meter-row"><span>Health</span><span>${c.health}</span></div>
       <div class="meter">${segs}</div>
@@ -465,11 +465,27 @@ function humanizeAction(actionType){
 // what it was measured against, in the metric's own unit. "at most"/"at
 // least" reads the target the direction the metric actually runs — a
 // lower-is-better reading (data freshness) is not "behind" for being small.
+// A target with no observation yet is its own sentence, not "measured not
+// measured yet" (M7-5b item 3's stutter) — that case is handled one level up,
+// by `goalsSection`, so this function is only ever called on a measured one.
 function goalLine(g){
   const goal = g.direction === 'below' ? 'at most' : 'at least';
-  const have = g.measured === null ? 'not measured yet' : `${g.measured} ${esc(g.unit)}`;
   return `<div class="entry"><p>${esc(g.label)}</p>
-     <p class="why">measured ${have} &middot; goal is ${goal} ${g.target} ${esc(g.unit)}</p></div>`;
+     <p class="why">${g.measured} ${esc(g.unit)} &middot; goal is ${goal} ${g.target} ${esc(g.unit)}</p></div>`;
+}
+
+// The goals drill-down as a whole (M7-5b item 3): when every target is still
+// unmeasured — the whole of what both affiliate companies had to show — one
+// clean sentence replaces what would otherwise be a list of individually
+// stuttering "not measured yet" entries, one per target.
+function goalsSection(goals){
+  if (!goals || !goals.length) return '<p class="calm">No goals set for this company yet.</p>';
+  if (goals.every(g => g.measured === null)) {
+    return '<p class="calm">Nothing measured yet — check back after its next work session.</p>';
+  }
+  return goals.map(g => g.measured === null
+    ? `<div class="entry"><p>${esc(g.label)}</p><p class="why">Not measured yet.</p></div>`
+    : goalLine(g)).join('');
 }
 
 async function openCo(id){
@@ -482,17 +498,18 @@ async function openCo(id){
     `<div class="entry"><time>${ago(e.when)}</time><p>${esc(e.what)}</p>
      <p class="why">${esc(e.why)}</p></div>`).join('')
     || `<div class="entry"><p class="why">Nothing has happened yet.</p></div>`;
-  // health_parts (M7-5a item 2): computed on every card request since M7-3b,
-  // consumed by nothing until now.
+  // health_parts (M7-5a item 2): computed on every card request since M7-3b.
+  // "/100" is explicit on every part (M7-5b item 2) rather than three bare
+  // numbers sitting one line above a dollar amount that could be mistaken
+  // for the same kind of figure.
   const parts = Object.entries(c.health_parts||{}).map(([label,val]) =>
-    `<div class="part"><span>${esc(label)}</span><b>${val}</b></div>`).join('');
-  const goals = (c.goals||[]).map(goalLine).join('')
-    || '<p class="calm">No goals set for this company yet.</p>';
+    `<div class="part"><span>${esc(label)}</span><b>${val}/100</b></div>`).join('');
+  const goals = goalsSection(c.goals);
 
   $('sheet').innerHTML = `
     <h2 id="sheetTitle">${esc(c.name)}</h2>
-    <p class="kind">${c.kind}</p>
-    <p class="kind-desc">${c.kind_description}</p>
+    <p class="kind">${esc(c.kind)}</p>
+    <p class="kind-desc">${esc(c.kind_description)}</p>
     <p class="reason" style="margin:0 0 2px">${c.health_reason}
        &middot; health ${c.health}</p>
     <div class="parts">${parts}</div>
