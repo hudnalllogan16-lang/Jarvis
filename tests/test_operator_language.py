@@ -233,6 +233,44 @@ def test_detector_catches_morphological_variants_missed_live() -> None:
     assert contains_technical_language("Both capabilities are unavailable.")
 
 
+def test_detector_catches_milestone_codenames_and_kpi() -> None:
+    """M7-F50 (packet M7-5a item 4): live Manager prose reached the operator
+    feed echoing internal framing ("the M7 targets"), and D-027.2 makes `KPI`
+    a name this codebase uses for itself, never one an owner was taught."""
+    assert contains_technical_language("Acme Co hit the M7 targets early.")
+    assert contains_technical_language("Tracked against M6 milestones.")
+    assert contains_technical_language("Scoped for M8, not this quarter.")
+    assert contains_technical_language("The KPI moved up this week.")
+    assert contains_technical_language("Both KPIs improved.")
+
+
+def test_milestone_codename_guard_does_not_false_positive_on_similar_tokens() -> None:
+    """A word-boundary match, the same shape as `wake cycle`/`woken`: a real
+    boundary requires a non-word character on both sides, so a milestone
+    codename embedded in a longer alphanumeric token is not itself the
+    codename."""
+    assert not contains_technical_language("Acme Co reviewed model M7Zephyr today.")
+    assert not contains_technical_language("The company processed item m70 today.")
+
+
+def test_compliance_requirements_would_trip_the_guard_and_must_stay_off_its_path() -> None:
+    """D-027.5 stores the owner's rules verbatim, four beginning "During M7"
+    by design (DECISIONS.md correction F-C) — quoting them is D-011's
+    direction, not against it. This pins that fact so a future change
+    routing `compliance_requirements` through `contains_technical_language`/
+    `render_operator_text` (the M7-F50 guard, packet M7-5a item 4) fails
+    loudly instead of quietly laundering the owner's own rules.
+
+    `render_operator_text`'s only callers today are the Decision Log feed and
+    notifications (`jarvis/api/app.py`, `jarvis/api/render.py`);
+    `compliance_requirements` reaches only the planning prompt
+    (`jarvis/manager/activities.py`) and is never rendered through either.
+    """
+    from jarvis.businesses.finance import FINANCE
+
+    assert any(contains_technical_language(rule) for rule in FINANCE.compliance_requirements)
+
+
 def test_detector_does_not_false_positive_on_related_english_words() -> None:
     """The boundary this guard has to hold, chosen deliberately rather than
     copied: a word-boundary match must not flag a real word that merely

@@ -247,7 +247,12 @@ class KpiEngine:
             reliability=reliability,
             kpi_attainment=attainment,
             summary=_summarise(
-                headroom, stuck_count, attainment, zero_attainment_stall, early_days
+                headroom,
+                stuck_count,
+                attainment,
+                zero_attainment_stall,
+                early_days,
+                score=score,
             ),
             stuck_count=stuck_count,
             zero_attainment_stall=zero_attainment_stall,
@@ -290,8 +295,23 @@ def _summarise(
     attainment: int,
     zero_attainment_stall: bool,
     early_days: bool = False,
+    *,
+    score: int = 0,
 ) -> str:
-    """Return the one-line reason behind a health score, in operator language."""
+    """Return the one-line reason behind a health score, in operator language.
+
+    Args:
+        score: The company's overall Health Score, already weighted from the
+            same `headroom`/`reliability`/`attainment` this function reasons
+            about (`health()`'s only caller). Needed for exactly one branch:
+            whether a partially-attained company still reads as ``healthy``
+            (M7-F53, the live recurrence of M7-F31/M7-F26's class). Every
+            branch above the attainment check returns before this matters —
+            stuck work and thin headroom explain a low score on their own, and
+            sustained/early zero attainment already have their own wording —
+            so `score` only decides the wording when attainment alone is what
+            is holding a mature company back.
+    """
     if stuck_count:
         noun = "task" if stuck_count == 1 else "tasks"
         return f"{stuck_count} {noun} got stuck and need a look."
@@ -302,5 +322,13 @@ def _summarise(
     if early_days:
         return EARLY_DAYS_SUMMARY
     if attainment < 50:
+        if score >= HEALTHY:
+            # M7-F53: the live M7 run showed a healthy band beside "Behind on
+            # its goals." on a mature company with partial attainment — the
+            # badge and the sentence disagreed, which is how an owner learns
+            # to trust neither (M7-F26's class, one band up). The badge is
+            # right (nothing else about the company is a problem); the old
+            # sentence read as though it wasn't, so the sentence changes.
+            return "Healthy overall — goals need attention."
         return "Behind on its goals."
     return "Running normally."

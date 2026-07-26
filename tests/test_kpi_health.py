@@ -221,6 +221,50 @@ async def test_a_shipping_company_stays_healthy(
     assert health.band == "healthy"
 
 
+async def test_a_healthy_company_with_partial_attainment_reads_as_healthy(
+    session: AsyncSession, contract: BusinessContract
+) -> None:
+    """M7-F53 (M7-F31's live recurrence): the live M7 run showed a healthy
+    band beside "Behind on its goals." on a mature company hitting part of
+    its goals — the same disagreement M7-F26/D-027.4 fixed for young
+    companies, one band up. The badge is right; the old sentence read as
+    though it wasn't.
+    """
+    with_target = _with_target(contract)
+    engine = KpiEngine(session)
+    await engine.record(business_id=contract.business_id, key="revenue_mtd", value=Decimal("250"))
+    await _add_completed_cycles(session, contract, 5, prefix="mature")
+
+    health = await engine.health(with_target, spend_usd=Decimal("0"))
+
+    assert health.kpi_attainment == 25
+    assert health.band == "healthy"
+    assert health.summary == "Healthy overall — goals need attention."
+    assert "Behind" not in health.summary
+
+
+async def test_partial_attainment_still_reads_as_behind_when_the_band_is_not_healthy(
+    session: AsyncSession, contract: BusinessContract
+) -> None:
+    """The other direction of M7-F53's fix: thin headroom pulling the score
+    below `HEALTHY` must keep the old wording. The fix answers "does the band
+    disagree with the sentence", not "always talk up partial attainment".
+    """
+    with_target = _with_target(contract)
+    engine = KpiEngine(session)
+    await engine.record(business_id=contract.business_id, key="revenue_mtd", value=Decimal("250"))
+
+    # headroom 20 (spend 40 of a 50 cap) keeps the "Close to its spending
+    # limit" branch from firing (it triggers under 20) while dragging the
+    # weighted score below HEALTHY: 20*0.3 + 100*0.45 + 25*0.25 = 57.
+    health = await engine.health(with_target, spend_usd=Decimal("40.00"))
+
+    assert health.kpi_attainment == 25
+    assert health.budget_headroom == 20
+    assert health.band == "watch"
+    assert health.summary == "Behind on its goals."
+
+
 async def test_a_new_company_gets_a_grace_period(
     session: AsyncSession, contract: BusinessContract
 ) -> None:
