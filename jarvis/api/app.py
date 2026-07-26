@@ -33,6 +33,7 @@ from jarvis.approvals.rendering import (
 )
 from jarvis.approvals.service import ApprovalError
 from jarvis.budget.ledger import BudgetLedger
+from jarvis.domain.contract import BusinessContract
 from jarvis.domain.lifecycle import OPERATOR_LABELS as LIFECYCLE_LABELS
 from jarvis.domain.lifecycle import LifecycleState
 from jarvis.kernel.container import KernelServices, PlatformKernel
@@ -120,7 +121,65 @@ def create_app(kernel: PlatformKernel) -> FastAPI:
             content={"detail": "Jarvis couldn't read that request. Please try again."},
         )
 
-    async def _company_payload(svc: KernelServices, row: Any) -> dict[str, Any]:
+    async def _type_catalog(svc: KernelServices) -> dict[str, dict[str, str]]:
+        """Map an installed type's name to its operator-facing display data.
+
+        Reads only what `ProvisioningService.install`/`install_business_type`
+        already stores (D-007's "company template" name, plus the description
+        installed alongside it in `plugin_metadata` — the same values
+        `/api/company-templates` already exposes to the create-a-company
+        flow). No new write path, no model involvement: a type's kind and
+        blurb are as stored-value as a KPI target's `operator_label` (D-011's
+        shape, applied to a type instead of a number).
+
+        M7-5 verdict item 1: a company's kind is invisible once it exists —
+        the card names the company but never says what kind of company it
+        is, and Details never repeats the type's own promise (for Finance,
+        "it places no trades and moves no money"). All three live companies
+        rendered identically once created.
+        """
+        return {
+            row.name: {
+                "kind": row.display_name,
+                "kind_description": (row.plugin_metadata or {}).get("description", ""),
+            }
+            for row in await svc.registry.installed_types()
+        }
+
+    async def _goal_readings(
+        svc: KernelServices, contract: BusinessContract
+    ) -> list[dict[str, Any]]:
+        """Per-metric measured-vs-target readings for the goals drill-down.
+
+        M7-5 verdict item 2: `health_parts`' "Hitting its goals" is one number
+        with nowhere to ask what it means. This is that answer — reusing
+        `KpiEngine.latest`, the exact per-key read `attainment()` already does
+        for the score, so nothing new is queried here or in the engine.
+
+        Labels come from the type's own `KpiTarget.operator_label` — plain
+        language, never `key: revenue_mtd` (spec §12.5). A target stored
+        without one — not reachable through any installed type today, since
+        the field is required — falls back to its key with underscores
+        turned to spaces rather than surfacing raw `snake_case`.
+        """
+        engine = KpiEngine(svc.session)
+        out: list[dict[str, Any]] = []
+        for target in contract.kpi_targets:
+            actual = await engine.latest(contract.business_id, target.key)
+            out.append(
+                {
+                    "label": target.operator_label or target.key.replace("_", " ").capitalize(),
+                    "measured": float(actual) if actual is not None else None,
+                    "target": float(target.target_value),
+                    "unit": target.unit,
+                    "direction": target.direction.value,
+                }
+            )
+        return out
+
+    async def _company_payload(
+        svc: KernelServices, row: Any, types: dict[str, dict[str, str]]
+    ) -> dict[str, Any]:
         """Assemble one company card (spec §12.5's default view)."""
         contract = await svc.registry.get_contract(BusinessId(row.business_id))
         ledger = kernel.build_ledger(svc)
@@ -128,10 +187,13 @@ def create_app(kernel: PlatformKernel) -> FastAPI:
         health = await KpiEngine(svc.session).health(contract, spend_usd=spend)
         feed = await svc.decisions.activity_feed(BusinessId(row.business_id), limit=1)
         state = LifecycleState(row.lifecycle_state)
+        kind = types.get(row.business_type, {})
 
         return {
             "id": row.business_id,
             "name": row.display_name,
+            "kind": kind.get("kind", row.business_type),
+            "kind_description": kind.get("kind_description", ""),
             "status": LIFECYCLE_LABELS[state],
             "running": state is LifecycleState.ACTIVE,
             "health": health.score,
@@ -139,7 +201,12 @@ def create_app(kernel: PlatformKernel) -> FastAPI:
             "health_reason": health.summary,
             "health_parts": {
                 "Budget left": health.budget_headroom,
-                "Finishing its work": health.reliability,
+                # Renamed from "Finishing its work" (M7-F60): the number
+                # behind it counts completed wake cycles, not useful output —
+                # honest by the metric's own definition, misleading under the
+                # old label. The metric itself is untouched; only the word
+                # naming it changed.
+                "Rounds completed": health.reliability,
                 "Hitting its goals": health.kpi_attainment,
             },
             "spent": float(spend),
@@ -156,7 +223,8 @@ def create_app(kernel: PlatformKernel) -> FastAPI:
         """Return every company as a card (spec §12.5 default view)."""
         async with kernel.services() as svc:
             rows = await svc.registry.list_instances()
-            return [await _company_payload(svc, row) for row in rows]
+            types = await _type_catalog(svc)
+            return [await _company_payload(svc, row, types) for row in rows]
 
     @app.get("/api/companies/{business_id}")
     async def company_detail(  # pyright: ignore[reportUnusedFunction]
@@ -174,7 +242,12 @@ def create_app(kernel: PlatformKernel) -> FastAPI:
             except StopIteration:
                 raise HTTPException(404, "No company with that id.") from None
 
-            payload = await _company_payload(svc, row)
+            types = await _type_catalog(svc)
+            payload = await _company_payload(svc, row, types)
+            contract = await svc.registry.get_contract(BusinessId(business_id))
+            # Opt-in drill-down (§12.5): reached only when the operator opens
+            # Details, never eagerly on the card list above.
+            payload["goals"] = await _goal_readings(svc, contract)
             feed = await svc.decisions.activity_feed(BusinessId(business_id), limit=40)
             payload["activity"] = [
                 {
@@ -503,7 +576,8 @@ def create_app(kernel: PlatformKernel) -> FastAPI:
         stripped, raw lifecycle words translated, and a §12.5 technical-term
         fallback. Full text, uncapped, like the activity feed's "what"/"why"
         — a notification is already one or two sentences, not the card's
-        one-line "Doing now", so `DOING_NOW_LIMIT` does not apply here.
+        one-line "Latest update", so `DOING_NOW_LIMIT` does not apply here
+        (M7-F44: this comment named the card's label before it was renamed).
         """
         async with kernel.services() as svc:
             service = NotificationService(svc.session)

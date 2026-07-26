@@ -89,6 +89,11 @@ button.small{font-size:12px;padding:5px 11px}
 .co-name{font-family:var(--display);font-size:17px;font-weight:600;letter-spacing:-.01em}
 .state{font-family:var(--data);font-size:10px;letter-spacing:.08em;text-transform:uppercase;
   color:var(--quiet);display:flex;align-items:center;gap:5px;white-space:nowrap}
+/* what kind of company this is (M7-5a item 1) — a quiet label, not a badge:
+   colour on this card already means health status and must stay that way. */
+.kind{font-family:var(--data);font-size:10px;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--quiet);margin-top:-7px}
+.kind-desc{font-size:13px;color:var(--quiet);margin:2px 0 14px}
 .dot{width:6px;height:6px;border-radius:50%;background:var(--quiet)}
 .co.running .dot{background:var(--healthy);animation:breathe 2.6s ease-in-out infinite}
 @keyframes breathe{0%,100%{opacity:1}50%{opacity:.28}}
@@ -103,6 +108,13 @@ button.small{font-size:12px;padding:5px 11px}
   font-family:var(--data);font-size:10px;letter-spacing:.08em;text-transform:uppercase;
   color:var(--quiet);margin-bottom:5px}
 .reason{font-size:13px;color:var(--quiet)}
+/* the three health_parts, in Details only (M7-5a item 2) — the card stays
+   one meter and one sentence; this is the drill-down's own breakdown. */
+.parts{display:flex;gap:18px;flex-wrap:wrap;padding:12px 0;border-top:1px solid var(--line)}
+.part{display:flex;flex-direction:column;gap:2px}
+.part span{font-family:var(--data);font-size:10px;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--quiet)}
+.part b{font-family:var(--data);font-size:15px;font-weight:500}
 .money{font-family:var(--data);font-size:12px;color:var(--quiet)}
 .money b{color:var(--ink);font-weight:500}
 .doing{font-size:14px;border-top:1px solid var(--line);padding-top:12px}
@@ -316,6 +328,7 @@ function coCard(c){
       <div class="co-name">${esc(c.name)}</div>
       <div class="state"><span class="dot"></span>${c.status}</div>
     </div>
+    <p class="kind">${c.kind}</p>
     <div>
       <div class="meter-row"><span>Health</span><span>${c.health}</span></div>
       <div class="meter">${segs}</div>
@@ -448,6 +461,17 @@ function humanizeAction(actionType){
   return noPrefix.replace(/_/g, ' ');
 }
 
+// One line of the goals drill-down (M7-5a item 2): what was measured against
+// what it was measured against, in the metric's own unit. "at most"/"at
+// least" reads the target the direction the metric actually runs — a
+// lower-is-better reading (data freshness) is not "behind" for being small.
+function goalLine(g){
+  const goal = g.direction === 'below' ? 'at most' : 'at least';
+  const have = g.measured === null ? 'not measured yet' : `${g.measured} ${esc(g.unit)}`;
+  return `<div class="entry"><p>${esc(g.label)}</p>
+     <p class="why">measured ${have} &middot; goal is ${goal} ${g.target} ${esc(g.unit)}</p></div>`;
+}
+
 async function openCo(id){
   const c = await get(`/api/companies/${id}`);
   const stuck = (c.stuck||[]).map(s => `<div class="stuck">${esc(s.what)}</div>`).join('');
@@ -458,14 +482,24 @@ async function openCo(id){
     `<div class="entry"><time>${ago(e.when)}</time><p>${esc(e.what)}</p>
      <p class="why">${esc(e.why)}</p></div>`).join('')
     || `<div class="entry"><p class="why">Nothing has happened yet.</p></div>`;
+  // health_parts (M7-5a item 2): computed on every card request since M7-3b,
+  // consumed by nothing until now.
+  const parts = Object.entries(c.health_parts||{}).map(([label,val]) =>
+    `<div class="part"><span>${esc(label)}</span><b>${val}</b></div>`).join('');
+  const goals = (c.goals||[]).map(goalLine).join('')
+    || '<p class="calm">No goals set for this company yet.</p>';
 
   $('sheet').innerHTML = `
     <h2 id="sheetTitle">${esc(c.name)}</h2>
-    <p class="reason" style="margin:6px 0 16px">${c.health_reason}
+    <p class="kind">${c.kind}</p>
+    <p class="kind-desc">${c.kind_description}</p>
+    <p class="reason" style="margin:0 0 2px">${c.health_reason}
        &middot; health ${c.health}</p>
+    <div class="parts">${parts}</div>
     <p class="money">spent <b>${money(c.spent)}</b> of ${money(c.budget)}
        &middot; most per work session <b>${money(c.per_round_limit)}</b></p>
     ${stuck}${alone}
+    <details><summary>Hitting its goals, in detail</summary>${goals}</details>
     <h3 class="head">What ${esc(c.name)} is doing</h3>
     ${feed}
     <details><summary>Full details</summary><pre id="raw">Loading…</pre></details>

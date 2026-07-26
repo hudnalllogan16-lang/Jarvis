@@ -36,6 +36,10 @@ TECHNICAL_TERMS = frozenset(
         "dead-letter",
         "dead letter",
         "business",
+        "m6",
+        "m7",
+        "m8",
+        "kpi",
     }
 )
 """Concepts §12.5 forbids in the default UI. Used to assert, not to filter —
@@ -44,7 +48,23 @@ stripping them would hide a caller writing operator text in the wrong register.
 `business` was added carrying the runtime-guard follow-up from the M6 product
 re-review: D-007's own translation table requires Business -> Company, so the
 raw word is exactly as forbidden here as `workflow` or `retry` are — it had
-simply never been listed."""
+simply never been listed.
+
+`m6`/`m7`/`m8` and `kpi` were added for M7-F50 (packet M7-5a item 4): live
+Manager prose reached the operator feed echoing internal framing ("the M7
+targets"), and D-027.2 makes `KPI` a name this codebase uses for itself, not a
+word an owner was ever taught. Word-boundary only, deliberately narrow to the
+three milestone codenames in play rather than a general "m-then-a-number"
+pattern — the next milestone gets its own entry when it is actually reached,
+not a speculative one now (§14).
+
+This guard sits only on `render_operator_text`'s path (live Decision Log and
+notification prose) — MODEL prose, per the packet. It must never reach
+`compliance_requirements`: those are owner-approved stored values, four of
+which begin "During M7" by design (D-027.5, DECISIONS.md correction F-C), and
+are read only by the planning prompt (`jarvis/manager/activities.py`), never
+by this renderer. Laundering the owner's own rules on a surface that quotes
+them verbatim would be the opposite of D-011."""
 
 _MORPHOLOGICAL_VARIANTS: dict[str, tuple[str, ...]] = {
     "workflow": ("workflow", "workflows"),
@@ -74,6 +94,14 @@ _MORPHOLOGICAL_VARIANTS: dict[str, tuple[str, ...]] = {
     # match: word-boundary matching requires a non-word character on both
     # sides, so the word has to stand alone the way "company" would.
     "business": ("business", "businesses"),
+    # M7-F50 (packet M7-5a item 4): milestone codenames, matched as their own
+    # word so a real word merely containing the letter-digit pair (there are
+    # none in ordinary English) is not a risk worth guarding against — unlike
+    # "wake"/"woken", nothing here needed a second form.
+    "m6": ("m6",),
+    "m7": ("m7",),
+    "m8": ("m8",),
+    "kpi": ("kpi", "kpis"),
 }
 """Word-boundary variants per forbidden concept (runtime term coverage,
 M6 product re-review). A naive substring check (`term in text`) already
