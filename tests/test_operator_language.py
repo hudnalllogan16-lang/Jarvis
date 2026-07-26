@@ -93,6 +93,40 @@ def test_operator_facing_strings_in_the_dashboard_script(term: str) -> None:
     assert term not in literals.lower()
 
 
+def test_doing_now_label_matches_past_tense_content() -> None:
+    """M7 product re-review F3: the company card rendered past-tense Decision
+    Log summaries (what a cycle already did) under the present-tense label
+    "Doing now" -- a post-mortem sentence does not answer "what is happening
+    right now". Renamed to a label the content can honestly satisfy."""
+    html = DASHBOARD.read_text()
+    assert "Doing now" not in html
+    assert "Latest update" in html
+
+
+def test_doing_now_truncation_carries_a_details_affordance() -> None:
+    """M7 product re-review F3: truncated text gave no signal that there was
+    more to read. `render_doing_now` always ends truncated text with an
+    ellipsis, so the card can detect that case and offer an explicit link
+    into the same Details drill-down the button below already opens."""
+    # Explicit UTF-8: the file's ellipsis character must round-trip exactly
+    # for this assertion, and the platform's default text encoding is not
+    # guaranteed to be UTF-8 (Windows locales commonly are not).
+    html = DASHBOARD.read_text(encoding="utf-8")
+    assert "more in Details" in html
+    assert "c.doing.endsWith('…')" in html
+
+
+def test_create_dialog_error_uses_the_error_style_not_the_timestamp_style() -> None:
+    """M7 product re-review F4: "Give it a name first." rendered in `.waited`
+    -- an 11px grey mono class built for a card's "waiting 3h ago" timestamp,
+    not an error. The stylesheet's `.formErr` (risk colour) existed unused for
+    exactly this; the create-dialog error now uses it, positioned before the
+    action buttons rather than trailing after them."""
+    html = DASHBOARD.read_text()
+    assert 'class="formErr" id="newErr"' in html
+    assert 'class="waited" id="newErr"' not in html
+
+
 def test_lifecycle_labels_are_plain_language() -> None:
     """Spec §12.5, D-007: every state has an operator-facing term."""
     for label in LIFECYCLE_LABELS.values():
