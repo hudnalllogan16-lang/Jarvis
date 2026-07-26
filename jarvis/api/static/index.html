@@ -108,6 +108,9 @@ button.small{font-size:12px;padding:5px 11px}
 .doing{font-size:14px;border-top:1px solid var(--line);padding-top:12px}
 .doing span{display:block;font-family:var(--data);font-size:10px;letter-spacing:.1em;
   text-transform:uppercase;color:var(--quiet);margin-bottom:4px}
+.doing .more{background:none;border:0;padding:0;font:inherit;color:var(--slate);
+  text-decoration:underline;cursor:pointer}
+.doing .more:hover{background:none;color:var(--ink)}
 .co-acts{display:flex;gap:8px;margin-top:auto;padding-top:4px}
 
 /* ── detail panel ───────────────────────────────────────────── */
@@ -319,7 +322,9 @@ function coCard(c){
       <p class="reason">${c.health_reason}</p>
     </div>
     <p class="money">spent <b>${money(c.spent)}</b> of ${money(c.budget)}</p>
-    <div class="doing"><span>Doing now</span>${esc(c.doing)}</div>
+    <div class="doing"><span>Latest update</span>${esc(c.doing)}${c.doing.endsWith('…')
+      ? ` <button type="button" class="more" onclick="openCo('${c.id}')">more in Details</button>`
+      : ''}</div>
     <div class="co-acts">
       <button class="small" onclick="openCo('${c.id}')">Details</button>
       <button class="small" onclick="toggle('${c.id}',${c.running})">
@@ -366,10 +371,10 @@ async function openNew(){
       <input id="rd" type="number" min="0.01" step="0.01" value="${templates[0].suggested_round_limit}">
       <p class="hint">A cap on one round of work, inside the spending limit above.</p>
     </div>
+    <p class="formErr" id="newErr"></p>
     <div class="acts" style="border:0">
       <button class="yes" onclick="createCo()">Create and start</button>
       <button onclick="closeCo()">Cancel</button>
-      <span class="waited" id="newErr"></span>
     </div>`;
   $('panel').classList.add('open');
   $('tpl').addEventListener('change', ev => {

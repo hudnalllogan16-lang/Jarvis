@@ -86,6 +86,36 @@ def test_doing_now_is_capped_with_an_ellipsis() -> None:
     assert rendered.endswith("…")
 
 
+def test_doing_now_caps_at_a_word_boundary_not_mid_word() -> None:
+    """M7 product re-review F3: a plain character-count cap could land inside
+    a word (e.g. cutting "...spent the aftern…" out of "afternoon"), which
+    read as broken rather than as a considered summary. The cap now backs up
+    to the last space at or before the limit, so the visible text is always
+    whole words."""
+    raw = (
+        "Published a new roundup post and then spent the afternoon researching "
+        "topics for tomorrow's newsletter draft, which needed several rounds of "
+        "revision before it felt ready to go out to subscribers this week."
+    )
+    assert len(raw) > DOING_NOW_LIMIT
+    rendered = render_doing_now(raw)
+    assert rendered.endswith("…")
+    core = rendered[:-1]
+    assert raw.startswith(core)
+    # The character right after the kept text, in the *source*, is a space
+    # (or the source ended there) -- never a mid-word cut.
+    assert raw[len(core) : len(core) + 1] in (" ", "")
+
+
+def test_doing_now_falls_back_to_a_hard_cut_with_no_word_boundary() -> None:
+    """A single "word" longer than the whole budget has no space to back up
+    to; the cap still returns something (a hard cut) rather than collapsing
+    to just the ellipsis."""
+    raw = "x" * 200
+    rendered = render_doing_now(raw)
+    assert rendered == "x" * DOING_NOW_LIMIT + "…"
+
+
 def test_doing_now_leaves_short_text_untouched() -> None:
     raw = "Published today's post."
     assert render_doing_now(raw) == raw

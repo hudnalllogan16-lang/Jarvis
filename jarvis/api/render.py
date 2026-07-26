@@ -71,9 +71,9 @@ for plain language, not laundered jargon. The full text remains one click away
 in "Full details" (§12.5's drill-down, unaffected by this guard)."""
 
 DOING_NOW_LIMIT = 140
-"""Character budget for the company card's one-line "Doing now" (spec §12.5:
-one sentence in the default view). The drill-down activity feed keeps the
-full text — this limit applies only to the card."""
+"""Character budget for the company card's one-line "Latest update" (spec
+§12.5: one sentence in the default view). The drill-down activity feed keeps
+the full text — this limit applies only to the card."""
 
 
 def _strip_ids(text: str) -> str:
@@ -104,18 +104,28 @@ def render_operator_text(raw: str) -> str:
 
 
 def render_doing_now(raw: str) -> str:
-    """Render the company card's one-line "Doing now" summary.
+    """Render the company card's one-line "Latest update" summary.
 
     Applies :func:`render_operator_text` and then caps the result to
     :data:`DOING_NOW_LIMIT` characters with an ellipsis — the card is the
     default view, not the drill-down, and §12.5 keeps the default view to one
     sentence. Callers that need the full text (the activity feed) should call
     :func:`render_operator_text` directly instead.
+
+    The cut backs up to the last word boundary at or before the limit (M7
+    product re-review F3: a plain character-count cut could land mid-word,
+    e.g. truncating "...spent the aftern…" out of "afternoon"). A single
+    "word" longer than the whole budget — no space to back up to — falls back
+    to a hard cut rather than returning nothing.
     """
     text = render_operator_text(raw)
     if len(text) <= DOING_NOW_LIMIT:
         return text
-    return text[:DOING_NOW_LIMIT].rstrip() + "…"
+    truncated = text[:DOING_NOW_LIMIT]
+    boundary = truncated.rfind(" ")
+    if boundary > 0:
+        truncated = truncated[:boundary]
+    return truncated.rstrip() + "…"
 
 
 __all__ = ["DOING_NOW_LIMIT", "NEUTRAL_FALLBACK", "render_doing_now", "render_operator_text"]
