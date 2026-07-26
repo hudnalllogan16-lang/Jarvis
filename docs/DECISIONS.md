@@ -1256,3 +1256,24 @@ find them:
 Naming ratified: `finance_tracking` (avoids colliding with CapabilityType.FINANCE). The
 compliance_requirements draft awaits owner sign-off before any Finance company launches —
 recorded in the M7-1 report; launch is blocked on it, merge was not.
+
+## M7-F10 … M7-F14 — surface follow-ups round (M7-2, wave 0)
+
+F1/F2/F6 and the term-guard morphology are fixed and live-verified (the strip showed 3
+phantom "needs your OK" rows against an empty approval queue before; empty and truthful
+after). Worker latitude ratified: bare "wake"/"wakes" stays allowed (ordinary English, no
+demonstrated failure); D-007 concepts enforced by construction are not text-matched.
+
+- **M7-F10 (open):** two live notification link_refs point at approvals that never persisted —
+  symptom fixed by reconciliation-on-read; provenance unexplained. Watch item.
+- **M7-F11 (open):** ProviderError.default_operator_message contains raw "retrying", never
+  guard-tested.
+- **M7-F12 (open):** scripts/gates.sh gate 2 carries its own copy of the FORBIDDEN vocabulary,
+  now out of sync with the 17-term test list — single-source it in a future packet.
+- **M7-F13 (open):** health_reason bypasses the render boundary via _company_payload; whether
+  it can carry model prose is unverified (kpi/ was out of M7-2 scope).
+- **M7-F14 (ratified):** narrow term-list scope was the right call; blanket-banning D-007
+  component words risks false positives beyond demonstrated need.
+
+Wave-0 pilot data (D-026 meta-goal): two lanes ran concurrently (M7-1 ~11 min, M7-2 ~24 min,
+fully overlapping); merge conflicts: 0; both merges composed green on first try (643 → 660).
