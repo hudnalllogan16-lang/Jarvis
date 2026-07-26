@@ -1299,3 +1299,51 @@ types, and §8's hard constraints (approval-by-default for capital actions; no a
 graduation for trade execution in v1; live trading last) bind any future Finance evolution.
 Enabling Finance to recommend or execute is therefore a §12 spec amendment owned by the owner
 when its milestone arrives — not something a packet may infer from this approval.
+
+---
+
+## D-027 — KPI values are measured by the cycle, from platform facts, per type-declared mappings
+**Fills:** §5 (KPIs as a contract field with no writer), §13 Step 3 ("exercises KPI/dashboard
+pattern"); resolves M7-F21, the M7 live run's central finding: `kpi_values` has never held a
+row — targets are set at creation and never measured, so attainment is structurally zero.
+
+1. A dedicated Manager-cycle activity (`record_cycle_kpis`, after synthesis, before the
+   decision record) writes KPI observations on every completed cycle. An activity, so D-004
+   holds; recorded results, so replay holds.
+2. Observations derive ONLY from platform facts — cycle outcomes, capability result metadata,
+   ledger rows, an in-activity clock read — selected per **mappings declared in the type
+   definition as data** (D-014 preserved). Model prose never becomes a KPI value (D-011
+   spirit; Finance compliance rule 4: figures cite a source or are marked estimated).
+3. A type with no declared mappings records nothing. This packet authors Finance's mappings;
+   Affiliate's are a recorded follow-up, not silent scope.
+4. With measurement real, health wording must agree with the band on young companies: below
+   the stall threshold the summary reads as "just getting started", not "Behind on its goals"
+   (closes M6-5 F5 recurrence, M7-F26).
+5. Minimal M7-F22 closure rides along: the planning prompt includes the business type's
+   stored compliance_requirements verbatim — owner-approved stored values, not model prose.
+
+**Rejected:** deferring measurement to M8 (would close M7 against §13 Step 3's stated purpose
+with an empty kpi_values table); capability-result contract changes (§2.2 surgery not needed
+for v1 measurement); model-reported KPI numbers (unauditable, violates compliance rule 4).
+
+**Reversal cost:** low-medium — one activity, type-data mappings, no schema change
+(`kpi_values` exists and is empty).
+
+## M7-F20 … M7-F27 — the wave-1 live run (M7-3)
+
+- **M7-F20 (blocking, environmental):** the Anthropic credential is rejected (401, verified at
+  the API level; $0 spent). Likely the recommended rotation occurring — the owner replaces the
+  key in `.env` directly; it must never transit chat again. Live cycle re-run (M7-3c) waits.
+- **M7-F21 (open → resolved by D-027):** no production caller of `KpiEngine.record`, ever.
+- **M7-F22 (open → minimally closed by D-027.5):** compliance_requirements were stored and
+  read by nothing.
+- **M7-F23 (fixed, M7-3):** pre-approval "never recommends" survived in the type description
+  and docstring; corrected to present-tense fact, guarded by a no-"never" test.
+- **M7-F24 (closed):** per-instance KPI-target path confirmed absent; suggested-target copy
+  works and is the v1 mechanism (M7-F3 resolved).
+- **M7-F25 (open, corroborates M6-F17):** retry re-mints cycle_id — now observed live (three
+  reservations RESERVED→RELEASED across three plan_cycle attempts).
+- **M7-F26 (open → resolved by D-027.4):** healthy band beside "Behind on its goals" on a
+  zero-cycle company.
+- **M7-F27 (verified good):** M6-F9 cycle-failure containment held for a second business type
+  — FAILED cycle recorded in operator language, Manager parked alive on its wake timer.
