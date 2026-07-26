@@ -22,6 +22,9 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from jarvis.approvals.service import ApprovalService
 from jarvis.budget.breaker import CircuitBreaker
 from jarvis.budget.ledger import BudgetLedger
+from jarvis.businesses.affiliate import AFFILIATE
+from jarvis.businesses.definition import BusinessTypeDefinition
+from jarvis.businesses.finance import FINANCE
 from jarvis.capabilities.contention import CapabilityGate
 from jarvis.capabilities.executor import CapabilityExecutor, InMemoryTemplates, PromptTemplates
 from jarvis.capabilities.idempotency import IdempotencyStore
@@ -41,6 +44,19 @@ from jarvis.registry.registry import BusinessRegistry
 from jarvis.security.credentials import CredentialManager
 
 logger = get_logger(__name__)
+
+BUILTIN_TYPES: tuple[BusinessTypeDefinition, ...] = (AFFILIATE, FINANCE)
+"""The business types every installation starts with (spec §13 Steps 1 and 3).
+
+Listed here rather than discovered, and iterated by `ensure_builtin_types`
+rather than named one at a time — the latter is M7-F1, where a second built-in
+type existed, passed its own tests, and could still never reach a live registry
+because startup install mentioned only the first.
+
+These are forward imports (`businesses` is M5, `kernel` is M1); `container.py`
+is one of the composition roots exempted from the layering invariant precisely
+so the object graph can be wired somewhere (docs/DEPENDENCIES.md,
+`tests/test_layering.py`)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -313,19 +329,41 @@ class PlatformKernel:
         Installation is a Registry write, not an import side effect: a type that
         only existed in process memory would vanish on restart (M5-F3), and an
         import-time side effect is invisible in the audit log.
+
+        Iterates :data:`BUILTIN_TYPES` rather than naming one type, because the
+        version gate below was written around a single hardcoded definition and
+        a second built-in could therefore never reach automatic startup install
+        (M7-F1). The gate itself is unchanged and still per-type: `install()` is
+        deliberately not idempotent on a duplicate version (M6-F22, M7-F4), so
+        the caller compares versions and skips — a version bump reinstalls, the
+        same version does not.
+
+        Deliberately still a fixed tuple and not a discovery mechanism: two
+        built-ins are the demonstrated need. A general multi-type installer
+        (plugin discovery, ordering, dependency between types) is M8 design
+        input, and building it here would be the speculative generality §14
+        forbids.
         """
-        from jarvis.businesses.affiliate import AFFILIATE
         from jarvis.businesses.provisioning import ProvisioningService
         from jarvis.kernel.errors import RegistryError
 
         async with self.services() as svc:
             installed = {t.name: t.version for t in await svc.registry.installed_types()}
-            if installed.get(AFFILIATE.name) == AFFILIATE.version:
-                return
-            try:
-                await ProvisioningService(svc.registry, self.build_bus(svc)).install(AFFILIATE)
-            except RegistryError:
-                logger.warning("builtin type install skipped", extra={"context": {}})
+            provisioning = ProvisioningService(svc.registry, self.build_bus(svc))
+            for definition in BUILTIN_TYPES:
+                if installed.get(definition.name) == definition.version:
+                    continue
+                try:
+                    await provisioning.install(definition)
+                except RegistryError:
+                    # One built-in failing to install must not take the others
+                    # with it: a company of the type that *did* install is still
+                    # creatable, and the alternative is a first run where one bad
+                    # definition leaves the operator with no templates at all.
+                    logger.warning(
+                        "builtin type install skipped",
+                        extra={"context": {"name": definition.name}},
+                    )
 
     async def aclose(self) -> None:
         """Release the engine and provider transports."""
