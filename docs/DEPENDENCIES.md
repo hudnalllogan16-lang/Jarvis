@@ -6,8 +6,8 @@ edge, so a future reordering can be argued from the graph instead of from memory
 **Maintained, not decorative.** Update rules are at the bottom. The layering invariant below is
 enforced by `tests/test_layering.py`, so the parts of this document that can rot are checked.
 
-Last updated: M6-4 architecture audit's doc-rot correction (packet M6-4a), mid-M6 — the
-REVISE round (M6-4b, M6-5a) is still in flight.
+Last updated: M7 closure — both gates cleared (architecture MERGE with follow-ups, product
+SHIP); M8 (Plugin framework) is next.
 
 ---
 
@@ -46,8 +46,8 @@ graph TD
 
     classDef done fill:#1F7A5A,stroke:#12151D,color:#fff
     classDef next fill:#E9ECF2,stroke:#33415C,color:#12151D
-    class M1,M2,M3,M4,M5 done
-    class M6 next
+    class M1,M2,M3,M4,M5,M6,M7 done
+    class M8 next
 ```
 
 Solid edges are real dependencies. Dashed edges are §13 ordering with no technical dependency
