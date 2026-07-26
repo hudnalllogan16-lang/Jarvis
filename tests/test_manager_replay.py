@@ -23,9 +23,12 @@ have passed `test_dispatch_capability_runs_in_parallel` below.
 
 from __future__ import annotations
 
+import base64
+import copy
 import json
 import pathlib
 from datetime import datetime, timedelta
+from typing import Any
 
 import pytest
 from temporalio import workflow
@@ -33,7 +36,9 @@ from temporalio.client import WorkflowHistory
 from temporalio.contrib.pydantic import pydantic_data_converter
 from temporalio.worker import Replayer
 
+from jarvis.businesses.affiliate import AFFILIATE
 from jarvis.manager.state import ManagerState
+from jarvis.manager.types import CycleContext
 from jarvis.manager.workflow import BusinessManagerWorkflow
 
 HISTORY_PATH = pathlib.Path(__file__).parent / "fixtures" / "manager_cycle_history.json"
@@ -121,6 +126,88 @@ async def test_the_replay_check_actually_fires() -> None:
     )
     with pytest.raises(Exception) as caught:
         await replayer.replay_workflow(_history())
+    assert "nondeterminism" in str(caught.value).lower()
+
+
+# ── D-027: a new cycle step, and why this history still replays ────────────
+
+
+def _recorded_result(activity_name: str) -> dict[str, Any]:
+    """Return the payload one activity returned in the captured run."""
+    scheduled = {e["eventId"]: _activity_name(e) for e in EVENTS if e["eventType"] == SCHEDULED}
+    for event in EVENTS:
+        attrs = event.get("activityTaskCompletedEventAttributes")
+        if not isinstance(attrs, dict):
+            continue
+        if scheduled.get(attrs["scheduledEventId"]) != activity_name:
+            continue
+        payload = attrs["result"]["payloads"][0]
+        decoded = json.loads(base64.b64decode(payload["data"]).decode())
+        assert isinstance(decoded, dict)
+        return decoded
+    raise AssertionError(f"{activity_name} never completed in this history")
+
+
+def test_the_captured_cycle_context_predates_kpi_measurement() -> None:
+    """Why D-027's new activity does not break this history (spec §11).
+
+    `record_cycle_kpis` is scheduled only when the cycle context says the
+    business's type declares KPI mappings. This history was captured before
+    that field existed, so the recorded `load_cycle_context` result does not
+    carry it and the workflow re-reads the same False it behaved as then —
+    the compatibility hinge D-023 used for `DispatchSequence`, asserted here
+    rather than asserted by the replay passing, because a replay that passes
+    says nothing about *why*.
+    """
+    recorded = _recorded_result("load_cycle_context")
+    assert "measures_kpis" not in recorded
+    assert CycleContext.model_validate(recorded).measures_kpis is False
+
+
+def test_the_business_in_this_history_still_declares_no_kpi_mappings() -> None:
+    """The honesty half of the claim above (D-027.3).
+
+    A default that merely absorbs an old payload would be a compatibility
+    shim: the workflow would replay the past correctly and behave differently
+    if that same company ran today. It would not. This history belongs to an
+    Affiliate company, and Affiliate declares no mappings — its mappings are
+    D-027.3's recorded follow-up — so False is not a concession to the
+    fixture's age, it is what the platform answers for that business now.
+    """
+    assert AFFILIATE.kpi_mappings == ()
+
+
+async def test_measuring_this_cycle_would_have_diverged() -> None:
+    """Negative control on the gate itself: a guard that cannot fail is not one.
+
+    The same real workflow against the same real history, with one byte of the
+    recorded cycle context flipped so the gate opens. The workflow then issues a
+    measurement command the history does not contain and the replayer must
+    reject it — which is what proves the two tests above are load-bearing and
+    that this file would have caught an ungated `record_cycle_kpis`.
+
+    The committed fixture is not touched: the variant is built in memory, and
+    it is deliberately *not* offered as evidence of anything a live run did.
+    """
+    patched = copy.deepcopy(RAW_HISTORY)
+    scheduled = {e["eventId"]: _activity_name(e) for e in EVENTS if e["eventType"] == SCHEDULED}
+    for event in patched["events"]:
+        attrs = event.get("activityTaskCompletedEventAttributes")
+        if not isinstance(attrs, dict):
+            continue
+        if scheduled.get(attrs["scheduledEventId"]) != "load_cycle_context":
+            continue
+        payload = attrs["result"]["payloads"][0]
+        context = json.loads(base64.b64decode(payload["data"]).decode())
+        context["measures_kpis"] = True
+        payload["data"] = base64.b64encode(json.dumps(context).encode()).decode()
+
+    replayer = Replayer(
+        workflows=[BusinessManagerWorkflow],
+        data_converter=pydantic_data_converter,
+    )
+    with pytest.raises(Exception) as caught:
+        await replayer.replay_workflow(WorkflowHistory.from_json(WORKFLOW_ID, patched))
     assert "nondeterminism" in str(caught.value).lower()
 
 

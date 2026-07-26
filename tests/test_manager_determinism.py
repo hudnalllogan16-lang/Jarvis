@@ -130,6 +130,48 @@ def test_the_cycle_id_is_read_defensively_from_the_plan_result() -> None:
     assert 'plan_payload.get("cycle_id")' in SOURCE
 
 
+def test_kpi_measurement_is_gated_on_the_cycle_context() -> None:
+    """D-027.3 plus spec §11, asserted where the failure would be invisible.
+
+    Two properties in one line of source. A type that declares no mappings must
+    record nothing — the workflow cannot know which types those are without
+    doing I/O, so it asks the cycle context. And a history captured before that
+    field existed deserialises to False, which is what keeps
+    `tests/test_manager_replay.py` green with a new activity on the cycle path.
+
+    Ungating this would pass every functional test in the suite and break
+    recovery of every history captured to date, which is exactly the class of
+    defect D-004 exists to keep out of workflow code.
+    """
+    guarded = [
+        node
+        for node in ast.walk(TREE)
+        if isinstance(node, ast.If)
+        and isinstance(node.test, ast.Attribute)
+        and node.test.attr == "measures_kpis"
+        and "record_cycle_kpis" in ast.dump(node)
+    ]
+    assert len(guarded) == 1, "record_cycle_kpis must be scheduled only when the type maps KPIs"
+    assert ast.dump(TREE).count("'record_cycle_kpis'") == 1, "no second, ungated call"
+
+
+def test_measurement_precedes_the_decision_record() -> None:
+    """D-027.1 fixes the order: after synthesis, before the decision record.
+
+    The cycle's entry is what an owner reads; writing it before the figures it
+    describes were measured would let a cycle report a round of work whose
+    numbers were never taken.
+
+    Measured from the synthesis call onwards, because the branch above it — a
+    cycle that planned nothing — records an entry and measures nothing at all,
+    which is the documented shape and not an ordering violation.
+    """
+    body = SOURCE.split("async def _execute_cycle")[1]
+    after_synthesis = body.split('"synthesize_results"')[1]
+    assert "record_cycle_kpis" in after_synthesis
+    assert after_synthesis.index("record_cycle_kpis") < after_synthesis.index("self._record(")
+
+
 def test_pool_retry_is_not_duplicated_at_the_workflow_layer() -> None:
     """Spec §9: bounded retry belongs to the pool.
 

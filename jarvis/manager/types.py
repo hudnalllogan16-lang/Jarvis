@@ -38,6 +38,21 @@ class CycleContext(BaseModel):
     day_ordinal: int = 0
     """Proleptic day number, supplied by the activity's clock read."""
 
+    measures_kpis: bool = False
+    """Whether this business's type declares KPI mappings (D-027.2/.3).
+
+    The workflow needs to know whether a cycle has a measurement step at all,
+    and cannot look: reading the type definition is I/O (D-004). So the activity
+    that loads the rest of the cycle's context loads this too, and the workflow
+    only walks the answer.
+
+    Defaults to False, which is the compatibility hinge D-023 used for
+    `DispatchSequence`: a history captured before this field existed
+    deserialises to False and the workflow issues exactly the commands it issued
+    then (spec §11). That is not a special case for old histories — it is the
+    same answer the platform gives today for the type in them, which declares no
+    mappings."""
+
 
 class PlanRequest(BaseModel):
     """Input to the planning activity."""
@@ -126,6 +141,28 @@ class SynthesisRequest(BaseModel):
     """Dispatches a failed dependency stopped (D-023 point 4). Synthesis is
     required to see *why* a planned step is missing from the results, or it
     would summarise a half-finished cycle as a complete one."""
+
+
+class CycleKpiRequest(BaseModel):
+    """Input to the activity that measures a finished cycle (D-027.1).
+
+    Carries the cycle's own terminal results because they *are* the platform's
+    record of what the cycle did: every one is the recorded output of a
+    `dispatch_capability` activity, which is the replay substrate itself
+    (D-004). Re-deriving them from the database inside the activity would mean
+    matching invocation ids out of JSON payloads across two dialects to
+    reconstruct something the workflow is already holding.
+
+    Which observations these facts become is decided in the activity, from the
+    type's declared mappings — never here, and never by the workflow, which
+    cannot read a type definition without doing I/O.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    business_id: BusinessId
+    cycle_id: str | None = None
+    results: tuple[CapabilityResult, ...] = ()
 
 
 class ProposedAction(BaseModel):

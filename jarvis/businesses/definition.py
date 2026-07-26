@@ -23,6 +23,7 @@ from jarvis.domain.contract import (
     CapabilityType,
     KpiTarget,
 )
+from jarvis.domain.kpi import KpiMapping
 
 
 class BusinessTypeDefinition(BaseModel):
@@ -48,6 +49,18 @@ class BusinessTypeDefinition(BaseModel):
     capability_permissions: tuple[CapabilityPermission, ...] = Field(min_length=1)
     autonomy_policies: tuple[AutonomyPolicy, ...] = ()
     default_kpi_targets: tuple[KpiTarget, ...] = ()
+
+    kpi_mappings: tuple[KpiMapping, ...] = ()
+    """Which of this type's metrics the cycle measures, and from which platform
+    fact (D-027.2). Data, like everything else here — the type declares what a
+    metric *is*, and `record_cycle_kpis` reads it.
+
+    Empty by default and empty is meaningful: a type with no mappings records no
+    observations (D-027.3). Targets without mappings are still legitimate — they
+    are goals nothing has learned to measure yet — so this defaulting to `()`
+    leaves an existing type exactly as it was rather than silently starting to
+    write numbers for it."""
+
     compliance_requirements: tuple[str, ...] = ()
     """Drafted for the owner, signed off per type before launch (Defaults in Force)."""
 

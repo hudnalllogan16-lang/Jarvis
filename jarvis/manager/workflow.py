@@ -46,6 +46,7 @@ with workflow.unsafe.imports_passed_through():
     )
     from jarvis.manager.types import (
         CycleContext,
+        CycleKpiRequest,
         DependentContextRequest,
         DispatchSequence,
         PlanRequest,
@@ -348,6 +349,38 @@ class BusinessManagerWorkflow:
             start_to_close_timeout=ACTIVITY_TIMEOUT,
             retry_policy=STANDARD_RETRY,
         )
+
+        # D-027.1: the cycle measures itself, after synthesis and before the
+        # decision record. An activity, because every number it writes comes
+        # from a database read or a clock (D-004) — and a recorded result, so a
+        # replayed cycle re-reads the figures it wrote rather than re-measuring
+        # a company as it is today.
+        #
+        # Conditional because D-027.3 makes "no declared mappings" mean "records
+        # nothing", and `measures_kpis` is how that answer reaches the workflow
+        # without reading a type definition here. The condition is also what
+        # keeps captured histories replayable (spec §11): a history from before
+        # this field carries no measurement command and deserialises to False,
+        # which is the same answer the platform gives that history's business
+        # today — its type declares no mappings either.
+        #
+        # Not suppressed on failure, unlike the failure-path decision record: a
+        # cycle whose measurement exhausted its retries is a cycle whose figures
+        # nobody has, and M7-F21 is what silent non-measurement looks like after
+        # a milestone. The `ActivityError` reaches `_run_cycle`, which ends the
+        # cycle `FAILED` with an operator-language entry and returns the Manager
+        # to its wake loop (M6-F9) rather than losing it.
+        if ctx.measures_kpis:
+            await workflow.execute_activity(
+                "record_cycle_kpis",
+                CycleKpiRequest(
+                    business_id=state.business_id,
+                    cycle_id=cycle_id or None,
+                    results=results,
+                ),
+                start_to_close_timeout=ACTIVITY_TIMEOUT,
+                retry_policy=STANDARD_RETRY,
+            )
 
         action = (
             ProposedAction.model_validate(synthesis["action"]) if synthesis.get("action") else None

@@ -122,6 +122,13 @@ roadmap revision 2.
 | Approval 24h / 7d timers (§9) | M3 | M4 — `Scheduler.sweep` | Retired |
 | `CredentialManager` (§10) | M2 | M6-3 — `execute_approved_action` / the publish tool (M6-F28) | Retired |
 | Business Manager workflow (§2.1) | M4 | M5 — started by `ManagerLifecycle` | Retired |
+| `KpiEngine.record` (§5, §11 dashboard) | M3 | M7-3b — `record_cycle_kpis` (D-027) | Retired |
+
+**The entry this ledger missed.** `KpiEngine.record` was written in M3 and had no caller for four
+milestones — it was never listed here, so the debt accrued invisibly and was found by a live run
+instead (M7-F21: `kpi_values` had never held a row, so every company's goal attainment was
+structurally zero rather than merely unmeasured). It is the ledger's own worked example of why
+the rule is "add the row when you build the component", not "add it when someone notices".
 
 **Deferred at M5.** `CredentialManager` was scheduled to gain a caller here through generic tool
 execution. Building it found the plan self-defeating: a tool-execution layer with no concrete tool

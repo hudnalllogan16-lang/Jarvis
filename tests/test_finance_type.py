@@ -27,6 +27,7 @@ from jarvis.domain.contract import (
     CapabilityType,
     WakeConditions,
 )
+from jarvis.domain.kpi import KpiMapping, KpiSource
 from jarvis.events.bus import EventBus
 from jarvis.events.types import APPROVAL_DECIDED
 from jarvis.kernel.errors import DuplicateBusinessError
@@ -199,6 +200,46 @@ def test_nothing_this_type_publishes_promises_it_will_never_recommend() -> None:
             f"{where} makes a permanent promise the owner explicitly rejected "
             '(DECISIONS.md "M7 owner decision")'
         )
+
+
+def test_kpi_mappings_are_declared_as_data() -> None:
+    """D-027.2 over D-014: a type says which fact each metric is, as values.
+
+    The mappings sit in the same frozen model as everything else here — the AST
+    gate above already proves this module holds no logic, so a mapping cannot
+    be a function that computes a number. What each source *means* is the
+    platform's, in `jarvis/domain/kpi.py`.
+    """
+    assert FINANCE.kpi_mappings
+    for mapping in FINANCE.kpi_mappings:
+        assert isinstance(mapping, KpiMapping)
+        assert isinstance(mapping.source, KpiSource)
+
+
+def test_every_target_this_type_sets_is_one_it_can_measure() -> None:
+    """A target with no mapping is a goal nothing will ever score against.
+
+    That is legal — D-027.3 allows a type to declare no mappings at all — but
+    it is not what Finance means: this type exists to exercise the KPI pattern
+    (§13 Step 3), and a target it cannot measure would leave attainment
+    permanently short by a third, which is M7-F21 in miniature.
+    """
+    assert {m.key for m in FINANCE.kpi_mappings} == {t.key for t in FINANCE.default_kpi_targets}
+
+
+def test_the_version_was_bumped_so_the_live_registry_adopts_the_mappings() -> None:
+    """M6-F22 / M7-F4: `ensure_builtin_types` is version-gated.
+
+    `install()` refuses a duplicate version and the caller compares before
+    calling, so a definition edited without a version bump never reaches a
+    registry that already holds the old one — the type would keep serving
+    1.0.0 and measure nothing. Not a major bump, on purpose: A-003 resets
+    graduation counters on a major change, and measurement changes nothing
+    about what this type may do (the same call M6-F22 made for affiliate).
+    """
+    assert FINANCE.version == "1.0.1"
+    assert FINANCE.version != "1.0.0", "an unbumped definition never reaches a live registry"
+    assert FINANCE.major_version == 1
 
 
 async def test_finance_installs_through_the_same_generic_mechanism_as_affiliate(
