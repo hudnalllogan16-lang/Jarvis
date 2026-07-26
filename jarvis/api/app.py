@@ -177,6 +177,44 @@ def create_app(kernel: PlatformKernel) -> FastAPI:
             )
         return out
 
+    async def _ever_measured(svc: KernelServices, contract: BusinessContract) -> bool:
+        """Whether any of this company's KPI targets has a recorded observation.
+
+        M7-5b item 4 (lower-priority half): `KpiEngine.attainment()` scores a
+        target with no observation yet identically to one measured and scored
+        a genuine zero — both are simply skipped out of the ratio, and "no
+        ratios" and "every ratio zero" both read as `attainment == 0` (D-020's
+        `zero_attainment_stall` cannot tell them apart from that one integer).
+        Reuses `KpiEngine.latest`, the exact per-key read `attainment()`
+        already performs — no new query — so this is cheap, and is called
+        only for the one band (`zero_attainment_stall`) where the distinction
+        changes the sentence.
+        """
+        if not contract.kpi_targets:
+            return False
+        engine = KpiEngine(svc.session)
+        for target in contract.kpi_targets:
+            if await engine.latest(contract.business_id, target.key) is not None:
+                return True
+        return False
+
+    def _stuck_reading(stuck_count: int) -> str:
+        """Plain-language reading of the stuck-work part (M7-5b item 1).
+
+        Was labelled "Rounds completed" over `health.reliability` — a bare
+        0-100 penalty score (`max(0, 100 - stuck_count*20)`, engine.py) that
+        counts no rounds and completes nothing; a company mid-way through a
+        feed of failed rounds could still read 100. D-007's own phrasing for
+        this fact is "[Company] got stuck", so the label states the same
+        reading `_summarise`'s stuck branch already uses, honestly, as the
+        label rather than a noun the number cannot support. The metric
+        (`reliability`, still the value shown beside it) is untouched.
+        """
+        if stuck_count == 0:
+            return "Nothing stuck"
+        noun = "task" if stuck_count == 1 else "tasks"
+        return f"{stuck_count} {noun} stuck"
+
     async def _company_payload(
         svc: KernelServices, row: Any, types: dict[str, dict[str, str]]
     ) -> dict[str, Any]:
@@ -189,6 +227,16 @@ def create_app(kernel: PlatformKernel) -> FastAPI:
         state = LifecycleState(row.lifecycle_state)
         kind = types.get(row.business_type, {})
 
+        health_reason = health.summary
+        if health.zero_attainment_stall and not await _ever_measured(svc, contract):
+            # M7-5b item 4 (lower-priority half): the card said "Set goals
+            # but hasn't hit any of them yet." — which reads as a tried-and-
+            # missed goal — for a company whose goals drill-down shows every
+            # target still unmeasured. Same band (`watch` is unaffected),
+            # honest wording for the sub-case the number alone cannot tell
+            # apart from a real miss.
+            health_reason = "Set goals, but nothing's been measured yet."
+
         return {
             "id": row.business_id,
             "name": row.display_name,
@@ -198,15 +246,10 @@ def create_app(kernel: PlatformKernel) -> FastAPI:
             "running": state is LifecycleState.ACTIVE,
             "health": health.score,
             "health_band": health.band,
-            "health_reason": health.summary,
+            "health_reason": health_reason,
             "health_parts": {
                 "Budget left": health.budget_headroom,
-                # Renamed from "Finishing its work" (M7-F60): the number
-                # behind it counts completed wake cycles, not useful output —
-                # honest by the metric's own definition, misleading under the
-                # old label. The metric itself is untouched; only the word
-                # naming it changed.
-                "Rounds completed": health.reliability,
+                _stuck_reading(health.stuck_count): health.reliability,
                 "Hitting its goals": health.kpi_attainment,
             },
             "spent": float(spend),

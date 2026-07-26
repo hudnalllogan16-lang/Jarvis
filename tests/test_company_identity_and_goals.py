@@ -29,8 +29,8 @@ from jarvis.businesses.finance import FINANCE
 from jarvis.kernel.config import LLMSettings, Settings
 from jarvis.kernel.container import PlatformKernel
 from jarvis.kernel.ids import BusinessId
-from jarvis.kpi.engine import KpiEngine
-from jarvis.persistence.models import Base
+from jarvis.kpi.engine import STALLED_CYCLE_THRESHOLD, KpiEngine
+from jarvis.persistence.models import Base, DecisionLogRow
 
 
 class _NoProvider:
@@ -85,6 +85,23 @@ async def _create(kernel: PlatformKernel, definition, name: str) -> str:  # type
         return str(business_id)
 
 
+async def _add_completed_cycles(
+    kernel: PlatformKernel, business_id: str, count: int, *, prefix: str
+) -> None:
+    async with kernel.services() as svc:
+        for n in range(count):
+            svc.session.add(
+                DecisionLogRow(
+                    decision_id=f"dec_{prefix}_{n}",
+                    business_id=business_id,
+                    cycle_id=f"cyc_{prefix}_{n}",
+                    summary="A wake cycle finished.",
+                    rationale="Nothing more to do this round.",
+                )
+            )
+        await svc.session.flush()
+
+
 # ── item 1: a company's kind survives creation ─────────────────────────────
 
 
@@ -132,18 +149,51 @@ async def test_two_kinds_of_company_are_visibly_different(
 # ── item 2 / item 5: health_parts render, honestly labelled ────────────────
 
 
-async def test_health_parts_uses_the_honest_label(
+async def test_health_parts_label_reads_nothing_stuck_when_nothing_is(
     kernel: PlatformKernel, api: httpx.AsyncClient
 ) -> None:
-    """M7-F60: "Finishing its work" is invocation-based, not useful-output —
-    renamed rather than left to imply a metric that does not exist."""
+    """M7-F60/M7-F67: "Finishing its work"/"Rounds completed" both claimed a
+    metric (invocations, rounds) the underlying number does not count — it is
+    `max(0, 100 - stuck_count*20)`, a stuck-task penalty. The label now says
+    exactly that, D-007's own phrasing ("[Company] got stuck")."""
     await _create(kernel, AFFILIATE, "Weekend Reviews")
     companies = (await api.get("/api/companies")).json()
 
     parts = companies[0]["health_parts"]
-    assert "Rounds completed" in parts
+    assert "Nothing stuck" in parts
+    assert parts["Nothing stuck"] == 100
+    assert "Rounds completed" not in parts
     assert "Finishing its work" not in parts
-    assert set(parts) == {"Budget left", "Rounds completed", "Hitting its goals"}
+    assert set(parts) == {"Budget left", "Nothing stuck", "Hitting its goals"}
+
+
+async def test_health_parts_label_counts_stuck_work_honestly(
+    kernel: PlatformKernel, api: httpx.AsyncClient
+) -> None:
+    """The other direction: a company with stuck work must not still read
+    "Nothing stuck" — the label tracks the same `stuck_count` the number
+    (`health.reliability`) already penalises."""
+    from jarvis.persistence.models import DeadLetterRow
+
+    business_id = await _create(kernel, AFFILIATE, "Weekend Reviews")
+    async with kernel.services() as svc:
+        svc.session.add(
+            DeadLetterRow(
+                invocation_id="inv_1",
+                business_id=business_id,
+                capability="research",
+                attempts=3,
+                operator_summary="Couldn't finish a task.",
+                technical_detail="stub",
+            )
+        )
+        await svc.session.flush()
+
+    companies = (await api.get("/api/companies")).json()
+    parts = companies[0]["health_parts"]
+
+    assert "1 task stuck" in parts
+    assert parts["1 task stuck"] == 80
 
 
 # ── item 2: the goals drill-down ────────────────────────────────────────────
@@ -194,3 +244,43 @@ async def test_goals_drill_down_is_opt_in_not_on_the_default_card(
     companies = (await api.get("/api/companies")).json()
 
     assert "goals" not in companies[0]
+
+
+# ── item 4 (lower priority): card wording agrees with the drill-down ───────
+
+
+async def test_card_says_nothing_measured_when_the_stall_is_never_measured(
+    kernel: PlatformKernel, api: httpx.AsyncClient
+) -> None:
+    """M7-5b item 4: Summit's card read "Set goals but hasn't hit any of them
+    yet." — a tried-and-missed sentence — beside a drill-down showing its one
+    target was never measured at all. `attainment()` scores "no observation"
+    and "measured, got zero" identically (both are `attainment == 0`); the
+    card can tell them apart the same way the drill-down already does
+    (`KpiEngine.latest`), so it now does.
+    """
+    business_id = await _create(kernel, AFFILIATE, "Weekend Reviews")
+    await _add_completed_cycles(kernel, business_id, STALLED_CYCLE_THRESHOLD, prefix="stalled")
+
+    companies = (await api.get("/api/companies")).json()
+
+    assert companies[0]["health_band"] == "watch"
+    assert companies[0]["health_reason"] == "Set goals, but nothing's been measured yet."
+
+
+async def test_card_keeps_the_tried_and_missed_wording_for_a_real_zero(
+    kernel: PlatformKernel, api: httpx.AsyncClient
+) -> None:
+    """Negative control: a target that was actually measured and came back
+    zero is a real miss, not an unmeasured one — the original wording stays."""
+    business_id = await _create(kernel, AFFILIATE, "Weekend Reviews")
+    async with kernel.services() as svc:
+        await KpiEngine(svc.session).record(
+            business_id=BusinessId(business_id), key="posts_published", value=Decimal("0")
+        )
+    await _add_completed_cycles(kernel, business_id, STALLED_CYCLE_THRESHOLD, prefix="stalled")
+
+    companies = (await api.get("/api/companies")).json()
+
+    assert companies[0]["health_band"] == "watch"
+    assert companies[0]["health_reason"] == "Set goals but hasn't hit any of them yet."

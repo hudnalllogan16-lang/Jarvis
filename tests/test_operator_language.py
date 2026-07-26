@@ -116,6 +116,34 @@ def test_doing_now_truncation_carries_a_details_affordance() -> None:
     assert "c.doing.endsWith('…')" in html
 
 
+def test_goal_reading_does_not_stutter_measured_not_measured() -> None:
+    """M7-5b item 3: an unmeasured KPI target rendered "measured not measured
+    yet" — the same word twice in four words. Pinned so it cannot return."""
+    html = DASHBOARD.read_text()
+    assert "measured not measured yet" not in html
+
+
+def test_all_unmeasured_goals_collapse_to_one_sentence() -> None:
+    """M7-5b item 3: when every goal is unmeasured — the whole drill-down for
+    both affiliate companies live — one clean sentence replaces what would
+    otherwise be a per-target list of "not measured yet" stutters."""
+    html = DASHBOARD.read_text()
+    assert "goals.every(g => g.measured === null)" in html
+
+
+def test_kind_and_kind_description_are_escaped_before_rendering() -> None:
+    """M7-5b item 4: `c.kind`/`c.kind_description` interpolated straight into
+    markup, unescaped, against the dashboard script's own stated invariant —
+    "nothing on this card is trusted text... every value is escaped before it
+    becomes markup." Pinned structurally so a future edit cannot quietly drop
+    `esc()` from either again."""
+    html = DASHBOARD.read_text()
+    assert "${esc(c.kind)}" in html
+    assert "${esc(c.kind_description)}" in html
+    assert "${c.kind}" not in html
+    assert "${c.kind_description}" not in html
+
+
 def test_create_dialog_error_uses_the_error_style_not_the_timestamp_style() -> None:
     """M7 product re-review F4: "Give it a name first." rendered in `.waited`
     -- an 11px grey mono class built for a card's "waiting 3h ago" timestamp,
