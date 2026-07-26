@@ -34,6 +34,21 @@ per id kind, so a future id shape is still caught."""
 
 _ID_REPLACEMENT = "something"
 
+_ID_ONLY_PAREN_PATTERN = re.compile(
+    r"\s?\((?:\s*\b(?:apr|biz|cyc|dec|inv|evt|ntf)_[0-9a-f]{6,}\b\s*[,;]?\s*)+\)",
+    re.IGNORECASE,
+)
+"""A parenthetical whose *entire* content is one or more platform ids (M6
+product re-review F2, carried into M7-2: "a pending approval (something)"
+read as a bug — found live as "An approval request
+(apr_1a161be0303c4cf5910e51e50c7d6775) is pending review."). The parenthetical
+existed only to name the id; once the id is gone it is a vestigial pair of
+parens around a placeholder, not information. Dropped whole, together with
+the leading space, so the sentence reads as prose rather than a redaction.
+A parenthetical that mixes an id with other words (e.g. "(see apr_1a2b3c4d)")
+is left to the plain `_ID_PATTERN` substitution below — there the parens are
+doing other work and removing them would delete real content."""
+
 _RAW_LIFECYCLE_WORDS: dict[str, str] = {
     word: OPERATOR_LABELS[state]
     for state in LifecycleState
@@ -62,6 +77,7 @@ full text — this limit applies only to the card."""
 
 
 def _strip_ids(text: str) -> str:
+    text = _ID_ONLY_PAREN_PATTERN.sub("", text)
     return _ID_PATTERN.sub(_ID_REPLACEMENT, text)
 
 

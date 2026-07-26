@@ -12,6 +12,7 @@ stored values — so what they read is what they authorise.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Mapping
 from decimal import Decimal
 
@@ -34,10 +35,64 @@ TECHNICAL_TERMS = frozenset(
         "retry",
         "dead-letter",
         "dead letter",
+        "business",
     }
 )
 """Concepts §12.5 forbids in the default UI. Used to assert, not to filter —
-stripping them would hide a caller writing operator text in the wrong register."""
+stripping them would hide a caller writing operator text in the wrong register.
+
+`business` was added carrying the runtime-guard follow-up from the M6 product
+re-review: D-007's own translation table requires Business -> Company, so the
+raw word is exactly as forbidden here as `workflow` or `retry` are — it had
+simply never been listed."""
+
+_MORPHOLOGICAL_VARIANTS: dict[str, tuple[str, ...]] = {
+    "workflow": ("workflow", "workflows"),
+    "dag": ("dag", "dags"),
+    "agent": ("agent", "agents"),
+    "worker": ("worker", "workers"),
+    "capability": ("capability", "capabilities"),
+    "prompt": ("prompt", "prompts", "prompted", "prompting"),
+    "token": ("token", "tokens"),
+    # "wake cycle" found live (M6 product re-review, runtime term coverage)
+    # passing through as "woken" -- a plain substring/phrase check for "wake
+    # cycle" never matches a wholly different word derived from the same
+    # concept. "waking" is added as the same kind of gap before it is found
+    # live rather than after. Bare "wake"/"wakes" are deliberately left out:
+    # unlike "woken"/"waking", they collide with ordinary English ("wake up",
+    # "in the wake of") that this Manager-authored prose is not stretching to
+    # use technically, and no live failure has demonstrated otherwise.
+    "wake cycle": ("wake cycle", "wake cycles", "woken", "waking"),
+    "temporal": ("temporal",),
+    "event bus": ("event bus", "event buses"),
+    "orchestration": ("orchestration", "orchestrated", "orchestrating"),
+    "credential scope": ("credential scope", "credential scopes"),
+    "retry": ("retry", "retries", "retrying", "retried"),
+    "dead-letter": ("dead-letter", "dead-letters"),
+    "dead letter": ("dead letter", "dead letters"),
+    # D-007: Business -> Company. "businesslike"/"businesswoman" etc. do not
+    # match: word-boundary matching requires a non-word character on both
+    # sides, so the word has to stand alone the way "company" would.
+    "business": ("business", "businesses"),
+}
+"""Word-boundary variants per forbidden concept (runtime term coverage,
+M6 product re-review). A naive substring check (`term in text`) already
+catches most plurals and inflections by accident (`"retry" in "retrying"`),
+but a real word-boundary match does not get that accident for free -- it has
+to be told about "workers", "capabilities", "retrying" explicitly, the same
+way it has to be told that "woken" is a form of "wake cycle" rather than a
+different word. Enumerated rather than stemmed: a stemmer would also decide
+silently whether e.g. "businesslike" stems to "business", and that decision
+belongs in this reviewed list, not in a library's heuristics."""
+
+_TECHNICAL_TERM_PATTERN = re.compile(
+    r"\b(?:"
+    + "|".join(
+        re.escape(variant) for variants in _MORPHOLOGICAL_VARIANTS.values() for variant in variants
+    )
+    + r")\b",
+    re.IGNORECASE,
+)
 
 
 def format_money(amount: Decimal) -> str:
@@ -178,6 +233,15 @@ def contains_technical_language(text: str) -> bool:
     """Return whether ``text`` uses a concept §12.5 bars from the default UI.
 
     Used in tests as an executable check on §12.5 rather than a review habit.
+
+    Matches whole words/phrases via `_TECHNICAL_TERM_PATTERN` rather than a
+    plain substring test. Two live failures showed a substring test was not
+    enough: it happens to catch some inflections for free ("retry" inside
+    "retrying") but not others ("worker" is not inside "workers", and "woken"
+    is not inside "wake cycle" at all — a different word for the same
+    concept). A word-boundary match also closes the false-positive side of
+    the same gap for free: "woken" no longer matches inside "awoken", because
+    a real word boundary requires a non-word character on both sides and
+    "awoken" has none between its "a" and "woken".
     """
-    lowered = text.lower()
-    return any(term in lowered for term in TECHNICAL_TERMS)
+    return _TECHNICAL_TERM_PATTERN.search(text) is not None

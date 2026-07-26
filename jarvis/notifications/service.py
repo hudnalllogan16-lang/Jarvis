@@ -11,12 +11,13 @@ from __future__ import annotations
 from collections.abc import Sequence
 from enum import StrEnum
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from jarvis.approvals.models import ApprovalState
 from jarvis.kernel.ids import BusinessId
 from jarvis.kernel.logging import get_logger
-from jarvis.persistence.models import NotificationRow
+from jarvis.persistence.models import ApprovalRow, NotificationRow
 
 logger = get_logger(__name__)
 
@@ -78,10 +79,43 @@ class NotificationService:
         return notification_id
 
     async def unread(self, *, limit: int = 50) -> Sequence[NotificationRow]:
-        """Return unread notifications, newest first."""
+        """Return unread notifications, newest first.
+
+        Reconciled against reality on every read (M6 product re-review F1):
+        a notification of an approval-linked kind (`NEEDS_APPROVAL`,
+        `REMINDER` — both always carry `link_ref = approval_id`, see
+        `request_approval` in `jarvis/manager/activities.py` and `_renotify`
+        in `jarvis/scheduler/service.py`) is excluded unless that approval
+        still exists *and* is still pending. "No longer pending" covers every
+        way that can happen — decided through `/api/decide` (which also
+        resolves it eagerly, in `_decide`), expired by the scheduler's 7-day
+        sweep, or any future path that changes `ApprovalRow.state` without
+        remembering to call `resolve_for` — and so does "never existed at
+        all": live data held exactly this case, two `needs_approval`
+        notifications whose `link_ref` named no row in `approvals` at all
+        (M7 verification, real dev DB). Both are "not currently pending", so
+        both are excluded the same way. The eager resolve on decide stays;
+        this is the backstop so a gap in event coverage — or a row that was
+        simply never written — strands a notification in the operator's
+        queue forever instead of for one read.
+
+        A notification of any other kind is untouched by this filter even if
+        it happens to carry a `link_ref` (e.g. a future kind pointing at a
+        dead-letter id) — reconciling against `ApprovalRow` is only correct
+        for the kinds that are actually approval-linked.
+        """
         stmt = (
             select(NotificationRow)
+            .outerjoin(ApprovalRow, ApprovalRow.approval_id == NotificationRow.link_ref)
             .where(NotificationRow.read.is_(False))
+            .where(
+                or_(
+                    NotificationRow.kind.not_in(
+                        [NotificationKind.NEEDS_APPROVAL.value, NotificationKind.REMINDER.value]
+                    ),
+                    ApprovalRow.state == ApprovalState.PENDING.value,
+                )
+            )
             .order_by(NotificationRow.created_at.desc())
             .limit(limit)
         )
