@@ -1231,3 +1231,28 @@ packet-writing time. Full protocol: DELEGATION.md "Lanes, worktrees, and the mer
 §14/D-019 forbid the speculation). M7 pilots the workflow at 2 implementation lanes.
 
 **Reversal cost:** none — process only; reverting is a DELEGATION.md edit.
+
+---
+
+## M7-F1 … M7-F4 — the D-014 verdict (M7-1, wave 0 of the pilot)
+
+The Finance Tracking type is pure data and passes the same AST gate as Affiliate — D-014
+holds for the type itself. The gaps are in the platform, exactly where a second type would
+find them:
+
+- **M7-F1 (escalated → Manager decision):** `ensure_builtin_types` hardcodes AFFILIATE; a
+  second built-in cannot reach automatic startup install. Decision: minimal composition-root
+  fix in wave 1 (a BUILTIN_TYPES tuple iterated with the existing version gate) — container.py
+  is a permitted exception (DEPENDENCIES layering), and this is demonstrated need, not
+  framework speculation. The general multi-type installer remains M8 design input.
+- **M7-F2 (informational):** KPI_THRESHOLD_BREACHED would suit this type but is excluded per
+  the owner-approved schedule-only scope. Revisit only with an owner scope change.
+- **M7-F3 (open, routed to M7-3):** no contract/create field for per-instance "which metrics
+  to track" or KPI overrides. M7-3 uses existing contract KPI-target mechanisms; if no path
+  exists, that is an escalation and M8 evidence — not a schema to invent mid-milestone.
+- **M7-F4 (confirmed by test):** same-version reinstall raises DuplicateBusinessError; the
+  version gate correctly lives in the caller (reinforces M6-F22).
+
+Naming ratified: `finance_tracking` (avoids colliding with CapabilityType.FINANCE). The
+compliance_requirements draft awaits owner sign-off before any Finance company launches —
+recorded in the M7-1 report; launch is blocked on it, merge was not.
