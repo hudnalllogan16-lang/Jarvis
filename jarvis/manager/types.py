@@ -38,6 +38,28 @@ class CycleContext(BaseModel):
     day_ordinal: int = 0
     """Proleptic day number, supplied by the activity's clock read."""
 
+    kpi_targets: tuple[KpiTargetState, ...] | None = None
+    """The targets this business is currently working to, from its contract.
+
+    Loaded per cycle rather than carried, closing M8-F7. `ManagerState` is
+    seeded with the contract's targets once, when the Manager starts, and then
+    carries them across every cycle and every `continue_as_new` — so a target
+    changed on the contract reaches every operator-facing number immediately
+    (the API reads the contract) while the planner keeps working to the figures
+    it was started with, for up to a hundred cycles. There is no contract
+    refresh path today (M7-F24), which is why this was invisible rather than
+    absent; the fix belongs with the rest of the post-wake snapshot, not with
+    whatever ships that path.
+
+    `None`, not `()`, is the pre-M8-3 marker, and the distinction is the whole
+    point: a history captured before this field carries no answer at all and the
+    workflow keeps using the state it carried, while `()` is a live, current
+    answer meaning *this business has no targets set*. Defaulting to `()` would
+    make those two indistinguishable and would silently ignore a future refresh
+    that removed the last target. Bounded by the contract's own target count, so
+    D-005's working set is unaffected — this is a per-cycle payload, not
+    accumulated state."""
+
     measures_kpis: bool = False
     """Whether this business's type declares KPI mappings (D-027.2/.3).
 

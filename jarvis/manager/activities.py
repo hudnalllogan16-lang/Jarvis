@@ -48,7 +48,7 @@ from jarvis.kernel.ids import (
 from jarvis.kernel.logging import get_logger
 from jarvis.kernel.runtime import RuntimeIdentity
 from jarvis.llm.base import CompletionRequest, Message, Role
-from jarvis.manager.state import PlanItem, TacticalPlan
+from jarvis.manager.state import KpiTargetState, PlanItem, TacticalPlan
 from jarvis.manager.types import (
     CycleContext,
     CycleKpiRequest,
@@ -164,6 +164,13 @@ class ManagerActivities:
         same reason one step further out — the workflow has to know whether the
         cycle has a measurement step, and reading a type definition is a
         Registry read.
+
+        The contract's KPI targets travel with it too (M8-F7). They are what the
+        planner is asked to work to, and holding them in workflow state meant
+        holding whatever they were when the Manager started — up to a hundred
+        cycles of drift the moment a contract-refresh path exists (M7-F24).
+        Copied, never authored: targets are set by the Executive Layer and the
+        Manager has no method to change one.
         """
         identity = RuntimeIdentity.from_activity()
         await self._assert_identity(identity, business_id, reached="contract")
@@ -180,6 +187,14 @@ class ManagerActivities:
                 max_cycles_per_day=contract.wake_conditions.max_cycles_per_day,
                 wake_cycle_ceiling_usd=contract.budget.wake_cycle_ceiling_usd,
                 day_ordinal=datetime.now(UTC).date().toordinal(),
+                kpi_targets=tuple(
+                    KpiTargetState(
+                        key=target.key,
+                        target_value=target.target_value,
+                        operator_label=target.operator_label,
+                    )
+                    for target in contract.kpi_targets
+                ),
                 measures_kpis=bool(_declared_kpi_mappings(definition)),
             ).model_dump(mode="json")
 
