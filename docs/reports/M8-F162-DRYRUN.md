@@ -611,3 +611,24 @@ test_lane_env.py round-trip guard, one commit).
 No code was changed in this round beyond this report file (docs-only). No `.env` file was read
 or printed. `scripts/gates.sh` was not required to re-run for a docs-only change but the
 worktree was confirmed clean before and after (`git status`).
+
+---
+
+## 7. Execution outcome (appended by the Engineering Manager, the authorized executor)
+
+Executed 2026-07-27 by Fable directly, under the owner''s recorded authorization
+(main commit da3ba5d) after the worker''s two verify-first refusals — both refusals correct
+under M8-F120 and preserved in the record; the mid-task mandate reversal that triggered them
+is itself the process lesson (see the M9 DELEGATION amendment).
+
+- Dry-run re-verified first: 500 total on `default` (22 more than §1''s 478 — the §6 routing
+  defect leaks ~20 orphans per full gates run, same evidence class: absent from the 3-row
+  business_instances table), 3 protected skips by exact id, 0 non-BusinessManager types.
+- `--execute`: **terminated 497/497, zero errors, nothing left-and-listed.**
+- After: **exactly 3 RUNNING executions remain**, and they are precisely the protected trio,
+  each individually described as RUNNING:
+  `bm-biz_6f548e12d9b145bfb53ed2e72f764b8b` (Trailhead Gear Reviews),
+  `bm-biz_5908873296374587aa15121f0a369ec1` (Summit Trail Gear),
+  `bm-biz_08122842a3034381abe3726d47464f16` (Portfolio Watch).
+- The §5 script ran byte-for-byte as audited, from the scratchpad copy extracted from this
+  report; the §6 routing fix follows as a separate commit on this lane so the leak stops.
