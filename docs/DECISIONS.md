@@ -1654,3 +1654,23 @@ stored inside plugin_metadata (no schema change); plain audit-event/field naming
 - **M8-F61 (open):** not_ready_count has no UI consumer — packet D wires the operator view.
 - **M8-F62 (note):** SQLite tz-preservation quirk on DateTime(timezone=True) — Postgres
   unaffected; note for future timestamp tests.
+
+## M8-F79 … M8-F84 — Application Shell round (M8-4, wave 1 Lane B)
+
+UI Phase 2 merged (790 tests on main): rail + routing + focus containment, four REAL
+workspaces (Command Center, Companies, Approvals, Settings); Managers/Goals/Activity/Audit
+reserved in the design doc and emitting nothing — "a nav item is a promise that a
+destination exists," enforced by a bidirectional rail↔pane test. Single-active-workspace
+painting eliminates duplicate-id risk on approval corrections. All six inherited debts paid;
+M8-F79–F82 fixed in-lane.
+
+Manager rulings on the two flagged items: (1) **Audit stays level 3** — §11.5's ladder is
+architecture, not preference; a top-level Audit destination would invert it. Reserved slot
+remains reserved. (2) **Font vendoring needs owner sign-off** (M8-F21 closed by deleting the
+CDN; the display face currently rests on fallback+weight — vendoring the OFL binaries is a
+one-commit follow-up the owner must approve since it ships third-party assets into the repo).
+
+Open: **M8-F83** (background not inert behind an open sheet — assistive-tech audit follow-up);
+operator-surface pass owed on new placeholder copy (top-bar status words, notification-center
+and parts-of-app empty states, "Updates" label); cross-company Goals/Activity read endpoints
+are an API-surface question for the workspace phase (M8-F70-series context in the report).
