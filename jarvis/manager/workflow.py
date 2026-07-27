@@ -115,6 +115,27 @@ descriptive of the change rather than of the milestone; never a bare literal at
 the call site; each id used by exactly one `workflow.patched` call.
 """
 
+PATCH_PAUSED_WAKE_NOTICE = "paused-dropped-wake-notice"
+"""Versioning id for D-035: a wake reason a pause drops is surfaced, not lost.
+
+The branch this guards is one a *running* execution sits on. A paused company's
+Manager is parked in the non-dispatchable wait below, and a paused company is
+the ordinary state of a business whose operator has stopped it — so this is
+precisely the "history in flight" case D-033 was written for, and the one
+`PATCH_POST_WAKE_CONTEXT`'s own record calls out. Without the gate, a Manager
+parked on a pause when this shipped would issue a `record_dropped_wake` its
+history never recorded, and fail on recovery.
+
+Neither committed fixture can demonstrate that, because neither ever read a
+non-dispatchable context — asserted, per fixture, in
+`tests/test_workflow_versioning.py` rather than assumed, since "the fixtures
+still replay" is a weaker claim when the branch was unreachable in them anyway.
+The gate's own evidence is therefore the scripted pair in that file: the same
+loop driven with the version decision open and closed, showing the command
+appears only on the new path and that the old path is still the silent drop
+D-035 describes as today's behaviour.
+"""
+
 CEILING_REFUSAL_TYPES = frozenset({"BudgetExceededError", "CircuitBreakerOpenError"})
 """Failure types that mean *a ceiling refused the work*, not that the work failed
 (D-003). Matched by name because a workflow sees a serialised failure, never the
@@ -235,6 +256,22 @@ class BusinessManagerWorkflow:
         `continue_as_new` cannot happen inside a park because a park never
         completes a cycle.
 
+        **A pause drops what woke it, and says so (D-035).** "Paused by you"
+        means nothing happens, so the reasons are dropped rather than queued
+        for automatic execution at resume — an operator who paused a company
+        precisely to stop it must not be surprised by a burst of work when they
+        start it again. Dropping them silently is the other half of the same
+        mistake, and it is what this loop did until now: an answer the operator
+        had already given simply vanished. So each dropped reason is reported
+        (`_report_dropped_wakes`) before the queue is cleared. Two places do the
+        dropping — the pause the loop starts on, and a pause that lands while it
+        waits — and both report.
+
+        **The ordinal resets at the continuation (M8-F87).** `cycles_completed`
+        counts what this execution's history holds, so the generation that
+        starts with an empty history starts at zero. Carrying the count over
+        made `CYCLES_BEFORE_CONTINUATION` bind exactly once per Manager.
+
         Args:
             state: Durable state, carried across continuations (D-005).
 
@@ -255,7 +292,13 @@ class BusinessManagerWorkflow:
                 # Paused, retiring, or retired (D-008 I-4). Wait to be woken
                 # rather than polling: a paused company must cost nothing.
                 await workflow.wait_condition(lambda: bool(self._wake_reasons))
+                # Taken and cleared without an await between them, so a signal
+                # arriving while the reports are being written stays queued for
+                # the next turn round this loop rather than being cleared
+                # unreported — which is the same silent drop one layer in.
+                dropped = list(self._wake_reasons)
                 self._wake_reasons.clear()
+                await self._report_dropped_wakes(state.business_id, dropped)
                 continue
 
             fired = await self._await_wake(wake_ctx)
@@ -284,6 +327,12 @@ class BusinessManagerWorkflow:
                     # and re-check lifecycle themselves (M6-F1's fix, and audit
                     # F-B confirms the stale read was never a hole). It is the
                     # planning call it saves.
+                    #
+                    # The reasons that woke it are already out of the queue, so
+                    # this is the *second* place a pause drops one and it drops
+                    # them just as silently — D-035 applies here for the same
+                    # reason it applies above, and the same gate covers both.
+                    await self._report_dropped_wakes(state.business_id, reasons)
                     continue
 
             state = await self._run_cycle(
@@ -292,7 +341,12 @@ class BusinessManagerWorkflow:
             self._state = state
 
             if state.cycles_completed >= CYCLES_BEFORE_CONTINUATION:
-                workflow.continue_as_new(state)
+                # `continued()`, not `state`: the ordinal counts what *this*
+                # history holds, and the next generation starts with an empty
+                # one. Handing the count over intact made the threshold bind
+                # once in a Manager's life — from cycle 100 on, every single
+                # cycle continued as new (M8-F87).
+                workflow.continue_as_new(state.continued())
 
     async def _load_context(self, business_id: str) -> CycleContext | None:
         """Read this business's current snapshot, or None if it cannot be read.
@@ -388,6 +442,50 @@ class BusinessManagerWorkflow:
         except ActivityError:
             return False
         return True
+
+    async def _report_dropped_wakes(self, business_id: str, reasons: list[str]) -> None:
+        """Surface the wake reasons a pause is about to drop (D-035).
+
+        D-035 settles M8-F45 conservatively: a paused company's wake reasons are
+        dropped, not queued — preserve-and-execute-at-resume was rejected
+        because it surprises the operator who paused precisely to stop things —
+        but a dropped reason that something or someone was waiting on generates
+        an operator notification and an audit record instead of vanishing. The
+        durable state behind it is untouched either way: the approval row still
+        holds the operator's answer, the results and measurements are still in
+        their tables, so resume plus the next wake acts on all of it (D-006
+        reload). What was being lost was not the fact, it was the *knowing*.
+
+        Every reason is reported, not only the approval ones. The signal a
+        Manager can receive is either an answered approval or a bus event this
+        company subscribed to — a piece of its work finishing, a tracked number
+        crossing a bound — and each of those means the company would have acted
+        had it not been stopped. The reason kind travels into the activity so
+        the notice can say which it was; composing that sentence is the
+        activity's job, because it needs the company's display name (§12.5, and
+        the same division `_record_park` makes).
+
+        Best-effort, per reason. A notice that could not be written must not
+        take down the Manager of a company that is only paused — the posture
+        `_end_in_failure` and `_record_park` already take for records — and
+        because the reasons are reported one at a time, a failure on the first
+        does not silence the rest.
+
+        Args:
+            business_id: Whose Manager is dropping them.
+            reasons: The wake reasons about to be discarded.
+        """
+        dropped = _dropped_wake_reasons(reasons)
+        if not dropped or not _surfaces_dropped_wakes():
+            return
+        for kind, ref in dropped:
+            with suppress(ActivityError):
+                await workflow.execute_activity(
+                    "record_dropped_wake",
+                    {"business_id": business_id, "reason_kind": kind, "reason_ref": ref},
+                    start_to_close_timeout=ACTIVITY_TIMEOUT,
+                    retry_policy=STANDARD_RETRY,
+                )
 
     async def _await_wake(self, ctx: CycleContext) -> bool:
         """Suspend until a scheduled interval elapses or a signal arrives.
@@ -914,6 +1012,46 @@ def _approvals_decided(reasons: list[str]) -> list[str]:
     return seen
 
 
+APPROVAL_REASON_KIND = "approval"
+"""How an answered approval names its *kind* to the reporting activity (D-035).
+
+Distinct from `APPROVAL_REASON_PREFIX`, which is the wire format of the reason
+itself. The kind is what selects the operator sentence; the ref is the approval
+id, which is what the notice links to."""
+
+
+def _dropped_wake_reasons(reasons: list[str]) -> list[tuple[str, str]]:
+    """Return the (kind, ref) pairs a pause is dropping, in order, deduplicated.
+
+    Kind first because it is what the operator's sentence is chosen by: an
+    answered approval reads differently from a piece of work that finished
+    while the company was stopped, and D-035's notice is only useful if it says
+    which happened. An approval reason carries its id as the ref, so the notice
+    can point at the thing that is waiting; a bus-event reason is its own kind
+    (`capability.result_returned` and the rest) and carries no ref, because the
+    event is not a row an operator can open.
+
+    Deduplicated on the pair, for the same reason `_approvals_decided` is: A-002
+    guarantees at-least-once delivery per consumer, and one delivery slip must
+    not become two notices. String work only — no clock, no id, no I/O — so it
+    stays inside D-004.
+    """
+    seen: list[tuple[str, str]] = []
+    for reason in reasons:
+        if reason.startswith(APPROVAL_REASON_PREFIX):
+            approval_id = reason[len(APPROVAL_REASON_PREFIX) :]
+            if not approval_id:
+                continue
+            pair = (APPROVAL_REASON_KIND, approval_id)
+        else:
+            if not reason:
+                continue
+            pair = (reason, "")
+        if pair not in seen:
+            seen.append(pair)
+    return seen
+
+
 def _cycle_key(ordinal: int) -> str:
     """Return the budget scope key for the cycle about to begin (D-034.2).
 
@@ -956,6 +1094,27 @@ def _reloads_context_after_wake() -> bool:
     discipline).
     """
     return workflow.patched(PATCH_POST_WAKE_CONTEXT)
+
+
+def _surfaces_dropped_wakes() -> bool:
+    """Return whether this execution reports the wake reasons a pause drops.
+
+    False for any execution that was already running when D-035 shipped —
+    including the one case that matters most here, a Manager parked on the
+    non-dispatchable wait because its company is paused, which is a live history
+    sitting on exactly the branch this changes. True for everything started
+    since. See `PATCH_PAUSED_WAKE_NOTICE`.
+
+    A named function rather than an inline call for two reasons. It is the shape
+    `_reloads_context_after_wake` established, so a test can force the decision
+    open and closed without touching a fixture — which is the only evidence
+    available for this gate, since neither committed history ever reached the
+    paused branch. And it keeps one `workflow.patched` call for one id while the
+    two drop sites share the branch: they are one behavioural change in two
+    places, not two cohorts of history, and giving each its own id would split
+    one cohort in two for no reason anybody could reconstruct later.
+    """
+    return workflow.patched(PATCH_PAUSED_WAKE_NOTICE)
 
 
 def _refused_by_a_ceiling(error: ActivityError) -> bool:

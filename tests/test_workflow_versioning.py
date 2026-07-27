@@ -67,7 +67,11 @@ from jarvis.manager import workflow as workflow_module
 from jarvis.manager.activities import DERIVED_CYCLE_KEY, all_manager_activities
 from jarvis.manager.state import CycleOutcome, KpiTargetState, ManagerState, TacticalPlan
 from jarvis.manager.types import CycleContext, PlanRequest
-from jarvis.manager.workflow import PATCH_POST_WAKE_CONTEXT, BusinessManagerWorkflow
+from jarvis.manager.workflow import (
+    PATCH_PAUSED_WAKE_NOTICE,
+    PATCH_POST_WAKE_CONTEXT,
+    BusinessManagerWorkflow,
+)
 from jarvis.runtime.activities import all_activities
 
 BIZ = BusinessId("biz_0123456789abcdef0123456789abcdef")
@@ -167,6 +171,7 @@ MANAGER_ACTIVITIES = frozenset(
         "request_approval",
         "record_cycle_decision",
         "record_manager_park",
+        "record_dropped_wake",
     }
 )
 """Every activity the Manager workflow may schedule, frozen deliberately.
@@ -178,7 +183,17 @@ execution could have survived* — before D-034.1 a context load past its retrie
 failed the whole workflow, so a history holding one is a terminated execution
 that will never be replayed. It therefore rides no version gate, and
 `test_no_captured_history_records_a_failed_context_load` is that claim checked
-against both fixtures rather than asserted in prose."""
+against both fixtures rather than asserted in prose.
+
+`record_dropped_wake` was added in M8-10 (D-035) and the same question got the
+opposite answer, which is why the two sit here together. Its branch is also in
+no captured history — neither fixture ever read a non-dispatchable context — but
+"no fixture" is not "no live execution": a Manager parked on the pause branch is
+a perfectly healthy running history, and a paused company is the ordinary state
+of one an operator has stopped. So it ships behind `PATCH_PAUSED_WAKE_NOTICE`,
+and the evidence for the gate is the scripted pair below rather than a forced
+divergence, because a fixture that never reaches the branch cannot diverge on
+it."""
 
 
 def test_the_manager_schedules_only_the_activities_in_this_inventory() -> None:
@@ -393,6 +408,54 @@ def test_no_captured_plan_result_carries_a_derived_cycle_key(name: str) -> None:
     )
 
 
+@pytest.mark.parametrize("name", sorted(HISTORIES))
+def test_no_captured_history_ever_read_a_paused_context(name: str) -> None:
+    """Why D-035's gate gets no fixture control, stated as a fact about them.
+
+    `record_dropped_wake` is issued on the branch a non-dispatchable context
+    takes. Every context either history recorded was dispatchable — both belong
+    to companies that were running — so forcing that gate open changes nothing
+    about either replay, and "both fixtures still replay" would be true of a
+    patch guarding nothing.
+
+    That is an argument for the scripted control below, not against the patch.
+    The park's version of this question (`record_manager_park`) could be
+    answered by the fixtures because a history holding a failed context load
+    belongs to an execution that was killed by it; a history holding a *paused*
+    context belongs to an execution that is alive, parked, and waiting to be
+    resumed. It is simply not one of the two we captured.
+    """
+    contexts = _completions(name, "load_cycle_context")
+    assert contexts, "a history with no context reads would make this vacuous"
+    assert all(context.get("dispatchable") is True for context in contexts)
+
+
+@pytest.mark.parametrize("name", sorted(HISTORIES))
+def test_no_captured_history_ever_continued_as_new(name: str) -> None:
+    """Why M8-F87's reset needs no version gate, read off the record.
+
+    The reset changes what `continue_as_new` is *given*, not whether it is
+    issued or when — the condition on `CYCLES_BEFORE_CONTINUATION` is untouched
+    — so the command sequence a history can be checked against is the same
+    before and after. That is the recorded-result side of D-033's own rule
+    rather than the versioning side, and it is checked here rather than argued
+    in a commit message: neither fixture reaches a continuation at all, so
+    nothing in either replay is on the changed line.
+
+    The live consumers of the ordinal are two and both survive it. The cycle key
+    (D-034.2) namespaces by run id, which `continue_as_new` reassigns, so a reset
+    ordinal cannot collide across generations — asserted in
+    `tests/test_manager_resilience.py`. The daily allowance is a different pair
+    of fields and is carried over untouched. If a fixture is ever captured from a
+    Manager that continued, this fails, and the right answer then is to look
+    again with that history in hand.
+    """
+    assert not [event for event in _events(name) if "ContinuedAsNew" in str(event["eventType"])]
+    assert "workflow.continue_as_new(state.continued())" in WORKFLOW_SOURCE, (
+        "the ordinal resets where the generation does"
+    )
+
+
 def test_the_two_fixtures_straddle_d_021_s_own_hinge() -> None:
     """The guard on the test above: neither case is imaginary.
 
@@ -503,6 +566,11 @@ class _Boundary:
         *,
         timeout: Any = None,  # noqa: ASYNC109 — this mirrors the API being stubbed
     ) -> None:
+        if predicate():
+            # The real one returns at once when its condition already holds,
+            # which is how a reason signalled before the wait began reaches the
+            # branch that drops it (D-035).
+            return
         if timeout is None:
             # Parked on a signal with no scheduled wake — the end of the script.
             raise _ParkedError("parked on a signal")
@@ -518,11 +586,24 @@ class _Boundary:
 
 
 async def _drive(
-    contexts: list[CycleContext], *, patched: bool, state: ManagerState | None = None
+    contexts: list[CycleContext],
+    *,
+    patched: bool,
+    state: ManagerState | None = None,
+    signals: list[str] | None = None,
 ) -> tuple[_Boundary, BusinessManagerWorkflow]:
-    """Run the wake loop against a script until the script runs out."""
+    """Run the wake loop against a script until the script runs out.
+
+    `signals` are delivered before the run begins, which is what a reason that
+    arrived while the Manager was between waits looks like from inside — and the
+    only way a paused company's Manager gets one at all, since the scheduler
+    signals ACTIVE companies (`dispatch_events`) and a pause can land after the
+    claim.
+    """
     boundary = _Boundary(contexts, patched=patched)
     manager = BusinessManagerWorkflow()
+    for reason in signals or []:
+        manager.wake(reason)
     original = workflow_module.workflow
     workflow_module.workflow = boundary  # type: ignore[assignment]
     try:
@@ -654,6 +735,117 @@ async def test_a_context_that_carries_no_targets_leaves_the_carried_ones_alone()
     emptied = cleared.calls[cleared.scheduled().index("plan_cycle")][1]
     assert isinstance(emptied, PlanRequest)
     assert emptied.kpi_targets == ()
+
+
+# ── M8-10: D-035's gate, proved where a fixture cannot reach ──────────────
+
+
+def _dropped(boundary: _Boundary) -> list[Any]:
+    """Every payload the loop sent to `record_dropped_wake`."""
+    return [arg for name, arg in boundary.calls if name == "record_dropped_wake"]
+
+
+async def test_a_pause_reports_the_answered_approval_it_dropped() -> None:
+    """D-035, stated as the behaviour M8-F45 was reported as.
+
+    An operator answers a request, the company is paused before the answer
+    reaches its Manager, and the Manager drops the reason because "Paused by
+    you" means nothing happens. The answer itself is not lost — the approval row
+    is untouched, and resume plus the next wake still acts on it (D-006) — but
+    until now nothing told the operator that their answer was sitting there. Now
+    the drop is reported, with the kind it was, before the queue is cleared.
+    """
+    boundary, _ = await _drive([_ctx(dispatchable=False)], patched=True, signals=["approval:apr_9"])
+
+    assert _dropped(boundary) == [
+        {"business_id": BIZ, "reason_kind": "approval", "reason_ref": "apr_9"}
+    ]
+    assert boundary.patched_ids == [PATCH_PAUSED_WAKE_NOTICE]
+
+
+async def test_on_the_old_path_the_dropped_answer_is_silent() -> None:
+    """The defect itself, pinned: the silent drop D-035 calls today's behaviour.
+
+    Same script, version gate closed — which is what a Manager parked on a pause
+    when this shipped replays. Kept rather than deleted with the defect, because
+    it is the only thing that distinguishes a version gate that preserves old
+    behaviour from one that quietly does nothing, and no captured history can
+    make that distinction for this branch.
+    """
+    boundary, _ = await _drive(
+        [_ctx(dispatchable=False)], patched=False, signals=["approval:apr_9"]
+    )
+
+    assert _dropped(boundary) == []
+    assert boundary.scheduled() == ["load_cycle_context", "load_cycle_context"], (
+        "the old path reads, waits, drops, and reads again"
+    )
+
+
+async def test_every_actionable_reason_is_reported_not_only_approvals() -> None:
+    """The owner's breadth: an approval "or other actionable wake reason".
+
+    A Manager's signals are an answered approval or a bus event this company
+    subscribed to, and each of the latter means work it would have responded to
+    arrived while it was stopped. The kind travels so the notice can say which —
+    "you answered a request" and "a piece of work finished" lead an operator to
+    different decisions, and one sentence covering both would be the vague copy
+    §12.5 exists to prevent.
+    """
+    boundary, _ = await _drive(
+        [_ctx(dispatchable=False)],
+        patched=True,
+        signals=["capability.result_returned", "approval:apr_9"],
+    )
+
+    assert [payload["reason_kind"] for payload in _dropped(boundary)] == [
+        "capability.result_returned",
+        "approval",
+    ]
+    assert [payload["reason_ref"] for payload in _dropped(boundary)] == ["", "apr_9"]
+
+
+async def test_one_delivery_slip_does_not_become_two_notices() -> None:
+    """A-002 is at-least-once per consumer, so a repeat is expected, not a bug.
+
+    Deduplicated in the workflow rather than left to the activity, because the
+    cheap fix is the one that never issues the second command — and a command
+    issued is a command a replay has to reissue forever.
+    """
+    boundary, _ = await _drive(
+        [_ctx(dispatchable=False)],
+        patched=True,
+        signals=["approval:apr_9", "approval:apr_9"],
+    )
+
+    assert len(_dropped(boundary)) == 1
+
+
+async def test_a_pause_that_lands_mid_wait_reports_what_it_drops_too() -> None:
+    """The second drop site, which reads like the first and was just as silent.
+
+    M8-F41 taught the loop to re-check `dispatchable` after the wake, so a pause
+    landing while a Manager waited no longer buys a paid planning round. The
+    reasons that woke it are already out of the queue by then, so that branch
+    drops them exactly as the branch above does — and D-035 is about the drop,
+    not about which line of the loop performed it.
+    """
+    boundary, _ = await _drive(
+        [_ctx(), _ctx(dispatchable=False)], patched=True, signals=["approval:apr_9"]
+    )
+
+    assert [payload["reason_kind"] for payload in _dropped(boundary)] == ["approval"]
+    assert "plan_cycle" not in boundary.scheduled(), "and still no round is planned"
+
+
+async def test_a_running_company_reports_nothing() -> None:
+    """Negative control. A report that fired on every wake would pass every test
+    above and put a notice in the operator's queue for every ordinary round of
+    work a healthy company does."""
+    boundary, _ = await _drive([_ctx(), _ctx()], patched=True, signals=["approval:apr_9"])
+
+    assert _dropped(boundary) == []
+    assert "plan_cycle" in boundary.scheduled(), "it ran the cycle instead"
 
 
 async def test_a_business_paused_during_the_wait_does_not_plan_a_round() -> None:
