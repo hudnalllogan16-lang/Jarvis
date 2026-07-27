@@ -1722,3 +1722,19 @@ paused (not only decided approvals) — relayed to the running M8-10 lane mid-fl
 vendoring approved and done: three OFL families committed with license texts and provenance
 (jarvis/api/static/fonts/); page hookup deferred one merge to avoid lane conflicts
 (M8-F21 fully closes there).
+
+## M8-F100 … M8-F111 — refresh mechanism round (M8-8, wave 2 Lane A)
+
+Merged at 893 tests. Ratified: **M8-F100** A-003 graduation reset happens at INSTALL time
+(Part 7.2''s open question — a reset deferred to consent leaves a graduated action running
+unattended under changed behaviour); **M8-F106** the plan''s `withheld` list (observable
+guards). M8-F101 fixed (counters now stamp the installed major version; unreadable → 1,
+erring toward more human approval). Band B ∪ Band C partition the contract by test.
+
+Open, routed: **M8-F102** decline persistence needs storage (data-engineer, with M8-9''s
+surface or wave 3); **M8-F103** gates.sh lines 81/89 default-encoding read (with M7-F12''s
+single-sourcing); **M8-F104** M8-F46''s workflow half waits on M8-F48''s condition (workflow
+packet, post-M8); **M8-F108** diff copy needs the product pass (M8-9); **M8-F110** three
+definition readers to consolidate; **M8-F111** install-time validation should refuse an
+upgrade whose Band B projection is invalid (installer follow-up). M8-6''s migration order
+stands: Summit → Portfolio Watch → Trailhead, all minor-version, counter-neutral, provable.
