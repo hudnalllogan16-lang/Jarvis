@@ -12,7 +12,7 @@ with its own session factory and provider and gets a complete, isolated system.
 
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any
@@ -22,9 +22,8 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from jarvis.approvals.service import ApprovalService
 from jarvis.budget.breaker import CircuitBreaker
 from jarvis.budget.ledger import BudgetLedger
-from jarvis.businesses.affiliate import AFFILIATE
+from jarvis.businesses.catalog import BUILTIN_TYPES
 from jarvis.businesses.definition import BusinessTypeDefinition
-from jarvis.businesses.finance import FINANCE
 from jarvis.capabilities.contention import CapabilityGate
 from jarvis.capabilities.executor import CapabilityExecutor, InMemoryTemplates, PromptTemplates
 from jarvis.capabilities.idempotency import IdempotencyStore
@@ -45,18 +44,23 @@ from jarvis.security.credentials import CredentialManager
 
 logger = get_logger(__name__)
 
-BUILTIN_TYPES: tuple[BusinessTypeDefinition, ...] = (AFFILIATE, FINANCE)
-"""The business types every installation starts with (spec §13 Steps 1 and 3).
 
-Listed here rather than discovered, and iterated by `ensure_builtin_types`
-rather than named one at a time — the latter is M7-F1, where a second built-in
-type existed, passed its own tests, and could still never reach a live registry
-because startup install mentioned only the first.
+@dataclass(frozen=True, slots=True)
+class BuiltinInstallReport:
+    """Outcome of one `ensure_builtin_types` sweep (design Part 2.3, M8-F2).
 
-These are forward imports (`businesses` is M5, `kernel` is M1); `container.py`
-is one of the composition roots exempted from the layering invariant precisely
-so the object graph can be wired somewhere (docs/DEPENDENCIES.md,
-`tests/test_layering.py`)."""
+    Returned rather than left implicit, so a caller — the startup path or the
+    `/api/company-templates/install-builtin` first-run recovery route — can
+    report how many built-ins failed to install without re-deriving it from
+    the audit log.
+    """
+
+    installed: tuple[str, ...]
+    """Type names installed or upgraded during this sweep."""
+
+    skipped: tuple[str, ...]
+    """Type names whose install attempt failed and was contained (M8-F1):
+    each already carries a `business_type.install_skipped` audit record."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,6 +91,7 @@ class PlatformKernel:
         provider: LLMProvider | None = None,
         templates: PromptTemplates | None = None,
         secrets: dict[str, str] | None = None,
+        builtin_types: Sequence[BusinessTypeDefinition] | None = None,
     ) -> None:
         """Args:
         settings: Root configuration.
@@ -98,6 +103,13 @@ class PlatformKernel:
         secrets: Handle-to-secret mapping, overriding the configured one.
             Tests inject here; production leaves it None and the mapping comes
             from `settings.credentials` (spec §10).
+        builtin_types: Sequence `ensure_builtin_types` installs at startup.
+            Defaults to the catalog (`jarvis.businesses.catalog.BUILTIN_TYPES`).
+            This parameter is the platform's entire type-extension path
+            (design doc Part 2.2): a test injects a different sequence here to
+            exercise the installer in isolation, exactly as it already does for
+            `templates`, `provider`, and `secrets` — no discovery mechanism, no
+            registry-of-registries, because none has a demonstrated need.
         """
         configure_logging(settings.log_level)
         self._settings = settings
@@ -107,6 +119,9 @@ class PlatformKernel:
         )
         self._provider = provider or build_provider(settings.llm)
         self._templates: PromptTemplates = templates or InMemoryTemplates({})
+        self._builtin_types: Sequence[BusinessTypeDefinition] = (
+            builtin_types if builtin_types is not None else BUILTIN_TYPES
+        )
         # One gate for the whole process: fairness across businesses is only
         # meaningful if every dispatcher consults the same queue.
         self._gate = CapabilityGate()
@@ -323,47 +338,107 @@ class PlatformKernel:
                 return None
         return self._temporal_client
 
-    async def ensure_builtin_types(self) -> None:
+    async def ensure_builtin_types(self) -> BuiltinInstallReport:
         """Install built-in business types if absent. Idempotent; call at startup.
 
         Installation is a Registry write, not an import side effect: a type that
         only existed in process memory would vanish on restart (M5-F3), and an
         import-time side effect is invisible in the audit log.
 
-        Iterates :data:`BUILTIN_TYPES` rather than naming one type, because the
-        version gate below was written around a single hardcoded definition and
-        a second built-in could therefore never reach automatic startup install
-        (M7-F1). The gate itself is unchanged and still per-type: `install()` is
-        deliberately not idempotent on a duplicate version (M6-F22, M7-F4), so
-        the caller compares versions and skips — a version bump reinstalls, the
-        same version does not.
+        Iterates `self._builtin_types` (design Part 2.2) rather than naming one
+        type, because the version gate below was originally written around a
+        single hardcoded definition and a second built-in could therefore never
+        reach automatic startup install (M7-F1). The gate itself is unchanged
+        and still per-type: `install()` is deliberately not idempotent on a
+        duplicate version (M6-F22, M7-F4), so the caller compares versions and
+        skips — a version bump reinstalls, the same version does not.
 
-        Deliberately still a fixed tuple and not a discovery mechanism: two
-        built-ins are the demonstrated need. A general multi-type installer
-        (plugin discovery, ordering, dependency between types) is M8 design
-        input, and building it here would be the speculative generality §14
-        forbids.
+        Deliberately still a fixed default sequence and not a discovery
+        mechanism: two built-ins are the demonstrated need. A general
+        multi-type installer (plugin discovery, ordering, dependency between
+        types) has no demonstrated need, and building it here would be the
+        speculative generality §14 forbids.
+
+        Returns:
+            A `BuiltinInstallReport` naming what installed/upgraded and what
+            was skipped after a contained failure this sweep.
         """
+        from jarvis.businesses.definition import compute_digest
         from jarvis.businesses.provisioning import ProvisioningService
-        from jarvis.kernel.errors import RegistryError
+        from jarvis.kernel.errors import JarvisError
 
+        installed_names: list[str] = []
+        skipped_names: list[str] = []
         async with self.services() as svc:
-            installed = {t.name: t.version for t in await svc.registry.installed_types()}
+            installed_rows = {t.name: t for t in await svc.registry.installed_types()}
             provisioning = ProvisioningService(svc.registry, self.build_bus(svc))
-            for definition in BUILTIN_TYPES:
-                if installed.get(definition.name) == definition.version:
+            for definition in self._builtin_types:
+                row = installed_rows.get(definition.name)
+                if row is not None and row.version == definition.version:
+                    # Same version: `install()` refuses to reinstall (M6-F22,
+                    # M7-F4), so this is the one place a definition edited in
+                    # place without a version bump can still be noticed
+                    # (design Part 2.5). A digest recorded at install time
+                    # and missing entirely (a row installed before this
+                    # mechanism existed — the live `affiliate` v1.0.1 case,
+                    # M8-F3) compares unequal exactly like a genuinely changed
+                    # one; either way this is detection only. Auto-installing
+                    # at an unchanged version would destroy the
+                    # DuplicateBusinessError contract three milestones have
+                    # relied on, so the fix stays a version bump made by a
+                    # person.
+                    stored_digest = (row.plugin_metadata or {}).get("definition_digest")
+                    if stored_digest != compute_digest(definition):
+                        logger.warning(
+                            "installed definition drifted from source at an unchanged version",
+                            extra={
+                                "context": {
+                                    "name": definition.name,
+                                    "version": definition.version,
+                                }
+                            },
+                        )
+                        await svc.audit.record(
+                            event_type="business_type.definition_drifted",
+                            actor="platform",
+                            payload={"name": definition.name, "version": definition.version},
+                        )
                     continue
                 try:
                     await provisioning.install(definition)
-                except RegistryError:
+                except JarvisError as exc:
                     # One built-in failing to install must not take the others
-                    # with it: a company of the type that *did* install is still
-                    # creatable, and the alternative is a first run where one bad
-                    # definition leaves the operator with no templates at all.
+                    # with it: a company of the type that *did* install is
+                    # still creatable, and the alternative is a first run
+                    # where one bad definition leaves the operator with no
+                    # templates at all. Catching JarvisError rather than
+                    # RegistryError (M8-F1): `install()`'s own validation
+                    # failures raise `ConfigurationError`, a JarvisError
+                    # sibling of RegistryError rather than a subclass, and the
+                    # narrower catch let exactly that failure abort every
+                    # install after it in the sequence.
                     logger.warning(
                         "builtin type install skipped",
-                        extra={"context": {"name": definition.name}},
+                        extra={
+                            "context": {
+                                "name": definition.name,
+                                "failure_class": type(exc).__name__,
+                            }
+                        },
                     )
+                    # Every skip is audited, never silent (M8-F2): the type
+                    # name and failure class, never `technical_detail` — that
+                    # text is engineer-facing (spec §12.5) and does not belong
+                    # in a record an operator-facing surface may read.
+                    await svc.audit.record(
+                        event_type="business_type.install_skipped",
+                        actor="platform",
+                        payload={"name": definition.name, "failure_class": type(exc).__name__},
+                    )
+                    skipped_names.append(definition.name)
+                else:
+                    installed_names.append(definition.name)
+        return BuiltinInstallReport(installed=tuple(installed_names), skipped=tuple(skipped_names))
 
     async def aclose(self) -> None:
         """Release the engine and provider transports."""

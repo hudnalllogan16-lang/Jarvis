@@ -350,11 +350,21 @@ def create_app(kernel: PlatformKernel) -> FastAPI:
 
         Idempotent — ensure_builtin_types installs only what's missing, so calling
         it when templates already exist is harmless.
+
+        `not_ready_count` surfaces how many built-ins this call could not
+        install (design Part 2.3, M8-F2): before, a contained failure logged a
+        warning nobody watching the UI would ever see, and the operator's only
+        signal was templates that were fewer than expected with no count and
+        no reason attached.
         """
-        await kernel.ensure_builtin_types()
+        report = await kernel.ensure_builtin_types()
         async with kernel.services() as svc:
             installed = [t.name for t in await svc.registry.installed_types()]
-        return {"installed": installed, "status": "Templates ready."}
+        return {
+            "installed": installed,
+            "not_ready_count": len(report.skipped),
+            "status": "Templates ready." if not report.skipped else "Some templates aren't ready.",
+        }
 
     @app.post("/api/companies")
     async def create_company(  # pyright: ignore[reportUnusedFunction]

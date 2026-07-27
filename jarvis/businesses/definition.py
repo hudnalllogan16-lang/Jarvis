@@ -13,6 +13,8 @@ under. That is what makes §4's "a new instance is addable via configuration onl
 
 from __future__ import annotations
 
+import hashlib
+import json
 from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -99,3 +101,22 @@ class BusinessTypeDefinition(BaseModel):
             for p in self.capability_permissions
             if self.template_key(p.capability) not in self.prompt_templates
         )
+
+
+def compute_digest(definition: BusinessTypeDefinition) -> str:
+    """Return a stable content digest of ``definition``'s JSON form.
+
+    The staleness detector's comparison key (design doc Part 2.5): stored
+    alongside an installed row at install time and recomputed from the source
+    definition on every startup sweep. `sort_keys` makes the digest depend only
+    on content, never on field order, so two definitions that would serialize
+    identically always hash identically.
+
+    This is what lets `ensure_builtin_types` notice a definition edited in
+    place without a version bump — the case `install()`'s duplicate-version
+    gate (M6-F22, M7-F4) deliberately does not reinstall, and the live
+    `affiliate` v1.0.1 row that predates this mechanism entirely (M8-F3) has
+    no stored digest to match, so it compares unequal too.
+    """
+    canonical = json.dumps(definition.model_dump(mode="json"), sort_keys=True)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()

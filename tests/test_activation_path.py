@@ -14,10 +14,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from jarvis.businesses.definition import BusinessTypeDefinition
 from jarvis.businesses.provisioning import ProvisioningService
-from jarvis.domain.contract import CapabilityPermission, CapabilityType
+from jarvis.domain.contract import CapabilityPermission, CapabilityType, KpiTarget
+from jarvis.domain.kpi import KpiMapping, KpiSource
 from jarvis.domain.lifecycle import LifecycleState
 from jarvis.events.bus import EventBus
-from jarvis.events.types import APPROVAL_DECIDED, BUSINESS_ACTIVATED
+from jarvis.events.types import (
+    APPROVAL_DECIDED,
+    BUSINESS_ACTIVATED,
+    CAPABILITY_RESULT,
+    KPI_THRESHOLD_BREACHED,
+)
 from jarvis.kernel.errors import ConfigurationError
 from jarvis.observability.audit import AuditLog
 from jarvis.registry.registry import BusinessRegistry
@@ -98,6 +104,109 @@ async def test_type_with_a_missing_template_is_refused(
     )
     with pytest.raises(ConfigurationError, match="prompt template"):
         await _provisioning(session, registry).install(broken)
+
+
+async def test_a_kpi_mapping_with_no_matching_target_is_refused(
+    session: AsyncSession, registry: BusinessRegistry
+) -> None:
+    """D-027.2 install-time check (design Part 2.4): a mapping key that names
+    no `default_kpi_targets` key would write an observation nothing reads."""
+    broken = _definition(
+        kpi_mappings=(
+            KpiMapping(key="posts_published", source=KpiSource.CONFIGURED_KPI_TARGET_COUNT),
+        ),
+    )
+    with pytest.raises(ConfigurationError, match="posts_published"):
+        await _provisioning(session, registry).install(broken)
+
+
+async def test_a_target_with_no_mapping_installs_fine(
+    session: AsyncSession, registry: BusinessRegistry
+) -> None:
+    """Negative control: a target with no mapping is a legitimate goal nothing
+    has learned to measure yet (D-027.3), not an install-time defect."""
+    fine = _definition(
+        default_kpi_targets=(
+            KpiTarget(
+                key="posts_published",
+                operator_label="Posts published",
+                target_value=Decimal("20"),
+                unit="posts/month",
+            ),
+        ),
+    )
+    await _provisioning(session, registry).install(fine)
+
+
+async def test_subscribing_to_capability_result_returned_is_refused(
+    session: AsyncSession, registry: BusinessRegistry
+) -> None:
+    """M6-F10 install-time guard (design Part 2.4): every capability result is
+    awaited inside the cycle that requested it (D-001), so subscribing to its
+    own result is a self-sustaining wake loop."""
+    broken = _definition(event_triggers=frozenset({CAPABILITY_RESULT}))
+    with pytest.raises(ConfigurationError, match=r"capability\.result_returned"):
+        await _provisioning(session, registry).install(broken)
+
+
+async def test_kpi_mappings_with_a_threshold_breached_subscription_is_refused(
+    session: AsyncSession, registry: BusinessRegistry
+) -> None:
+    """M7-F35 install-time guard (design Part 2.4): a type that measures its
+    own KPIs and wakes on the resulting threshold breach re-wakes itself from
+    its own measurement."""
+    broken = _definition(
+        default_kpi_targets=(
+            KpiTarget(
+                key="posts_published",
+                operator_label="Posts published",
+                target_value=Decimal("20"),
+                unit="posts/month",
+            ),
+        ),
+        kpi_mappings=(
+            KpiMapping(key="posts_published", source=KpiSource.CONFIGURED_KPI_TARGET_COUNT),
+        ),
+        event_triggers=frozenset({KPI_THRESHOLD_BREACHED}),
+    )
+    with pytest.raises(ConfigurationError, match=r"kpi\.threshold_breached"):
+        await _provisioning(session, registry).install(broken)
+
+
+async def test_threshold_breached_without_kpi_mappings_installs_fine(
+    session: AsyncSession, registry: BusinessRegistry
+) -> None:
+    """Negative control: the M7-F35 guard only fires when the type also
+    declares mappings — subscribing alone (nothing measures anything) is
+    not the re-wake loop."""
+    fine = _definition(event_triggers=frozenset({KPI_THRESHOLD_BREACHED}))
+    await _provisioning(session, registry).install(fine)
+
+
+async def test_installed_at_refreshes_on_upgrade(
+    session: AsyncSession, registry: BusinessRegistry
+) -> None:
+    """M7-F48: the column default only fires on the first insert, so an
+    upgrade must set `installed_at` explicitly or the row reports its
+    original install time forever, with no way to tell a type ever changed
+    underneath a running platform.
+
+    Compared against the row's own original value, tzinfo stripped from both
+    sides before comparing: SQLite's round-trip of a timezone-aware column is
+    inconsistent about preserving the tzinfo tag (a client-side Python default
+    keeps it, RETURNING-fetched values do not), and both timestamps are UTC by
+    construction regardless.
+    """
+    provisioning = _provisioning(session, registry)
+    await provisioning.install(_definition())
+    original = next(t for t in await registry.installed_types() if t.name == "affiliate")
+    original_installed_at = original.installed_at.replace(tzinfo=None)
+
+    await provisioning.install(_definition(version="1.0.1"))
+
+    row = next(t for t in await registry.installed_types() if t.name == "affiliate")
+    assert row.version == "1.0.1"
+    assert row.installed_at.replace(tzinfo=None) >= original_installed_at
 
 
 async def test_wake_ceiling_is_always_explicit(
