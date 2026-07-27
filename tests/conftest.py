@@ -1,8 +1,23 @@
 """Shared test fixtures.
 
 Tests run against in-memory SQLite so the suite needs no external services. The
-production target is PostgreSQL; nothing in the Kernel depends on a
-Postgres-only feature, which is what keeps this substitution honest.
+production target is PostgreSQL, and the substitution is honest for everything
+here **except two properties, named rather than glossed** (D-025.2, correcting
+this file's earlier claim that nothing depended on a Postgres-only feature):
+
+- **Serialized reservations (D-022).** Advisory locks do not exist in SQLite,
+  and the shape M6-F12 lives in — two sessions racing one ceiling — is not what
+  an in-memory fixture creates. Gated by `test_budget_reservation_concurrency.py`.
+- **Independent denial commits (D-025.1).** A denial record must survive the
+  transaction its refusal aborts *while that caller's own work rolls back*.
+  `StaticPool` shares one connection and sweeps the caller's work in with the
+  denial; a file-backed SQLite blocks the independent write behind the
+  single-writer lock and loses the denial instead. Both are artefacts of the
+  substitution, so the property is gated by `test_denial_independence.py`.
+
+Both files are marked `postgres` and skip — visibly, never silently — when the
+stack is down. A skipped gate is reported as unexecuted, never as verified
+(M5-F5 discipline).
 """
 
 from __future__ import annotations

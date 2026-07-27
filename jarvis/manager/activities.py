@@ -12,6 +12,7 @@ the classification §3 requires of every judgement function at every layer.
 from __future__ import annotations
 
 import json
+import re
 from collections import Counter
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -117,6 +118,39 @@ string rather than imported because `capabilities` writes audit names inline;
 `test_cycle_kpi_measurement.py` dispatches through a real pool and reads the
 row back, so the two cannot drift apart silently."""
 
+MANAGER_PARKED_SUMMARY = "{name} couldn't start its next round of work and will try again shortly."
+MANAGER_PARKED_RATIONALE = (
+    "Jarvis couldn't read this company's current setup, so it waited instead of "
+    "acting on out-of-date information."
+)
+MANAGER_PARKED_TITLE = "{name} is waiting to try again"
+MANAGER_PARKED_BODY = (
+    "Jarvis couldn't read this company's current setup, so nothing was started. "
+    "It keeps trying on its own, and nothing it had already done is lost."
+)
+"""Spec §12.5, for the one record whose text cannot be authored in the workflow.
+
+Every other operator sentence the Manager produces lives beside the branch that
+chooses it, in `jarvis/manager/workflow.py`. These four cannot: they name the
+company, and the company's display name is exactly what the failed context read
+did not deliver (D-034.1). So the workflow decides *that* a park is recorded and
+this activity — which can still read the contract — decides what it says.
+
+Same register as the rest: what it means for the company, never what failed
+inside the platform. `tests/test_operator_language.py` holds them to it."""
+
+DERIVED_CYCLE_KEY = re.compile(r"cyc_[0-9a-f]{32}_\d{1,9}")
+"""The shape a workflow-derived cycle key has (D-034.2, `_cycle_key`).
+
+Matched rather than trusted. The key arrives in an activity payload, and D-002's
+rule for a payload is that it says what the caller believes: a key of any other
+shape is a mis-assembled request, and the safe answer to one is the behaviour
+that predates the field — mint, as D-021 said. This is not the identity check
+(`_assert_identity` is), and it does not need to be: a cycle key resolves no
+contract, credential, or effect. It only decides which rows the ledger counts
+together, so the harm a malformed one could do is a mis-scoped ceiling, and
+minting keeps that scope at least correct-per-attempt."""
+
 DEPENDENCY_UNKNOWN_REF = "names a step that is not in this plan"
 DEPENDENCY_SELF_REFERENCE = "declares itself as its own input"
 DEPENDENCY_CYCLE = "is part of a loop of steps that wait on each other"
@@ -203,11 +237,18 @@ class ManagerActivities:
         """Decide what to do this cycle and which capabilities to invoke.
 
         This is also where the wake cycle *begins* (D-021), so the `cycle_id` is
-        minted here — in an activity, because minting in the workflow would break
-        replay (D-004) — and stamped onto every request the cycle dispatches.
-        Without it every `ScopedRequest.cycle_id` was NULL and the ledger's
-        per-cycle check never fired, which left §2.1's cost ceiling structurally
+        settled here and stamped onto every request the cycle dispatches. Without
+        it every `ScopedRequest.cycle_id` was NULL and the ledger's per-cycle
+        check never fired, which left §2.1's cost ceiling structurally
         unenforced (M6-F8).
+
+        **Settled, not necessarily minted (D-034.2).** The workflow now derives
+        the cycle's key and sends it in, because minting here made every retry
+        of this activity a new cycle scope — a refusal caused by accumulated
+        cycle spend passed on the next attempt (M6-F17), and the live ledger
+        holds three reservations for one logical cycle to prove it (M7-F25).
+        Minting remains for a request that carries no key, which is D-021's
+        original path and what every pre-M8-7 caller and captured history has.
 
         It is also where D-023's dependency graph is validated. The model may
         say that one item consumes another's results; whether it *may* is
@@ -230,7 +271,7 @@ class ManagerActivities:
         # budget — are read off *this* contract, so which contract is the whole
         # of the authorization decision (D-002, §2.2).
         await self._assert_identity(identity, request.business_id, reached="contract")
-        cycle_id = new_cycle_id()
+        cycle_id = _cycle_scope(request.cycle_key)
         async with self._kernel.services() as svc:
             contract = await svc.registry.get_contract(request.business_id)
             targets = (
@@ -858,6 +899,72 @@ class ManagerActivities:
         )
         return None
 
+    @activity.defn(name="record_manager_park")
+    async def record_manager_park(self, payload: dict[str, str]) -> dict[str, str]:
+        """Explain a Manager that cannot read its own context (D-034.1).
+
+        The record M6-F13 had nowhere to put. A failed `load_cycle_context`
+        happens before the cycle exists (D-021), so it has no cycle to be filed
+        under and, until D-034, no policy either — past its retries it simply
+        failed the workflow and the business lost its Manager, which is the
+        indefinite pending state §9 forbids and the same containment family as
+        M6-F9.
+
+        Two records, one event. The Decision Log entry is what an owner reads in
+        the activity feed; the notification is what reaches them without their
+        having to look. `cycle_id` is deliberately absent — nothing was planned,
+        so counting this as a cycle would inflate the completed-cycle count the
+        health band reads (`KpiEngine._completed_cycle_count`), and a park is the
+        opposite of a cycle: it is the round that did not happen.
+
+        The notification is raised only when this company has no unread stuck
+        notice already. A degraded Manager looks again every
+        `DEGRADED_RETRY_INTERVAL`, and while the workflow already records once
+        per episode, that guarantee is a loop local — a worker restart resets it,
+        and §12.5's "no permanent accumulation" is not satisfied by a queue that
+        refills every quarter hour after one. The Decision Log entry has no such
+        guard on purpose: the feed is the forensic narrative, and one entry per
+        restart is a fact worth keeping.
+
+        Returns:
+            The decision id, and whether an operator was notified — recorded, so
+            the activity's result says which of the two records this park
+            actually produced.
+        """
+        identity = RuntimeIdentity.from_activity()
+        # Same reasoning as `record_cycle_decision`: no contract, credential, or
+        # effect is reached, but one company's account of its day is not
+        # another's to write (§10, §11.5).
+        await self._assert_identity(identity, payload["business_id"], reached="decision record")
+        business_id = BusinessId(payload["business_id"])
+        async with self._kernel.services() as svc:
+            contract = await svc.registry.get_contract(business_id)
+            decision_id = new_decision_id()
+            await svc.decisions.record(
+                decision_id=decision_id,
+                business_id=business_id,
+                summary=MANAGER_PARKED_SUMMARY.format(name=contract.display_name),
+                rationale=MANAGER_PARKED_RATIONALE,
+                action_type="business.manager_parked",
+                inputs_considered={"outcome": "parked"},
+            )
+
+            notifications = NotificationService(svc.session)
+            notified = not await notifications.has_unread(business_id, kind=NotificationKind.STUCK)
+            if notified:
+                await notifications.notify(
+                    notification_id=new_notification_id(),
+                    kind=NotificationKind.STUCK,
+                    title=MANAGER_PARKED_TITLE.format(name=contract.display_name),
+                    body=MANAGER_PARKED_BODY,
+                    business_id=business_id,
+                )
+            logger.warning(
+                "manager parked; its context could not be read",
+                extra={"context": {"business_id": business_id, "notified": notified}},
+            )
+            return {"decision_id": decision_id, "notified": str(notified).lower()}
+
     @activity.defn(name="record_cycle_decision")
     async def record_cycle_decision(self, payload: dict[str, str]) -> str:
         """Write the cycle's Decision Log entry (spec §2.1, §11.5).
@@ -1111,6 +1218,17 @@ class ManagerActivities:
             logger.warning("model returned unparseable JSON; treating as no plan")
             return {}
         return parsed if _is_object_dict(parsed) else {}
+
+
+def _cycle_scope(supplied: str) -> str:
+    """Return the cycle id this cycle's spend counts against (D-034.2).
+
+    The workflow's derived key when it sent a well-formed one, a freshly minted
+    id otherwise. Both are `cyc_`-prefixed and both are opaque to everything
+    downstream; the difference is that the derived key survives an activity
+    retry and a minted one does not.
+    """
+    return supplied if DERIVED_CYCLE_KEY.fullmatch(supplied) else new_cycle_id()
 
 
 def _declared_kpi_mappings(definition: Any) -> tuple[Any, ...]:
@@ -1477,6 +1595,7 @@ def all_manager_activities(kernel: PlatformKernel) -> list[Callable[..., object]
         instance.execute_approved_action,
         instance.record_cycle_kpis,
         instance.record_cycle_decision,
+        instance.record_manager_park,
     ]
 
 

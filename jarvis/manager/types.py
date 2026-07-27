@@ -87,6 +87,21 @@ class PlanRequest(BaseModel):
     kpi_targets: tuple[KpiTargetState, ...] = ()
     pending_approval_id: str | None = None
 
+    cycle_key: str = ""
+    """This cycle's budget scope key, derived in the workflow (D-034.2).
+
+    The one field here that travels *in* rather than out, and the reason is
+    retries. Temporal re-delivers a failed activity's original input, so a key
+    computed in the workflow is identical on every attempt, while the id
+    `plan_cycle` used to mint was fresh on each — which let a refusal caused by
+    accumulated cycle spend pass on retry (M6-F17) and put three reservations
+    for one logical cycle in the live ledger (M7-F25).
+
+    Empty means "no key supplied", not "no cycle": `plan_cycle` mints then,
+    exactly as D-021 specified. That keeps every existing caller — and every
+    captured history, whose recorded `plan_cycle` result carries a minted id —
+    behaving as it did (spec §11)."""
+
 
 class PriorResultGrant(BaseModel):
     """One earlier invocation whose result a dependent invocation may see.

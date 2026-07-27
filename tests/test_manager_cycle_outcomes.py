@@ -565,16 +565,25 @@ class _ScriptedActivities:
 
 @pytest.fixture
 def drive(monkeypatch: pytest.MonkeyPatch) -> Callable[..., Any]:
-    """Return a driver that runs one cycle against a scripted activity boundary."""
+    """Return a driver that runs one cycle against a scripted activity boundary.
+
+    `cycle_key` defaults to empty, which is what a caller with no run to derive
+    from supplies (D-034.2) and what keeps these cycle-body tests about the cycle
+    body. The wake loop's own derivation is
+    `tests/test_manager_resilience.py`'s subject.
+    """
 
     async def _run(
-        ctx: CycleContext | None = None, **scripted: object
+        ctx: CycleContext | None = None, *, cycle_key: str = "", **scripted: object
     ) -> tuple[ManagerState, _ScriptedActivities, Any]:
         activities = _ScriptedActivities(**scripted)
         monkeypatch.setattr(workflow_module, "workflow", activities)
         manager = BusinessManagerWorkflow()
         state = await manager._run_cycle(
-            ManagerState(business_id=BIZ), ctx or _ctx(), ["scheduled"]
+            ManagerState(business_id=BIZ),
+            ctx or _ctx(),
+            ["scheduled"],
+            cycle_key=cycle_key,
         )
         return state, activities, manager.last_cycle()
 
@@ -711,13 +720,36 @@ async def test_a_platform_halt_also_reads_as_budget(drive: Callable[..., Any]) -
 async def test_a_failure_before_planning_returns_still_records(
     drive: Callable[..., Any],
 ) -> None:
-    """D-021 puts the start of a cycle at the start of planning, so a cycle can
-    fail before it has an id. It must still leave the operator an explanation."""
+    """D-021 puts the start of a cycle at the start of planning, so a cycle could
+    fail before it had an id. It must still leave the operator an explanation.
+
+    The empty id is what a caller supplying no derived key gets, which is D-021's
+    original shape and every history captured under it.
+    """
     state, activities, cycle = await drive(plan_cycle=_exhausted())
     assert cycle.outcome is CycleOutcome.FAILED
     assert activities.payload("record_cycle_decision")["cycle_id"] == ""
     assert not activities.called("dispatch_capability")
     assert state.cycles_completed == 1
+
+
+async def test_a_failure_before_planning_is_filed_under_the_derived_key(
+    drive: Callable[..., Any],
+) -> None:
+    """D-034.2 closes D-021 note 3's gap: the cycle has an id before it plans.
+
+    The key exists before the activity that used to mint one, and the
+    reservations those failed attempts took and released carry it — so the entry
+    an operator reads and the ledger rows behind it group together for the first
+    time. That also means the cycle is counted: `KpiEngine._completed_cycle_count`
+    counts distinct non-null cycle ids in the Decision Log, and a failed-planning
+    cycle used to be invisible to it.
+    """
+    key = "cyc_0123456789abcdef0123456789abcdef_4"
+    _, activities, cycle = await drive(cycle_key=key, plan_cycle=_exhausted())
+
+    assert cycle.outcome is CycleOutcome.FAILED
+    assert activities.payload("record_cycle_decision")["cycle_id"] == key
 
 
 async def test_synthesis_failure_does_not_take_the_manager_down(

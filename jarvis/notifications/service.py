@@ -121,6 +121,39 @@ class NotificationService:
         )
         return (await self._session.scalars(stmt)).all()
 
+    async def has_unread(self, business_id: BusinessId, *, kind: NotificationKind) -> bool:
+        """Return whether this company already has an unread notice of ``kind``.
+
+        Asked before raising a repeatable notice, so a condition that recurs on
+        a timer produces one entry in the operator's queue rather than one per
+        check (D-034.1's park is the first such condition: a Manager that cannot
+        read its context looks again every fifteen minutes for as long as the
+        outage lasts). §12.5 forbids permanent accumulation, and ninety-six
+        identical notices a day is that, arriving faster than anyone can dismiss
+        them.
+
+        Deliberately *unread*, not *exists*: an operator who has dismissed the
+        notice has said they know, and a condition that is still true when the
+        next check comes round is worth telling them about again. This is the
+        same reconciliation posture :meth:`unread` takes — the queue reflects
+        what is still outstanding, not what has ever happened.
+
+        Args:
+            business_id: The company to check.
+            kind: Which category of notice.
+
+        Returns:
+            True if at least one unread notification of that kind exists.
+        """
+        stmt = (
+            select(NotificationRow.notification_id)
+            .where(NotificationRow.business_id == business_id)
+            .where(NotificationRow.kind == kind.value)
+            .where(NotificationRow.read.is_(False))
+            .limit(1)
+        )
+        return await self._session.scalar(stmt) is not None
+
     async def mark_read(self, notification_id: str) -> None:
         """Mark one notification as read (an operator's explicit dismissal)."""
         row = await self._session.get(NotificationRow, notification_id)

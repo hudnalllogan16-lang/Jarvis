@@ -42,12 +42,15 @@ is still the old one, and versioning is what remains when it is not.
 from __future__ import annotations
 
 import ast
+import base64
 import json
 import pathlib
 from decimal import Decimal
-from typing import Any
+from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
+from temporalio.activity import _Definition
 from temporalio.client import WorkflowHistory
 from temporalio.contrib.pydantic import pydantic_data_converter
 from temporalio.worker import Replayer, UnsandboxedWorkflowRunner
@@ -61,12 +64,17 @@ from jarvis.domain.contract import CapabilityType
 from jarvis.kernel.ids import BusinessId, InvocationId
 from jarvis.llm.base import Usage
 from jarvis.manager import workflow as workflow_module
+from jarvis.manager.activities import DERIVED_CYCLE_KEY, all_manager_activities
 from jarvis.manager.state import CycleOutcome, KpiTargetState, ManagerState, TacticalPlan
 from jarvis.manager.types import CycleContext, PlanRequest
 from jarvis.manager.workflow import PATCH_POST_WAKE_CONTEXT, BusinessManagerWorkflow
+from jarvis.runtime.activities import all_activities
 
 BIZ = BusinessId("biz_0123456789abcdef0123456789abcdef")
 CYCLE_ID = "cyc_versioning"
+RUN_ID = "11e3a4ab-097d-4f33-aef4-0ef25ed82895"
+"""A run id of the shape Temporal assigns, for the scripted `workflow.info()`."""
+
 TODAY = 739_900
 
 WORKFLOW_SOURCE = pathlib.Path("jarvis/manager/workflow.py").read_text(encoding="utf-8")
@@ -158,9 +166,19 @@ MANAGER_ACTIVITIES = frozenset(
         "record_cycle_kpis",
         "request_approval",
         "record_cycle_decision",
+        "record_manager_park",
     }
 )
-"""Every activity the Manager workflow may schedule, frozen deliberately."""
+"""Every activity the Manager workflow may schedule, frozen deliberately.
+
+`record_manager_park` was added in M8-7 (D-034.1), and the question this
+inventory exists to force was asked and answered rather than skipped: it is a
+new command, but only on a path *no captured history contains and no live
+execution could have survived* — before D-034.1 a context load past its retries
+failed the whole workflow, so a history holding one is a terminated execution
+that will never be replayed. It therefore rides no version gate, and
+`test_no_captured_history_records_a_failed_context_load` is that claim checked
+against both fixtures rather than asserted in prose."""
 
 
 def test_the_manager_schedules_only_the_activities_in_this_inventory() -> None:
@@ -184,6 +202,29 @@ def test_the_manager_schedules_only_the_activities_in_this_inventory() -> None:
         and isinstance(node.args[0], ast.Constant)
     }
     assert scheduled == set(MANAGER_ACTIVITIES)
+
+
+def test_the_worker_registers_every_activity_the_manager_schedules() -> None:
+    """The other end of the inventory, which nothing was checking.
+
+    A command the workflow issues and the worker does not implement is not a
+    test failure anywhere — it is an activity task that no worker will ever poll
+    for, so the Manager waits out its `start_to_close_timeout`, retries, and ends
+    the cycle FAILED. Found while adding `record_manager_park` (D-034.1): the
+    inventory above would have stayed green with the registration list untouched,
+    and the failure would have landed on the one path whose entire purpose is
+    keeping a Manager alive when something else has already gone wrong.
+
+    Both registries, because the Manager schedules `dispatch_capability`, which
+    `KernelActivities` owns — a per-module check would have declared that one
+    missing.
+    """
+    kernel = cast(Any, object())  # only stored, never used, by either constructor
+    registered = {
+        _Definition.from_callable(fn).name  # type: ignore[union-attr]
+        for fn in [*all_manager_activities(kernel), *all_activities(kernel)]
+    }
+    assert registered >= MANAGER_ACTIVITIES, sorted(MANAGER_ACTIVITIES - registered)
 
 
 # ── half one: the captured histories take the old path ─────────────────────
@@ -231,6 +272,137 @@ async def test_forcing_the_post_wake_reload_diverges_the_captured_history(
     message = str(caught.value).lower()
     assert "nondeterminism" in message
     assert "load_cycle_context" in message, "diverged somewhere other than the reload"
+
+
+# ── M8-7: two live-path changes, and why neither is a version boundary ─────
+#
+# D-033 is not "patch everything"; it says versioning is what remains when
+# recorded-result gating is not available, because "the platform's own answer
+# for an old history is still the old one" is the cheaper and more honest
+# mechanism where it holds. D-034 points 1 and 2 both change the live cycle
+# path, and neither one takes a `PATCH_*` id. The two arguments are different
+# and both are checked against the real fixtures here rather than asserted in a
+# commit message — a patch that guards nothing is the failure this file exists
+# to prevent, and so is a change that skipped one it needed.
+
+
+def _completions(name: str, activity: str) -> list[dict[str, Any]]:
+    """Return every payload ``activity`` returned in one captured history."""
+    events = _events(name)
+    scheduled = {
+        e["eventId"]: _activity_name(e)
+        for e in events
+        if e["eventType"] == "EVENT_TYPE_ACTIVITY_TASK_SCHEDULED"
+    }
+    out: list[dict[str, Any]] = []
+    for event in events:
+        attrs = event.get("activityTaskCompletedEventAttributes")
+        if not isinstance(attrs, dict) or scheduled.get(attrs["scheduledEventId"]) != activity:
+            continue
+        decoded = json.loads(base64.b64decode(attrs["result"]["payloads"][0]["data"]).decode())
+        assert isinstance(decoded, dict)
+        out.append(decoded)
+    return out
+
+
+def _activity_name(event: dict[str, Any]) -> str:
+    attrs = event.get("activityTaskScheduledEventAttributes")
+    if not isinstance(attrs, dict):
+        return ""
+    return str(attrs.get("activityType", {}).get("name", ""))
+
+
+def _lost_activities(name: str) -> list[str]:
+    """Return the activities that ran out of retries in one captured history."""
+    events = _events(name)
+    scheduled = {
+        e["eventId"]: _activity_name(e)
+        for e in events
+        if e["eventType"] == "EVENT_TYPE_ACTIVITY_TASK_SCHEDULED"
+    }
+    lost: list[str] = []
+    for event in events:
+        for key in (
+            "activityTaskFailedEventAttributes",
+            "activityTaskTimedOutEventAttributes",
+            "activityTaskCanceledEventAttributes",
+        ):
+            attrs = event.get(key)
+            if isinstance(attrs, dict):
+                lost.append(scheduled.get(attrs["scheduledEventId"], "?"))
+    return lost
+
+
+@pytest.mark.parametrize("name", sorted(HISTORIES))
+def test_no_captured_history_records_a_failed_context_load(name: str) -> None:
+    """Why D-034.1's park needs no version gate, read off the record.
+
+    The park adds commands — a `record_manager_park` and a timer — on the branch
+    a failed `load_cycle_context` takes. That branch is new, and it is also
+    unreachable in every history there is: before D-034.1 a context load past its
+    retries failed the whole workflow, so a history containing one belongs to a
+    terminated execution that will never be replayed, and neither fixture
+    contains one at all.
+
+    Asserted here rather than argued, because "it cannot happen" is exactly the
+    kind of claim that stops being true quietly. If a future fixture is captured
+    from a Manager that parked, this fails — and the right answer then is a patch
+    id, decided with that history in hand.
+    """
+    assert "load_cycle_context" not in _lost_activities(name)
+
+
+def test_the_history_that_did_lose_an_activity_lost_planning_instead() -> None:
+    """The fixture guard for the claim above: it is not vacuous.
+
+    The Finance history holds a real exhausted activity — `plan_cycle`, the
+    M7-F20 credential failure — so "no failed context load" is a statement about
+    *which* activity failed and not about a suite that has never seen one. That
+    failure is inside the cycle body, which M6-F9 already covered, which is why
+    this history replays across it today.
+    """
+    assert _lost_activities("finance") == ["plan_cycle"]
+    assert _lost_activities("affiliate") == []
+
+
+@pytest.mark.parametrize("name", sorted(HISTORIES))
+def test_no_captured_plan_result_carries_a_derived_cycle_key(name: str) -> None:
+    """Why D-034.2's cycle key needs no version gate either (spec §11).
+
+    The workflow now sends a derived key *into* `plan_cycle`, and still reads the
+    id it threads downstream back *out* of the recorded result — the D-023 /
+    D-027 compatibility hinge. So a replayed history files synthesis,
+    measurement, and its decision entry under the id its own ledger rows and
+    audit entries already carry, whatever this worker would have chosen. Changing
+    an activity's input payload is not a divergence; substituting a different id
+    downstream would have been a silent rewriting of what those runs did.
+
+    Both fixtures are on the old side of the change and in two different ways,
+    which is why this is parametrized rather than asserted once: the Affiliate
+    history predates D-021 and records no cycle id at all (`.get` is what keeps
+    it replayable), and the Finance history records ids the activity minted. A
+    derived key ends in `_<ordinal>` and a minted id does not, so the shape is
+    the tell.
+    """
+    recorded = [payload.get("cycle_id") for payload in _completions(name, "plan_cycle")]
+    assert recorded, "a history with no planning result would make this vacuous"
+    for cycle_id in recorded:
+        assert cycle_id is None or not DERIVED_CYCLE_KEY.fullmatch(cycle_id)
+    assert 'plan_payload.get("cycle_id")' in WORKFLOW_SOURCE, (
+        "the recorded answer is the one that travels downstream, not the derived key"
+    )
+
+
+def test_the_two_fixtures_straddle_d_021_s_own_hinge() -> None:
+    """The guard on the test above: neither case is imaginary.
+
+    One history from before the id existed, one from after — so "no derived key
+    in either" is a statement about two real shapes rather than about a single
+    fixture that happens to be old.
+    """
+    assert [p.get("cycle_id") for p in _completions("affiliate", "plan_cycle")] == [None]
+    finance = [p.get("cycle_id") for p in _completions("finance", "plan_cycle")]
+    assert finance and all(isinstance(c, str) and c.startswith("cyc_") for c in finance)
 
 
 # ── half two: what a fresh execution does instead ──────────────────────────
@@ -315,6 +487,15 @@ class _Boundary:
     def patched(self, patch_id: str) -> bool:
         self.patched_ids.append(patch_id)
         return self._patched
+
+    def info(self) -> Any:
+        """Return the run facts the loop derives its cycle key from (D-034.2).
+
+        A fixed run id, because the point of the key is that it is a *function*
+        of the run and the cycle ordinal — a script handing back a fresh one per
+        call would hide exactly the property being scripted.
+        """
+        return SimpleNamespace(run_id=RUN_ID)
 
     async def wait_condition(
         self,

@@ -267,14 +267,12 @@ class ToolExecutor:
             )
             return existing
 
-        secret = (
-            self._credentials.resolve(
-                contract=contract,
-                handle=credential_handle,
-                granted_handles=granted_credentials,
-            ).get_secret_value()
-            if credential_handle
-            else None
+        secret = await self._resolved_secret(
+            contract,
+            tool_name=tool_name,
+            action_type=action_type,
+            credential_handle=credential_handle,
+            granted_credentials=granted_credentials,
         )
 
         result = await tool.run(params, secret)
@@ -292,6 +290,65 @@ class ToolExecutor:
             payload={"tool": tool_name, "action_type": action_type},
         )
         return result
+
+    async def _resolved_secret(
+        self,
+        contract: BusinessContract,
+        *,
+        tool_name: str,
+        action_type: str,
+        credential_handle: str | None,
+        granted_credentials: frozenset[str],
+    ) -> str | None:
+        """Resolve this effect's credential, auditing a refusal (D-034.4).
+
+        M6-F42, the last unaudited §10 refusal. `CredentialManager` refuses three
+        ways — a handle this invocation was not granted, a handle this business
+        has no permission for, and a handle the secrets manager does not hold —
+        and it refused all three in silence, because it holds no session by
+        design and had nothing to write with. Nothing downstream recorded it
+        either: the raise unwinds through `execute_approved_action`'s scope,
+        which rolls back, so even a record written there would have gone with it
+        (M6-F38). What an operator saw was an approved action that simply never
+        happened.
+
+        Audited here rather than there, which is what D-034.4 means by "from the
+        pool side": this boundary already holds the audit log and already writes
+        the other two §10 refusals through the same independent-commit path
+        (D-025.1), and moving a session into `CredentialManager` would trade a
+        deliberately sessionless defence-in-depth check for a plumbing
+        dependency.
+
+        The handle is recorded; the secret never is, and neither is which of the
+        three refusals fired — `CredentialManager` refuses all three identically
+        "so a probing caller learns nothing from the difference", and an audit
+        payload that distinguished them would put the difference back where a
+        caller with log access could read it. `handle` is safe on its own: §10's
+        whole design is that handles travel and values do not.
+
+        Returns:
+            The secret for the tool's own call, or None when the tool needs none.
+
+        Raises:
+            ScopeViolationError: Re-raised unchanged after the record lands.
+        """
+        if not credential_handle:
+            return None
+        try:
+            return self._credentials.resolve(
+                contract=contract,
+                handle=credential_handle,
+                granted_handles=granted_credentials,
+            ).get_secret_value()
+        except ScopeViolationError:
+            await self._refuse(
+                contract,
+                tool_name=tool_name,
+                action_type=action_type,
+                reason="credential_not_resolved",
+                extra={"handle": credential_handle},
+            )
+            raise
 
     async def _refuse(
         self,

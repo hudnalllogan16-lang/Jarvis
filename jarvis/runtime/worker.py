@@ -69,7 +69,7 @@ async def run_scheduler(kernel: PlatformKernel, *, interval_seconds: int = 300) 
     while True:
         try:
             report = await scheduler.sweep()
-            if report.renotified or report.expired or report.woken:
+            if report.renotified or report.expired or report.woken or report.reservations_released:
                 logger.info(
                     "sweep complete",
                     extra={
@@ -77,6 +77,10 @@ async def run_scheduler(kernel: PlatformKernel, *, interval_seconds: int = 300) 
                             "renotified": report.renotified,
                             "expired": report.expired,
                             "woken": report.woken,
+                            # D-034.3: budget headroom returned to its ceilings.
+                            # In the trigger as well as the context, so a sweep
+                            # whose only work was reconciliation still says so.
+                            "reservations_released": report.reservations_released,
                         }
                     },
                 )

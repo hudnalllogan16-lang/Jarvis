@@ -230,6 +230,79 @@ def test_measurement_precedes_the_decision_record() -> None:
     assert after_synthesis.index("record_cycle_kpis") < after_synthesis.index("self._record(")
 
 
+def test_no_context_read_can_escape_the_wake_loop() -> None:
+    """D-034.1, asserted where the regression would be a lost Manager.
+
+    The park is a handler and an absence: `_load_context` returns None instead of
+    letting the `ActivityError` travel, and `run` branches on that. Removing
+    either half restores M6-F13 exactly — the workflow fails, the business is
+    left with no Manager, and every behavioural test in the suite still passes
+    because none of them fails a context read.
+    """
+    loader = next(
+        node
+        for node in ast.walk(TREE)
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == "_load_context"
+    )
+    handlers = [
+        node
+        for node in ast.walk(loader)
+        if isinstance(node, ast.ExceptHandler)
+        and isinstance(node.type, ast.Name)
+        and node.type.id == "ActivityError"
+    ]
+    assert len(handlers) == 1, "the read that happens before a cycle exists is handled"
+    assert any(isinstance(node, ast.Return) for node in ast.walk(handlers[0]))
+    assert SOURCE.count("await self._park(") == 2, "both reads park, not just the first"
+
+
+def test_the_park_waits_on_a_bound() -> None:
+    """D-034.1's "never loops hot", which is a different property from "never dies".
+
+    A park that dropped its timeout would wait for a signal that a schedule-only
+    business never receives (M7-F2), and a park that dropped the wait entirely
+    would turn an outage into a retry storm. Both are one-word edits, and neither
+    changes any behavioural test's outcome.
+    """
+    park = next(
+        node
+        for node in ast.walk(TREE)
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == "_park"
+    )
+    waits = [
+        node
+        for node in ast.walk(park)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "wait_condition"
+    ]
+    assert len(waits) == 1
+    assert {kw.arg for kw in waits[0].keywords} == {"timeout"}, "waiting, bounded"
+    assert "DEGRADED_RETRY_INTERVAL" in ast.dump(waits[0])
+    # And waiting for a *new* reason, not for the queue to be non-empty: a
+    # reason left over from the previous park makes the second condition true
+    # before the wait begins, so the loop spins at the speed of a failing
+    # activity — a hot loop reached by the ordinary path of being woken while
+    # degraded. Pinned on the source because both forms read the same.
+    assert "len(self._wake_reasons) > already" in SOURCE
+    assert "bool(self._wake_reasons), timeout=DEGRADED_RETRY_INTERVAL" not in SOURCE
+
+
+def test_the_cycle_key_is_derived_from_the_run_and_never_minted() -> None:
+    """D-034.2 plus D-004: the one id workflow code is allowed to produce.
+
+    Derived from `workflow.info()`, which replays identically, and from the
+    Manager's own cycle count. The forbidden-call list above already bans the
+    minting helpers by name; this asserts the positive half, because a key
+    derived from anything the workflow does not carry across a replay — a clock,
+    an activity result, a counter kept somewhere else — would pass that ban and
+    still diverge on recovery.
+    """
+    assert "workflow.info().run_id" in SOURCE
+    assert "cycle_key=_cycle_key(state.cycles_completed)" in SOURCE
+    assert "cycle_key=cycle_key" in SOURCE, "and it travels into the activity that reserves"
+
+
 def test_pool_retry_is_not_duplicated_at_the_workflow_layer() -> None:
     """Spec §9: bounded retry belongs to the pool.
 
