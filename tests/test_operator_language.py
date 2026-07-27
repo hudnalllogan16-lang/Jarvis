@@ -13,9 +13,6 @@ credential scopes, retries, dead-letter queues.
 
 from __future__ import annotations
 
-import pathlib
-import re
-
 import pytest
 
 from jarvis.approvals.models import OPERATOR_LABELS as APPROVAL_LABELS
@@ -28,8 +25,12 @@ from jarvis.approvals.rendering import (
 )
 from jarvis.domain.lifecycle import OPERATOR_LABELS as LIFECYCLE_LABELS
 from jarvis.kernel.ids import BusinessId
-
-DASHBOARD = pathlib.Path("jarvis/api/static/index.html")
+from tests.surface_sources import (
+    MARKUP,
+    script_literals,
+    surface_text,
+    visible_text,
+)
 
 FORBIDDEN = [
     "workflow",
@@ -57,40 +58,23 @@ never catches, and "business" is D-007's own Business -> Company term, never
 previously listed at all."""
 
 
-def _visible_text(html: str) -> str:
-    """Return only what an operator can actually read.
-
-    Strips <style>, <script>, and tag internals. Comments explaining *why* a
-    rule exists are developer-facing and legitimately name the concepts they
-    are avoiding, so counting them would make the test unpassable for the right
-    reasons.
-    """
-    html = re.sub(r"<style.*?</style>", " ", html, flags=re.S)
-    html = re.sub(r"<script.*?</script>", " ", html, flags=re.S)
-    html = re.sub(r"<[^>]+>", " ", html)
-    return html
-
-
 def test_dashboard_exists() -> None:
-    assert DASHBOARD.exists(), "the operator dashboard is a §12.5 deliverable"
+    assert MARKUP.exists(), "the operator dashboard is a §12.5 deliverable"
 
 
 @pytest.mark.parametrize("term", FORBIDDEN)
 def test_dashboard_markup_avoids_infrastructure_vocabulary(term: str) -> None:
     """Spec §12.5's default-view prohibition, applied to the shipped markup."""
-    assert term not in _visible_text(DASHBOARD.read_text()).lower()
+    assert term not in visible_text().lower()
 
 
 @pytest.mark.parametrize("term", FORBIDDEN)
 def test_operator_facing_strings_in_the_dashboard_script(term: str) -> None:
-    """The JS builds most of the visible copy, so its string literals count."""
-    source = DASHBOARD.read_text()
-    script = "".join(re.findall(r"<script.*?>(.*?)</script>", source, flags=re.S))
-    script = re.sub(r"//.*", "", script)
-    literals = " ".join(re.findall(r"['\"`]([^'\"`]{4,})['\"`]", script))
-    # API paths are addresses, not copy; an operator never reads them.
-    literals = re.sub(r"/api/\S*", " ", literals)
-    assert term not in literals.lower()
+    """The behaviour modules build most of the visible copy, so their string
+    literals count. `surface_sources` resolves which files those are — after
+    the M8-2 decomposition the copy lives in `static/app/*.js`, not in an
+    inline `<script>`."""
+    assert term not in script_literals().lower()
 
 
 def test_doing_now_label_matches_past_tense_content() -> None:
@@ -98,7 +82,7 @@ def test_doing_now_label_matches_past_tense_content() -> None:
     Log summaries (what a cycle already did) under the present-tense label
     "Doing now" -- a post-mortem sentence does not answer "what is happening
     right now". Renamed to a label the content can honestly satisfy."""
-    html = DASHBOARD.read_text()
+    html = surface_text()
     assert "Doing now" not in html
     assert "Latest update" in html
 
@@ -111,7 +95,8 @@ def test_doing_now_truncation_carries_a_details_affordance() -> None:
     # Explicit UTF-8: the file's ellipsis character must round-trip exactly
     # for this assertion, and the platform's default text encoding is not
     # guaranteed to be UTF-8 (Windows locales commonly are not).
-    html = DASHBOARD.read_text(encoding="utf-8")
+    # `surface_sources` reads every source as UTF-8 for the same reason.
+    html = surface_text()
     assert "more in Details" in html
     assert "c.doing.endsWith('…')" in html
 
@@ -119,7 +104,7 @@ def test_doing_now_truncation_carries_a_details_affordance() -> None:
 def test_goal_reading_does_not_stutter_measured_not_measured() -> None:
     """M7-5b item 3: an unmeasured KPI target rendered "measured not measured
     yet" — the same word twice in four words. Pinned so it cannot return."""
-    html = DASHBOARD.read_text()
+    html = surface_text()
     assert "measured not measured yet" not in html
 
 
@@ -127,7 +112,7 @@ def test_all_unmeasured_goals_collapse_to_one_sentence() -> None:
     """M7-5b item 3: when every goal is unmeasured — the whole drill-down for
     both affiliate companies live — one clean sentence replaces what would
     otherwise be a per-target list of "not measured yet" stutters."""
-    html = DASHBOARD.read_text()
+    html = surface_text()
     assert "goals.every(g => g.measured === null)" in html
 
 
@@ -137,7 +122,7 @@ def test_kind_and_kind_description_are_escaped_before_rendering() -> None:
     "nothing on this card is trusted text... every value is escaped before it
     becomes markup." Pinned structurally so a future edit cannot quietly drop
     `esc()` from either again."""
-    html = DASHBOARD.read_text()
+    html = surface_text()
     assert "${esc(c.kind)}" in html
     assert "${esc(c.kind_description)}" in html
     assert "${c.kind}" not in html
@@ -150,7 +135,7 @@ def test_create_dialog_error_uses_the_error_style_not_the_timestamp_style() -> N
     not an error. The stylesheet's `.formErr` (risk colour) existed unused for
     exactly this; the create-dialog error now uses it, positioned before the
     action buttons rather than trailing after them."""
-    html = DASHBOARD.read_text()
+    html = surface_text()
     assert 'class="formErr" id="newErr"' in html
     assert 'class="waited" id="newErr"' not in html
 

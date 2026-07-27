@@ -71,7 +71,6 @@ ANOTHER_BUSINESS = BusinessId("biz_" + "b" * 32)
 """A well-formed id belonging to no company here — the shape a mis-assembled
 workflow payload would carry."""
 
-DASHBOARD = pathlib.Path("jarvis/api/static/index.html")
 ACTIVITIES_SOURCE = pathlib.Path("jarvis/manager/activities.py")
 
 
@@ -454,11 +453,15 @@ async def test_the_reset_is_audited(
 
 
 def _script() -> str:
-    """Return the dashboard's script text."""
-    import re
+    """Return the dashboard's behaviour source.
 
-    source = DASHBOARD.read_text()
-    return "".join(re.findall(r"<script.*?>(.*?)</script>", source, flags=re.S))
+    Since the M8-2 decomposition this is `static/app/*.js` rather than an
+    inline `<script>`; `surface_sources` owns that definition so this test and
+    the §12.5 gate can never disagree about which files carry operator copy.
+    """
+    from tests.surface_sources import script
+
+    return script()
 
 
 def test_the_approval_card_shows_the_payload() -> None:

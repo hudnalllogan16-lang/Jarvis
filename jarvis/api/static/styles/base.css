@@ -1,0 +1,103 @@
+/* ============================================================================
+   Jarvis base layer — reset, document defaults, typography application.
+   Everything here is element-level. Components live in components.css.
+   ========================================================================= */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background: var(--surface-page);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: var(--size-md);
+  line-height: var(--leading-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Every numeric value in the surface re-renders every 15 seconds. Tabular
+   figures make a changing number change IN PLACE instead of reflowing the
+   row — docs/design/03-typography.md. */
+.num,
+time,
+pre,
+code {
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
+}
+
+h1, h2, h3, h4 {
+  font-family: var(--font-display);
+  font-weight: var(--weight-semi);
+  letter-spacing: var(--track-snug);
+  line-height: var(--leading-snug);
+}
+
+p {
+  line-height: var(--leading-body);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+img,
+svg {
+  max-width: 100%;
+  display: block;
+}
+
+/* One focus treatment, everywhere. `outline: none` without a replacement is
+   forbidden by docs/design/09-accessibility.md; this is the replacement, and
+   it is measured against every surface plane it can land on. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ── The page frame (docs/design/05-layout.md) ───────────────────────────── */
+.wrap {
+  max-width: var(--layout-max);
+  margin: 0 auto;
+  padding: var(--space-10) var(--space-8) var(--space-13);
+}
+
+@media (max-width: 640px) {
+  .wrap {
+    padding-left: var(--space-5);
+    padding-right: var(--space-5);
+  }
+}
+
+/* ── Reduced motion ───────────────────────────────────────────────────────
+   Complete: animation AND transition. The pre-M8 rule disabled only
+   `animation`, so a user who asked for reduced motion still received every
+   hover and panel transition (finding M8-F22).
+
+   No information is lost when this fires: the breathing dot is the only
+   looping animation, and "running" is independently carried by the dot's
+   colour and by the status word beside it. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

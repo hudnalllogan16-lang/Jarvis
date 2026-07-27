@@ -1,0 +1,102 @@
+// The approval card — the loud object, and the surface's highest-value
+// injection target. Every value on this card is escaped before it becomes
+// markup (see format.js).
+
+import { post } from './api.js';
+import { action } from './actions.js';
+import { esc, ago } from './format.js';
+import { flash } from './flash.js';
+import { refresh } from './refresh.js';
+
+export function askCard(a) {
+  const facts = Object.entries(a.detail)
+    .map(([k, v]) => `<div class="fact"><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`)
+    .join('');
+  return `<article class="ask">
+    <h2>${esc(a.ask)}</h2>
+    <dl class="facts">${facts}</dl>
+    ${outgoing(a)}
+    <div class="acts">
+      <button class="btn btn--primary" data-act="decide" data-id="${esc(a.id)}"
+        data-verb="approve">Approve</button>
+      <button class="btn" data-act="decide" data-id="${esc(a.id)}"
+        data-verb="deny">Say no</button>
+      <button class="btn btn--small" data-act="open-co"
+        data-id="${esc(a.company_id)}">Why?</button>
+      <span class="waited">waiting ${esc(ago(a.waiting_since))}</span>
+    </div></article>`;
+}
+
+// What the yes actually authorises. Shown open, in full, and never trimmed: an
+// operator who approves a summary of the words has not approved the words.
+function outgoing(a) {
+  const fields = a.payload || [];
+  if (!fields.length) return '';
+  const editable = !!a.payload_correctable;
+  const rows = fields
+    .map((f) => {
+      const at = `${esc(a.id)}-${esc(f.key)}`;
+      const control = !editable
+        ? `<pre>${esc(f.value)}</pre>`
+        : String(f.value).length > 90 || String(f.value).includes('\n')
+          // A newline straight after the tag is dropped by the parser, so one is
+          // added: the text put back must be the text taken out, character for
+          // character, or an untouched field would look like an edit.
+          ? `<textarea id="f-${at}" data-key="${esc(f.key)}" data-was="${esc(f.value)}"
+>${esc(f.value)}</textarea>`
+          : `<input id="f-${at}" data-key="${esc(f.key)}" data-was="${esc(f.value)}"
+             value="${esc(f.value)}">`;
+      return `<div class="fld"><label for="f-${at}">${esc(f.label)}</label>${control}</div>`;
+    })
+    .join('');
+  return `<details class="outgoing" open id="out-${esc(a.id)}">
+    <summary>What will go out</summary>${rows}
+    <p class="why">${
+      editable
+        ? 'Change it here before you say yes. If you change it, Jarvis keeps asking you about this one.'
+        : 'This is exactly what gets sent.'
+    }</p></details>`;
+}
+
+// Returns the edited fields, or null when nothing changed. Only a real change
+// may travel: an unchanged field sent back as a change would count against the
+// company, because changing something before saying yes means Jarvis keeps
+// asking.
+function corrections(id) {
+  const box = document.getElementById('out-' + id);
+  const fields = box ? [...box.querySelectorAll('[data-key]')] : [];
+  if (!fields.length) return null;
+  const edited = {};
+  let changed = false;
+  for (const f of fields) {
+    edited[f.dataset.key] = f.value;
+    if (f.value !== f.dataset.was) changed = true;
+  }
+  return changed ? edited : null;
+}
+
+// The 15-second repaint must not delete what someone is part-way through typing
+// into a request they are about to authorise.
+export function editing() {
+  const fields = [...document.querySelectorAll('#asks [data-key]')];
+  return (
+    fields.some((f) => f.value !== f.dataset.was) ||
+    fields.includes(document.activeElement)
+  );
+}
+
+export function registerApprovalActions() {
+  action('decide', async ({ id, verb }) => {
+    const body = {};
+    if (verb === 'approve') {
+      const edited = corrections(id);
+      if (edited) body.modified_parameters = edited;
+    }
+    const res = await post(`/api/approvals/${id}/${verb}`, body);
+    if (!res.ok) {
+      flash(res.message);
+      return;
+    }
+    refresh();
+  });
+}
