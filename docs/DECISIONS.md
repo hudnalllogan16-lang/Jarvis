@@ -1674,3 +1674,24 @@ Open: **M8-F83** (background not inert behind an open sheet — assistive-tech a
 operator-surface pass owed on new placeholder copy (top-bar status words, notification-center
 and parts-of-app empty states, "Updates" label); cross-company Goals/Activity read endpoints
 are an API-surface question for the workspace phase (M8-F70-series context in the report).
+
+## M8-F85 … M8-F94 — resilience round (M8-7, wave 1 Lane C)
+
+D-034 fully implemented (847 tests on main): context-load failure parks recorded/surfaced/
+deduped and never dies (D-034.1); the deterministic cycle key ends the retry-scope leak
+(D-034.2 — M6-F17/M7-F25 closed); the reservation reconcile runs in the sweep with release+
+audit committing together (D-034.3 — M6-F18 closed); credential refusals audited
+independently (D-034.4 — M6-F42 closed). D-025.1 gained its Postgres-lane proof; conftest's
+substitution claim now names both exceptions. No new patches needed — recorded-result gating
+sufficed, correctly applied under D-033's own rule. Postgres-marked tests 6 → 9, all executed.
+
+Fixed in-lane: M8-F85 (park-loop spin, pinned), M8-F86 (activity inventory now tied to worker
+registration). Open, scheduled for wave 2 as Manager decisions within existing decision
+scope: **M8-F87** (cycles_completed never resets after the first continue-as-new — from cycle
+100 every cycle continues; D-005 mechanism fix), **M8-F88** (cancelled dispatch orphans its
+hold — cancellation handler per _ask_model's own pattern, D-022). Recorded: M8-F89 (parks
+don''t count against the daily allowance — deliberate), M8-F90 (failed-planning cycles now
+visible to the health count — a band may move; honest), M8-F92 (in practice the age backstop,
+not terminality, does the reconcile work — D-022 expectation inverted, noted in its record),
+M8-F93 (credential audit lives at the sole caller), M8-F94 (M8-F45 unchanged, pending owner).
+Park operator copy owed to the product reviewer with the next surface pass.
