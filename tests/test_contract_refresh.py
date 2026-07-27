@@ -348,13 +348,19 @@ async def test_applying_it_closes_the_loop_and_leaves_the_other_signal(
 async def test_a_missing_direction_is_the_change_and_the_arithmetic_moves(
     session: AsyncSession, registry: BusinessRegistry, refresh: ContractRefreshService
 ) -> None:
-    """F-A reproduced against recorded observations: 45 -> 78 (design Part 5.1).
+    """F-A reproduced against recorded observations (design Part 5.1).
 
     The correction's own test. The three figures are the live ones — three
     metrics against a target of five, a freshness reading of 0.0005 hours
-    against a 24-hour target, three reports against four — and the freshness
-    term is the whole of the difference: scored the wrong way round it
-    contributes 0.00002 and scored correctly it contributes 1.
+    against a 24-hour target, three reports against four.
+
+    Part 5.1 computed 45 -> 78 with the freshness term as the whole of the
+    difference: scored the wrong way round it contributes 0.00002 and scored
+    correctly it contributes 1. Since M8-5, one refresh carries a **second**
+    correction with it — M7-F49's derived target count (three targets, target
+    three, not the hand-picked five that capped the metric at 60% by
+    construction) — so the same refresh now lands 45 -> 91. Both terms are
+    asserted separately below so a regression in either is legible.
     """
     await _provisioning(session, registry).install(_finance("1.0.2"))
     watch = await _company(registry, _finance("1.0.1"), "Portfolio Watch", budget=Decimal("15.00"))
@@ -372,14 +378,55 @@ async def test_a_missing_direction_is_the_change_and_the_arithmetic_moves(
 
     plan = await refresh.plan_refresh(watch)
     assert [change.field for change in plan.changes] == [
-        "kpi_targets.data_freshness_hours.direction"
+        "kpi_targets.metrics_tracked.target_value",
+        "kpi_targets.data_freshness_hours.direction",
     ]
-    assert plan.changes[0].description == "Data freshness now counts lower numbers as better."
+    assert plan.changes[0].description == (
+        "Changes the goal for Metrics tracked from 5 to 3 metrics."
+    )
+    assert plan.changes[1].description == "Data freshness now counts lower numbers as better."
 
     await refresh.apply_refresh(watch, plan, consent=_consent(plan))
 
     after = await registry.get_contract(watch)
-    assert await engine.attainment(after) == 78
+    assert await engine.attainment(after) == 91
+    assert {t.key: t.target_value for t in after.kpi_targets}["metrics_tracked"] == Decimal("3")
+    assert {t.key: t.direction for t in after.kpi_targets}["data_freshness_hours"] is (
+        KpiDirection.BELOW
+    )
+
+
+async def test_refresh_and_provisioning_derive_the_same_targets(
+    session: AsyncSession, registry: BusinessRegistry, refresh: ContractRefreshService
+) -> None:
+    """One derivation of `CONFIGURED_KPI_TARGET_COUNT`, not two (M8-F153).
+
+    A company created at the installed version and one that arrived there by
+    refresh must hold the same targets. Before this, `create_company` derived
+    the count (M7-F49) and `refreshed_contract` copied the type's hand-written
+    number straight through, so a refreshed company would have carried a target
+    a newly created one never gets — and the drifting half is the one no test
+    creates a company through.
+    """
+    definition = _finance("1.0.2")
+    await _provisioning(session, registry).install(definition)
+    created = await _provisioning(session, registry).create_company(
+        definition=definition, display_name="Created At This Version"
+    )
+    migrated = await _company(
+        registry, _finance("1.0.1"), "Migrated To This Version", budget=Decimal("15.00")
+    )
+    plan = await refresh.plan_refresh(migrated)
+    await refresh.apply_refresh(migrated, plan, consent=_consent(plan))
+
+    created_targets = (await registry.get_contract(created)).kpi_targets
+    migrated_targets = (await registry.get_contract(migrated)).kpi_targets
+    assert created_targets == migrated_targets
+    # And it is the derived number on both sides, not the type's written 5.
+    assert {t.key: t.target_value for t in created_targets}["metrics_tracked"] == Decimal("3")
+    assert {t.key: t.target_value for t in definition.default_kpi_targets}[
+        "metrics_tracked"
+    ] == Decimal("5")
 
 
 # ── Band C: the guard at the write boundary ─────────────────────────────────

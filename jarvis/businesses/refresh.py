@@ -33,6 +33,7 @@ from pydantic import ValidationError
 
 from jarvis.businesses.definition import BusinessTypeDefinition, read_installed_definition
 from jarvis.domain.contract import BusinessContract, KpiDirection, KpiTarget
+from jarvis.domain.kpi import provisioned_kpi_targets
 from jarvis.domain.refresh import (
     ContractRefreshPlan,
     FieldChange,
@@ -348,6 +349,15 @@ def refreshed_contract(
     stored, which is what makes the Band C guard at the write boundary a
     double-check rather than the only check.
 
+    `kpi_targets` come from `provisioned_kpi_targets`, the same function
+    `ProvisioningService.create_company` calls, rather than from
+    `definition.default_kpi_targets` directly (M8-F153). A key mapped to
+    `CONFIGURED_KPI_TARGET_COUNT` has its target derived from the type's own
+    target count (M7-F49), and a company that arrived at the installed version
+    by refresh must land on the same contract as one created at it — two
+    derivations of one number are a drift waiting to happen, and the drifting
+    half would be the one no test creates a company through.
+
     `max_cycles_per_day` is carried through untouched: the type has no field
     for it, so a type upgrade may not move it (design Part 4.2).
 
@@ -362,7 +372,10 @@ def refreshed_contract(
     """
     payload = contract.model_dump(mode="json")
     payload["kpi_targets"] = [
-        target.model_dump(mode="json") for target in definition.default_kpi_targets
+        target.model_dump(mode="json")
+        for target in provisioned_kpi_targets(
+            definition.default_kpi_targets, definition.kpi_mappings
+        )
     ]
     payload["wake_conditions"] = {
         **payload["wake_conditions"],
@@ -382,8 +395,17 @@ def refreshed_contract(
 def _band_b_changes(
     contract: BusinessContract, definition: BusinessTypeDefinition
 ) -> Iterable[FieldChange]:
-    """Yield every Band B difference, in the order a renderer should show them."""
-    yield from _kpi_target_changes(contract.kpi_targets, definition.default_kpi_targets)
+    """Yield every Band B difference, in the order a renderer should show them.
+
+    The declared side is the *derived* target set, not `default_kpi_targets`
+    raw (M8-F153): `refreshed_contract` writes the derived one, and a plan that
+    diffed against the underived one would describe a change the write does not
+    make — or stay silent about one it does. One derivation, read by both.
+    """
+    yield from _kpi_target_changes(
+        contract.kpi_targets,
+        provisioned_kpi_targets(definition.default_kpi_targets, definition.kpi_mappings),
+    )
     yield from _wake_changes(contract, definition)
     yield from _compliance_changes(contract, definition)
 
