@@ -23,7 +23,7 @@ seconds. In a proportional face the digits change width, the row reflows, and th
 to motion that means nothing. Tabular figures make a changing number change *in place*. Every
 numeric value in the surface uses `--font-data` with `font-variant-numeric: tabular-nums`.
 
-### The fallback stack is what actually renders — M8-F21, closed at M8-4
+### The fallback stack — M8-F21, closed for real at M8-11
 
     --font-display: "Bricolage Grotesque", "Segoe UI Variable Display",
                     "Segoe UI Semibold", Optima, Avenir, system-ui, sans-serif
@@ -34,22 +34,28 @@ M8-F21 recorded that the webfonts loaded from Google Fonts: a locally-run platfo
 make a third-party network request to render its own chrome, and doing so tells a third party
 when the operator opened their dashboard.
 
-**It was closed by deletion, not by vendoring.** The `<link>` tags are gone and no `@font-face`
-replaced them, so the surface makes zero third-party requests — pinned by
-`tests/test_design_system.py`. Vendoring the actual `.woff2` files into
-`jarvis/api/static/fonts/` remains the *complete* fix and is a follow-up; shipping `@font-face`
-rules pointing at files that are not in the repository would have traded one network failure for
-three, which is worse than honest degradation.
+**M8-4 closed it by deletion**: the `<link>` tags were removed and no `@font-face` replaced them,
+so the surface made zero third-party requests — but the first name in each stack matched nothing,
+and the platform faces were, for a while, the real design.
 
-So today the first name in each stack matches nothing and **the platform faces are the design**.
-Two consequences, stated rather than discovered later:
+**M8-11 closed it for real, by vendoring.** All three families' `.woff2` binaries (every unicode
+subset) and license texts now ship in `jarvis/api/static/fonts/` (SIL OFL 1.1; see the directory's
+own `README.md` for provenance), declared in `jarvis/api/static/fonts.css` and linked into
+`index.html` ahead of `tokens.css`. The surface still makes zero third-party requests — the
+`@font-face` `src` URLs are same-origin, and `tests/test_design_system.py` still pins that — but
+now the first name in each stack is the one that actually renders, live-verified (fetched bytes,
+`document.fonts` load state, `getComputedStyle` on a live element per role).
+
+The fallback stack itself is not decorative left-over: `font-display: swap` means an operator on
+a slow connection sees the platform-face fallback first and the vendored family swap in, rather
+than invisible text while the font downloads, and a family that fails to load for any reason
+(a corrupted cache, a browser font quota) degrades to the same honest fallback M8-4 shipped.
+Two consequences of the fallback list itself, unchanged by which font is actually loading:
 
 1. The display/body distinction is carried by a *different* first fallback rather than by a
    different family — plus weight, size and tracking, which were always doing most of the work.
-   It is weaker than Bricolage Grotesque against IBM Plex Sans, and it is honest.
-2. The data face is unaffected: monospace fallbacks are universal, so every rule below about
-   numbers, tabular figures and eyebrow labels holds exactly as written. That is the half of the
-   typographic system that carries measurement, and it did not degrade at all.
+2. The data face's fallback is unaffected: monospace fallbacks are universal, so every rule below
+   about numbers, tabular figures and eyebrow labels holds regardless of load state.
 
 ---
 

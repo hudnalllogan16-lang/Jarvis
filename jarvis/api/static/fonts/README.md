@@ -12,6 +12,10 @@ license text for each ships beside the binaries in this directory.
 
 Provenance: woff2 binaries and `@font-face` declarations fetched from the Google Fonts
 css2 API (all unicode subsets kept); license texts from the google/fonts repository (ofl/).
-`../fonts.css` carries the declarations with URLs rewritten to this directory. The hookup
-into the page (`<link>`/token fallback order) lands with the next surface merge so running
-lanes aren't conflicted; until then the tuned fallback stack from M8-4 remains in effect.
+`../fonts.css` carries the declarations with URLs rewritten to this directory.
+
+Hooked into the page at M8-11: `../index.html` links `/static/fonts.css` ahead of
+`tokens.css`, so the three families are registered before anything asks for them. The
+M8-4 fallback stack (docs/design/03-typography.md) stays in the token declarations exactly
+as tuned — it is what a browser falls back to if a family fails to load, never a network
+request.

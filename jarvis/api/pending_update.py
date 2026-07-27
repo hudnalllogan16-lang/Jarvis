@@ -12,22 +12,29 @@ prose." A field with no sentence below is not renderable and therefore not
 refreshable — Part 6 calls this out as a feature, not a gap: a new Band-B
 field cannot reach an operator until someone writes the sentence.
 
-**Coordination note for whoever reconciles this against M8-8's merge.** This
-module owns the render half only. `FieldChange` is this lane's best-effort
-shape for "one Band-B field that differs" — built from Part 4.2's own table,
-not from M8-8's `ContractRefreshPlan` (which had not merged into this worktree
-at the time this packet ran; see the M8-9 report). `jarvis/api/app.py`'s
-`_pending_update` seam always returns `None` today, which is the correct and
-safe default while no diff mechanism is wired in (Part 4.3: the un-consented
-state is today's status quo, so this is not a regression). Wiring the real
-`plan_refresh` output through to :func:`render_pending_update` — adapting
-either shape to the other — is the integration step that lands with M8-8.
+**M8-11 update.** `FieldChange`/`SENTENCES` below were this lane's best-effort
+stand-in for "one Band-B field that differs", built from Part 4.2's own table
+before M8-8's `ContractRefreshPlan` (`jarvis.domain.refresh`, M1) had merged
+into this worktree. Now that it has, :func:`render_plan` is the real seam
+`jarvis/api/app.py`'s `_pending_update` wires to `kernel.build_refresh`'s
+`plan_refresh`: it reads `plan.changes` directly rather than adapting them
+into the `FieldChange` shape below, because `businesses/refresh.py` already
+renders each change to a finished operator sentence at diff time (its own
+platform-owned table, the same D-011 discipline this module's `SENTENCES`
+applies) — a second translation through a field-kind vocabulary the plan
+does not use (`plan_refresh`'s `field` values are dotted contract paths, e.g.
+`kpi_targets.data_freshness_hours.direction`, never `kpi_target_direction`)
+would be a rebuild of work already done, not a reuse of it. `FieldChange`,
+`SENTENCES`, and `render_pending_update` remain exactly as `test_pending_
+update_copy.py` pins them; nothing here was removed.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
+
+from jarvis.domain.refresh import ContractRefreshPlan
 
 _KNOWN_EVENT_TRIGGERS: dict[str, dict[str, str]] = {
     # M6-F10: every capability result is already awaited inside the cycle that
@@ -162,6 +169,18 @@ class PendingUpdateView:
     changes: tuple[str, ...] = field(default_factory=tuple)
 
 
+def _view(
+    *, company_name: str, type_display_name: str, changes: Sequence[str]
+) -> PendingUpdateView:
+    """Return the view shape, headline and intro assembled once (Part 6's own
+    worked-example wording), for both entry points below to share verbatim."""
+    return PendingUpdateView(
+        headline=f"{company_name} — an update is ready for this company.",
+        intro=f"The {type_display_name} setup has changed since this company was created.",
+        changes=tuple(changes),
+    )
+
+
 def render_pending_update(
     *, company_name: str, type_display_name: str, changes: Sequence[FieldChange]
 ) -> PendingUpdateView | None:
@@ -185,10 +204,44 @@ def render_pending_update(
     rendered = [s for s in (sentence_for(c) for c in changes) if s is not None]
     if not rendered:
         return None
-    return PendingUpdateView(
-        headline=f"{company_name} — an update is ready for this company.",
-        intro=f"The {type_display_name} setup has changed since this company was created.",
-        changes=tuple(rendered),
+    return _view(company_name=company_name, type_display_name=type_display_name, changes=rendered)
+
+
+def render_plan(
+    plan: ContractRefreshPlan, *, company_name: str, type_display_name: str
+) -> PendingUpdateView | None:
+    """Build the operator-facing view directly from a real `plan_refresh` plan.
+
+    The M8-11 integration seam: `plan.changes` (`jarvis.domain.refresh.
+    FieldChange`, packet M8-8) already carries a finished operator sentence
+    per field — `description`, built from `businesses/refresh.py`'s own
+    platform-owned table at diff time. This takes those sentences verbatim
+    rather than re-deriving them through :data:`SENTENCES`, which speaks a
+    different, incompatible field vocabulary (see the module docstring).
+
+    `plan.withheld` (Band C) is never read here: it is the developer/audit
+    half of the plan (D-029's guard, provable at the write boundary), never
+    an operator-facing fact — `PendingUpdateView` has no field for it, the
+    same as `render_pending_update` above.
+
+    Args:
+        plan: The real diff for one company (`ContractRefreshService.
+            plan_refresh`).
+        company_name: The company's stored display name (D-007).
+        type_display_name: The installed type's stored display name.
+
+    Returns:
+        None if the plan is empty (Part 4.3: the company is already
+        current — today's status quo, not a placeholder); otherwise the
+        view, with `changes` taken verbatim from the plan's own descriptions,
+        in the order `plan_refresh` produced them.
+    """
+    if plan.is_empty:
+        return None
+    return _view(
+        company_name=company_name,
+        type_display_name=type_display_name,
+        changes=[change.description for change in plan.changes],
     )
 
 
@@ -197,5 +250,6 @@ __all__ = [
     "FieldChange",
     "PendingUpdateView",
     "render_pending_update",
+    "render_plan",
     "sentence_for",
 ]

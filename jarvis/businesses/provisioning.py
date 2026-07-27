@@ -17,7 +17,12 @@ from __future__ import annotations
 from collections.abc import Sequence
 from decimal import Decimal
 
-from jarvis.businesses.definition import BusinessTypeDefinition, compute_digest
+from jarvis.businesses.definition import (
+    BusinessTypeDefinition,
+    compute_digest,
+    read_installed_definition,
+)
+from jarvis.businesses.refresh import refreshed_contract
 from jarvis.domain.contract import BudgetPolicy, BusinessContract, WakeConditions
 from jarvis.domain.lifecycle import LifecycleState
 from jarvis.events.bus import Event, EventBus
@@ -72,13 +77,16 @@ class ProvisioningService:
                 subscribes to `capability.result_returned` (M6-F10 — every
                 result is awaited inside the cycle that requested it under
                 D-001, so subscribing is a self-sustaining wake loop bounded
-                only by `max_cycles_per_day`); or if a type declaring
+                only by `max_cycles_per_day`); if a type declaring
                 `kpi_mappings` also subscribes to `KPI_THRESHOLD_BREACHED`
                 (M7-F35 — the type would re-wake itself from its own
-                measurement). Every one of these is refused here rather than
-                at first dispatch or first cycle: the same defect surfaces
-                either way, but here it reaches a developer instead of an
-                operator watching a company do nothing or loop unexpectedly.
+                measurement); or if this is an upgrade of an already-installed
+                type and refreshing some existing company of that type
+                against `definition` would produce an invalid contract
+                (M8-F111 — see `_refuse_unrefreshable_upgrade`). Every one of
+                these is refused here rather than at first dispatch, first
+                cycle, or first refresh offer: the same defect surfaces either
+                way, but here it reaches a developer instead of an operator.
         """
         missing = definition.missing_templates()
         if missing:
@@ -113,6 +121,10 @@ class ProvisioningService:
                 "measurement (M7-F35)"
             )
 
+        existing = await self._registry.installed_type(BusinessTypeName(definition.name))
+        if existing is not None and existing.version != definition.version:
+            await self._refuse_unrefreshable_upgrade(definition)
+
         await self._registry.install_business_type(
             name=BusinessTypeName(definition.name),
             version=definition.version,
@@ -125,6 +137,49 @@ class ProvisioningService:
             },
         )
         logger.info("business type installed", extra={"context": {"name": definition.name}})
+
+    async def _refuse_unrefreshable_upgrade(self, definition: BusinessTypeDefinition) -> None:
+        """Refuse ``definition`` if it would break an existing company's refresh (M8-F111).
+
+        Reuses `businesses.refresh.refreshed_contract` — the exact validation
+        `ContractRefreshService.plan_refresh` applies when it computes what
+        accepting an update would write (design Part 4.4) — rather than a
+        second, independently-drifting copy of "what does a refreshed
+        contract look like" living here. `plan_refresh` itself cannot be
+        called for this: it diffs against the *installed* row, and at this
+        point in `install` the incoming `definition` is not installed yet.
+
+        Every company of this type is checked, not only the first: an
+        operator offered *no* update is different from one offered an update
+        the platform silently could not have written, and this refuses the
+        version bump itself rather than let that surface company by company
+        as each one's refresh offer failed.
+
+        Args:
+            definition: The version about to be installed.
+
+        Raises:
+            ConfigurationError: If refreshing any existing company of this
+                type against `definition` would produce an invalid contract.
+                Reraised from `refreshed_contract` with the affected
+                company named, so the refusal reaches a developer with
+                enough context to act on it.
+        """
+        instances = [
+            row
+            for row in await self._registry.list_instances()
+            if row.business_type == definition.name
+        ]
+        for row in instances:
+            contract = await self._registry.get_contract(BusinessId(row.business_id))
+            try:
+                refreshed_contract(contract, definition)
+            except ConfigurationError as exc:
+                raise ConfigurationError(
+                    f"installing {definition.name} {definition.version} would leave "
+                    f"{contract.display_name} ({contract.business_id}) with no valid "
+                    f"refresh available: {exc}"
+                ) from exc
 
     async def create_company(
         self,
@@ -239,7 +294,7 @@ class ProvisioningService:
         for row in await self._registry.installed_types():
             if not getattr(row, "enabled", True):
                 continue  # disabled types are invisible to creation (D-017)
-            raw = (row.plugin_metadata or {}).get("definition")
-            if raw:
-                out.append(BusinessTypeDefinition.model_validate(raw))
+            definition = read_installed_definition(row)
+            if definition is not None:
+                out.append(definition)
         return out

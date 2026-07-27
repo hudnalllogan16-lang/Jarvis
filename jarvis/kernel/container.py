@@ -267,12 +267,11 @@ class PlatformKernel:
         must survive a restart, or a company created yesterday wakes up today
         with no prompt templates and dead-letters every dispatch (M5-F3).
         """
-        from jarvis.businesses.definition import BusinessTypeDefinition
+        from jarvis.businesses.definition import read_installed_definition
 
         for row in await services.registry.installed_types():
             if row.name == name:
-                raw = (row.plugin_metadata or {}).get("definition")
-                return BusinessTypeDefinition.model_validate(raw) if raw else None
+                return read_installed_definition(row)
         return None
 
     def build_provisioning(self, services: KernelServices) -> Any:

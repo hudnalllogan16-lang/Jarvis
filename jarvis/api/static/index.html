@@ -6,14 +6,19 @@
 <title>Jarvis</title>
 <!-- No third-party requests. Jarvis runs locally; a surface that fetches its own
      chrome from someone else's CDN is offline-fragile and tells a third party
-     when the operator opened their dashboard (finding M8-F21). The type stacks
-     in styles/tokens.css degrade to platform faces — see
-     docs/design/03-typography.md, "the fallback stack is part of the design".
+     when the operator opened their dashboard (finding M8-F21). fonts.css is
+     vendored (jarvis/api/static/fonts/, OFL-licensed) and served from this
+     same origin — linked ahead of tokens.css so the three families are
+     registered before anything asks for them. The stacks in styles/tokens.css
+     keep their platform-face fallbacks for a family that fails to load, never
+     for a network request — see docs/design/03-typography.md.
      Pinned by tests/test_design_system.py. -->
 <!-- The design system, in three layers (docs/design/README.md):
+     fonts       vendored @font-face declarations (jarvis/api/static/fonts.css)
      tokens      tier-1 primitives + tier-2 semantic tokens, both themes
      base        reset, document defaults, typography application
      components  every component in docs/design/06-components.md -->
+<link rel="stylesheet" href="/static/fonts.css">
 <link rel="stylesheet" href="/static/styles/tokens.css">
 <link rel="stylesheet" href="/static/styles/base.css">
 <link rel="stylesheet" href="/static/styles/components.css">
