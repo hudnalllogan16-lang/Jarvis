@@ -23,10 +23,12 @@ M6-F12 from the other side), and never releasing anything at all.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
+import pytest
 import pytest_asyncio
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -34,9 +36,14 @@ from sqlalchemy.pool import StaticPool
 
 from jarvis.budget.ledger import RELEASED, RESERVED, SETTLED
 from jarvis.businesses.affiliate import AFFILIATE
+from jarvis.capabilities.executor import CapabilityExecutor, InMemoryTemplates
+from jarvis.capabilities.pool import CapabilityPool
+from jarvis.capabilities.request import ScopedRequest
+from jarvis.domain.contract import CapabilityType
 from jarvis.kernel.config import LLMSettings, Settings
 from jarvis.kernel.container import PlatformKernel
-from jarvis.kernel.ids import BusinessId
+from jarvis.kernel.ids import BusinessId, InvocationId
+from jarvis.kernel.runtime import RuntimeIdentity
 from jarvis.llm.base import CompletionResponse, Usage
 from jarvis.manager.workflow import ACTIVITY_TIMEOUT, DISPATCH_TIMEOUT
 from jarvis.persistence.models import AuditLogRow, Base, BudgetLedgerRow, DeadLetterRow
@@ -352,6 +359,111 @@ async def test_the_release_and_its_record_commit_together(
 
     assert await _states(kernel) == [RESERVED], "the release went back"
     assert await _audited(kernel) == [], "and so did the record of it"
+
+
+# ── M8-F88: one orphan the backstop no longer has to catch ────────────────
+#
+# M8-F92 recorded that in practice the age bound, not terminality, was doing
+# this sweep's work — D-022's expectation inverted. A cancelled dispatch is one
+# of the reasons why: it left a RESERVED row with no dead letter beside it and
+# no audit entry, so there was nothing terminal to read and the backstop was the
+# only thing that would ever release it. M8-F88 gives that path the handler
+# `_ask_model` has had since D-022, which narrows what the backstop is carrying.
+
+
+class _CancellingProvider:
+    """Provider whose call is cancelled — the worker is going away."""
+
+    @property
+    def name(self) -> str:
+        return "cancelling"
+
+    async def complete(self, request: object) -> CompletionResponse:
+        raise asyncio.CancelledError
+
+    async def aclose(self) -> None:
+        return None
+
+
+async def _dispatch_cancelled(kernel: PlatformKernel, company: BusinessId) -> None:
+    """Dispatch one invocation through a real pool and have it cancelled.
+
+    A real `CapabilityPool` against the real ledger, because what is under test
+    is which ledger row the pool leaves behind — a hand-written row would be a
+    test about this file's idea of the pool.
+    """
+    async with kernel.services() as svc:
+        pool = CapabilityPool(
+            session=svc.session,
+            registry=svc.registry,
+            ledger=kernel.build_ledger(svc),
+            breaker=kernel.build_breaker(svc),
+            executor=CapabilityExecutor(
+                _CancellingProvider(),  # type: ignore[arg-type]
+                InMemoryTemplates({"affiliate.research": "Research {topic}"}),
+            ),
+            audit=svc.audit,
+        )
+        with pytest.raises(asyncio.CancelledError):
+            await pool.dispatch(
+                identity=RuntimeIdentity.for_testing(company),
+                request=ScopedRequest(
+                    invocation_id=InvocationId("inv_cancelled"),
+                    declared_business_id=company,
+                    capability=CapabilityType.RESEARCH,
+                    prompt_ref="affiliate.research",
+                    prompt_inputs={"topic": "trail shoes"},
+                    budget_allocation_usd=Decimal("0.50"),
+                    cycle_id=CYCLE,
+                ),
+            )
+
+
+async def test_a_cancelled_dispatch_leaves_the_sweep_nothing_to_find(
+    kernel: PlatformKernel, company: BusinessId
+) -> None:
+    """M8-F88, stated as what the reconcile no longer has to do.
+
+    The hold comes back at the moment the invocation ends, which is what D-022
+    point 3 says should happen and what this path was not doing. The sweep then
+    finds nothing — not "finds it and releases it", which would be the same
+    headroom returning up to half an hour later and one more thing the backstop
+    was quietly load-bearing for.
+    """
+    await _dispatch_cancelled(kernel, company)
+    assert await _states(kernel) == [RELEASED], "released by the pool, not by a timer"
+
+    report = await Scheduler(kernel).sweep(now=NOW)
+
+    assert report.reservations_released == 0
+    assert await _audited(kernel) == []
+
+
+async def test_before_that_the_headroom_waited_out_the_age_bound(
+    kernel: PlatformKernel, company: BusinessId
+) -> None:
+    """The defect, kept executable: what a cancelled dispatch used to leave.
+
+    A RESERVED row with no terminal evidence anywhere — the worker was cancelled
+    before it could write one. The sweep is *right* not to touch it while it is
+    young (that is `test_a_live_hold_is_left_alone`, and guessing there would
+    reopen M6-F12 from the inside), so the company's headroom stayed gone until
+    `ORPHANED_RESERVATION_AGE` — twice the longest activity timeout — had passed.
+
+    That window is the cost M8-F88 removes, and it is why "the backstop catches
+    it eventually" was never a sufficient answer.
+    """
+    await _hold(kernel, company, invocation_id="inv_cancelled", age=timedelta(minutes=5))
+
+    young = await Scheduler(kernel).sweep(now=NOW)
+    assert young.reservations_released == 0
+    assert await _states(kernel) == [RESERVED], "the headroom is still gone"
+
+    old = await Scheduler(kernel).sweep(now=NOW + ORPHANED_RESERVATION_AGE)
+    assert old.reservations_released == 1
+    assert (await _audited(kernel))[0].payload["reason"] == (
+        "held past the age bound with no terminal result"
+    )
 
 
 async def test_a_platform_with_nothing_held_does_nothing(

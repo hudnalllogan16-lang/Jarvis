@@ -140,7 +140,13 @@ class ManagerState(BaseModel):
     M8-F48: no pre-M8-3 execution remaining queryable."""
 
     cycles_completed: int = 0
-    """Drives `continue_as_new` (D-005), which is what keeps history bounded."""
+    """Cycles completed *in this run*, which is what drives `continue_as_new`
+    (D-005) and what keeps Temporal history bounded.
+
+    Per run, not per Manager: `continued` resets it, so the count means "how
+    much history this execution has accumulated" rather than "how long this
+    company has existed". A lifetime count would answer a different question,
+    and answering it here is what made M8-F87 possible."""
 
     cycles_today: int = 0
     day_ordinal: int = 0
@@ -167,6 +173,38 @@ class ManagerState(BaseModel):
                 "day_ordinal": day_ordinal,
             }
         )
+
+    def continued(self) -> ManagerState:
+        """Return the state the next generation of this Manager starts from (M8-F87).
+
+        `continue_as_new` starts a fresh execution with a fresh history, so the
+        count of what the *previous* history accumulated has to go back to zero
+        with it. It did not: the same state was handed over intact, so the very
+        first cycle of generation two took the count to 101, met the threshold
+        again, and continued as new immediately — and every cycle after that
+        did the same. `CYCLES_BEFORE_CONTINUATION` bound the first hundred
+        cycles of a Manager's life and nothing afterwards.
+
+        Only the ordinal resets. Everything else is durable state that a
+        continuation is not supposed to disturb (D-005):
+
+        - `cycles_today` and `day_ordinal` are the daily wake allowance, which
+          bounds how often a *company* reasons and has nothing to do with how
+          much history one execution holds. Resetting them here would hand a
+          business a fresh day's allowance every hundred cycles, which is the
+          rate limit quietly removing itself.
+        - `pending_approval_id` is how a resumed Manager knows it is waiting on
+          an answer (D-006); dropping it at a continuation would lose an
+          approval roundtrip that spans one.
+        - `plan` and `kpi_targets` are the working set §2.1 says the Manager
+          owns.
+
+        Safe against the cycle key (D-034.2) because that key namespaces by run
+        id, and `continue_as_new` assigns a new one: generation two's cycle 0
+        and generation one's cycle 0 derive different keys, so a reset ordinal
+        cannot make two cycles share a budget scope.
+        """
+        return self.model_copy(update={"cycles_completed": 0})
 
     def wake_budget_exhausted(self, max_per_day: int, *, day_ordinal: int) -> bool:
         """Return whether this business has woken too often today."""

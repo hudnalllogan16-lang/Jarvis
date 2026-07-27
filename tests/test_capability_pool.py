@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from decimal import Decimal
 
 import pytest
@@ -186,6 +187,112 @@ async def test_dead_lettered_invocation_releases_its_budget(
     )
     states = [r.state for r in (await session.scalars(select(BudgetLedgerRow))).all()]
     assert states == ["RELEASED"]
+
+
+class _CancelledProvider:
+    """Provider whose call is cancelled — a worker shutting down, most often.
+
+    `CancelledError` is a `BaseException`, so it travels straight past every
+    `except CapabilityExecutionError` in the retry loop. That is exactly why
+    M8-F88 was invisible: the invocation ends, nothing raises anything the pool
+    handles, and the hold simply stays.
+    """
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    @property
+    def name(self) -> str:
+        return "cancelled"
+
+    async def complete(self, request: object) -> CompletionResponse:
+        self.calls += 1
+        raise asyncio.CancelledError
+
+    async def aclose(self) -> None:
+        return None
+
+
+async def test_a_cancelled_dispatch_releases_its_hold(
+    session: AsyncSession, registry: BusinessRegistry, contract: BusinessContract
+) -> None:
+    """M8-F88: the handler `_ask_model` has had since D-022, on the other path.
+
+    A reservation counts against the cycle, the company and the platform ceiling
+    (D-003) until something resolves it. Cancellation resolved nothing here, so a
+    worker restart mid-cycle cost a company real headroom for spend that never
+    happened — and every dispatch cancelled by `asyncio.gather` propagating a
+    sibling's failure did the same, once per wave.
+    """
+    provider = _CancelledProvider()
+    pool, business_id = await _pool(session, registry, contract, provider)  # type: ignore[arg-type]
+
+    with pytest.raises(asyncio.CancelledError):
+        await pool.dispatch(
+            identity=RuntimeIdentity.for_testing(business_id),
+            request=_request(prompt_inputs={"topic": "x"}, max_attempts=3),
+        )
+
+    states = [r.state for r in (await session.scalars(select(BudgetLedgerRow))).all()]
+    assert states == ["RELEASED"]
+    assert provider.calls == 1, "cancellation ends the invocation; it is not a retryable failure"
+
+
+async def test_the_cancellation_still_travels(
+    session: AsyncSession, registry: BusinessRegistry, contract: BusinessContract
+) -> None:
+    """The half the release must not cost: cancellation is not an outcome.
+
+    Swallowing it into a `DEAD_LETTERED` result would tell a Manager its work
+    finished badly when in fact the worker is going away, and would keep a
+    shutting-down process doing bookkeeping for invocations nobody is waiting
+    for. The hold comes back; the signal keeps going — the same posture
+    `_dispatch_all` takes when it re-raises anything that is not an
+    `ActivityError`.
+    """
+    provider = _CancelledProvider()
+    pool, business_id = await _pool(session, registry, contract, provider)  # type: ignore[arg-type]
+
+    with pytest.raises(asyncio.CancelledError):
+        await pool.dispatch(
+            identity=RuntimeIdentity.for_testing(business_id),
+            request=_request(prompt_inputs={"topic": "x"}),
+        )
+
+    dead = (await session.scalars(select(DeadLetterRow))).all()
+    assert list(dead) == [], "a cancelled invocation is not a stuck one"
+
+
+async def test_a_settled_hold_is_not_released_by_a_later_cancellation(
+    session: AsyncSession, registry: BusinessRegistry, contract: BusinessContract
+) -> None:
+    """The direction the handler must never be wrong in (D-003 rule 1).
+
+    Once the reservation is settled the spend really happened, and releasing it
+    afterwards would erase money the platform paid. So the handler gives up its
+    claim on the hold *before* it resolves it: anything cancelled from the settle
+    onwards is left to D-034.3's reconcile, which is the mechanism for a hold
+    whose state nobody can be sure of.
+
+    Driven by cancelling the announcement — the first thing after the settle —
+    because that is the narrow window the ordering exists to protect.
+    """
+
+    async def _cancel(_: object) -> None:
+        raise asyncio.CancelledError
+
+    provider = StubProvider()
+    pool, business_id = await _pool(session, registry, contract, provider)
+    pool._announce = _cancel  # type: ignore[method-assign]
+
+    with pytest.raises(asyncio.CancelledError):
+        await pool.dispatch(
+            identity=RuntimeIdentity.for_testing(business_id),
+            request=_request(prompt_inputs={"topic": "x"}),
+        )
+
+    states = [r.state for r in (await session.scalars(select(BudgetLedgerRow))).all()]
+    assert states == ["SETTLED"], "the spend that happened stays recorded as spend"
 
 
 async def test_permanent_failure_does_not_burn_retries(

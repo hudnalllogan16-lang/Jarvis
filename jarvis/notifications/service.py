@@ -31,6 +31,22 @@ class NotificationKind(StrEnum):
     PAUSED = "paused"
     SPENDING = "spending"
     GRADUATED = "graduated"
+    WAITING_ON_RESUME = "waiting_on_resume"
+    """Something arrived for a paused company and was dropped (D-035).
+
+    Its own kind rather than `PAUSED`, which reads like the obvious reuse and is
+    the one value that must not be used here. `PAUSED` is what the seven-day
+    sweep raises when an unanswered request pauses a company — "answer this" —
+    and D-035's notice is what the operator needs *after* they have answered it.
+    Sharing a kind would let the first, still unread, suppress the second under
+    the deduplication in :meth:`has_unread`: the operator would be told to
+    answer, would answer, and would never be told that answering did nothing
+    until they resume. That is the exact information loss D-035 exists to close.
+
+    Deliberately not `NEEDS_APPROVAL` or `REMINDER` either: those two are
+    reconciled against a *pending* approval in :meth:`unread`, and the approval
+    behind this notice has already been decided, so it would be filtered out of
+    the operator's queue the moment it was written."""
 
 
 class NotificationService:
