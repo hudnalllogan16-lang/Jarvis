@@ -122,6 +122,23 @@ class ManagerState(BaseModel):
 
     plan: TacticalPlan = TacticalPlan()
     kpi_targets: tuple[KpiTargetState, ...] = ()
+    """Replay compatibility only — nothing seeds this any more (M8-F46).
+
+    §2.1 lists "active KPI targets" as durable Manager state, and until M8-3
+    that is what this was: seeded from the contract when the Manager started and
+    carried across every cycle and every `continue_as_new`. That made it a
+    second copy of a contract value which could only ever drift from it, and it
+    did — the planner would have gone on working to figures a refresh had
+    already moved, for up to a hundred cycles (M8-F7). Targets now ride the
+    post-wake context snapshot, read per cycle from the contract, which is the
+    authority.
+
+    It stays, defaulting to empty, because a history captured before M8-3
+    recorded a context that carries no targets, and the workflow must go on
+    planning those executions against what they actually planned against
+    (spec §11, D-033). Removing it is a workflow-versioning change gated on
+    M8-F48: no pre-M8-3 execution remaining queryable."""
+
     cycles_completed: int = 0
     """Drives `continue_as_new` (D-005), which is what keeps history bounded."""
 

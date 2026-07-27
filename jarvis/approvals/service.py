@@ -35,7 +35,12 @@ from jarvis.kernel.ids import BusinessId, DecisionId, EventId, new_event_id
 from jarvis.kernel.logging import get_logger
 from jarvis.observability.audit import AuditLog
 from jarvis.observability.decision_log import DecisionLog
-from jarvis.persistence.models import ApprovalRow, AutonomyCounterRow
+from jarvis.persistence.models import (
+    ApprovalRow,
+    AutonomyCounterRow,
+    BusinessInstanceRow,
+    BusinessTypeRow,
+)
 
 logger = get_logger(__name__)
 
@@ -365,10 +370,36 @@ class ApprovalService:
     async def _counter(self, business_id: str, action_type: str) -> AutonomyCounterRow:
         row = await self._session.get(AutonomyCounterRow, (business_id, action_type))
         if row is None:
-            row = AutonomyCounterRow(business_id=business_id, action_type=action_type)
+            row = AutonomyCounterRow(
+                business_id=business_id,
+                action_type=action_type,
+                plugin_major_version=await self._installed_major(business_id),
+            )
             self._session.add(row)
             await self._session.flush()
         return row
+
+    async def _installed_major(self, business_id: str) -> int:
+        """Return the major version of this company's installed type (A-003).
+
+        Stamped on the counter when it is created so the column says which
+        version's behaviour the streak was earned under. Until M8-8 it defaulted
+        to 1 and was never set from a definition, which made it a schema-backed
+        assertion with no reader and no writer (M8-F8); the reader is
+        `BusinessRegistry._reset_graduation_on_major_bump`.
+
+        Falls back to 1 when the row cannot be read. A counter that cannot name
+        its version is one a later major bump resets — over-eager in the
+        direction of *more* human approval, which is the only direction §8
+        permits being wrong in.
+        """
+        stmt = (
+            select(BusinessTypeRow.version)
+            .join(BusinessInstanceRow, BusinessInstanceRow.business_type == BusinessTypeRow.name)
+            .where(BusinessInstanceRow.business_id == business_id)
+        )
+        version = await self._session.scalar(stmt)
+        return int(version.split(".")[0]) if version else 1
 
     async def _advance_counter(self, row: ApprovalRow, contract: BusinessContract) -> None:
         """Advance the streak and graduate if the threshold is met (spec §8)."""

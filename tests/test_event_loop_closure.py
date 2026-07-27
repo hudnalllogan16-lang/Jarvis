@@ -30,7 +30,7 @@ def _published_types() -> set[str]:
     """
     published: set[str] = set()
     for path in JARVIS.rglob("*.py"):
-        source = path.read_text()
+        source = path.read_text(encoding="utf-8")
         if "publish(" not in source:
             continue
         for name, value in _constants_referenced(source).items():
@@ -63,14 +63,14 @@ def test_approval_decision_is_published_not_only_audited() -> None:
 
 def test_approval_service_holds_a_bus() -> None:
     """A structural check: the service cannot publish without one."""
-    source = (JARVIS / "approvals" / "service.py").read_text()
+    source = (JARVIS / "approvals" / "service.py").read_text(encoding="utf-8")
     assert "EventBus" in source
     assert "_publish_decided" in source
 
 
 def test_kernel_wires_the_bus_into_the_approval_service() -> None:
     """An optional dependency left unwired is the same bug with more steps."""
-    source = (JARVIS / "kernel" / "container.py").read_text()
+    source = (JARVIS / "kernel" / "container.py").read_text(encoding="utf-8")
     assert "bus=self.build_bus(services)" in source
 
 
@@ -92,7 +92,7 @@ def test_no_module_builds_an_unwired_approval_service() -> None:
     for path in JARVIS.rglob("*.py"):
         if path == JARVIS / "kernel" / "container.py":
             continue
-        for node in ast.walk(ast.parse(path.read_text())):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             if (
                 isinstance(node, ast.Call)
                 and isinstance(node.func, ast.Name)
@@ -125,7 +125,7 @@ def test_bus_event_types_are_centralised() -> None:
     for path in JARVIS.rglob("*.py"):
         if path.name == "types.py" and path.parent.name == "events":
             continue
-        for node in ast.walk(ast.parse(path.read_text())):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             if not (
                 isinstance(node, ast.Call)
                 and isinstance(node.func, ast.Attribute)
