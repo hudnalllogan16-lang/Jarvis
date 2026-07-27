@@ -422,6 +422,74 @@ def test_measurement_ran_after_synthesis_and_before_the_decision_record() -> Non
     assert measured < len(ordered) - 1 - ordered[::-1].index("record_cycle_decision")
 
 
+# ── M8-3: the stale snapshot, in the record, and why these still replay ────
+
+
+def _finance_segments() -> list[list[str]]:
+    """Activity names between one `load_cycle_context` and the next.
+
+    Each segment is what the workflow did with the context it had just read —
+    which, in the shape these histories were captured under, is one loop
+    iteration.
+    """
+    segments: list[list[str]] = []
+    for name in _finance_scheduled_names():
+        if name == "load_cycle_context":
+            segments.append([])
+        elif segments:
+            segments[-1].append(name)
+    return segments
+
+
+def test_the_finance_history_records_the_stale_snapshot_defect() -> None:
+    """M7-F45 as this history holds it — the defect M8-3's Part 1 removes.
+
+    `measures_kpis` turns from absent to True between two consecutive reads of
+    the same workflow: the type gained its mappings while the Manager was
+    parked. Because the read happened before the wait, the cycle that ran in
+    between planned, dispatched, synthesized, and recorded itself without ever
+    measuring — the live run's "cycle 1 measured nothing; cycle 2 measured".
+
+    Kept as an assertion on the fixture rather than as prose in DECISIONS.md
+    because it is the evidence the fix is answering, and a re-capture that no
+    longer showed it would quietly turn this file's guarantee into a smaller one.
+    """
+    stale = _finance_recorded_result("load_cycle_context", occurrence=1)
+    assert "measures_kpis" not in stale
+    fresh = _finance_recorded_result("load_cycle_context", occurrence=2)
+    assert CycleContext.model_validate(fresh).measures_kpis is True
+
+    segments = _finance_segments()
+    assert "record_cycle_kpis" not in segments[1], "the cycle that ran on the stale read"
+    assert segments[2].count("record_cycle_kpis") == 1, "and the one after it, measuring"
+
+
+@pytest.mark.parametrize("events", [EVENTS, FINANCE_EVENTS], ids=["affiliate", "finance"])
+def test_no_captured_context_carries_the_planner_s_targets(events: list[dict[str, object]]) -> None:
+    """Why M8-F7's change leaves both histories alone (spec §11).
+
+    The targets a cycle plans against now travel in the cycle context. Every
+    context in both histories was recorded before that field existed, so each
+    deserialises to `None` — not to an empty tuple — and the workflow plans
+    against the targets those runs carried in workflow state, which is what they
+    did. The same compatibility hinge D-023 and D-027 used, and the same reason
+    it is honest: `None` is "this record has no answer", not "no targets".
+    """
+    scheduled = {e["eventId"]: _activity_name(e) for e in events if e["eventType"] == SCHEDULED}
+    contexts = []
+    for event in events:
+        attrs = event.get("activityTaskCompletedEventAttributes")
+        if not isinstance(attrs, dict):
+            continue
+        if scheduled.get(attrs["scheduledEventId"]) != "load_cycle_context":
+            continue
+        contexts.append(json.loads(base64.b64decode(attrs["result"]["payloads"][0]["data"])))
+    assert contexts, "a history with no context reads would make this vacuous"
+    for context in contexts:
+        assert "kpi_targets" not in context
+        assert CycleContext.model_validate(context).kpi_targets is None
+
+
 def test_cycle_wrote_a_decision_log_entry_last() -> None:
     """Spec §2.1/§11.5: the cycle ends by explaining itself.
 

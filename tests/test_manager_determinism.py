@@ -155,6 +155,64 @@ def test_kpi_measurement_is_gated_on_the_cycle_context() -> None:
     assert ast.dump(TREE).count("'record_cycle_kpis'") == 1, "no second, ungated call"
 
 
+def test_the_cycle_loads_its_context_after_the_wake() -> None:
+    """M7-F45 plus audit F-B, asserted where the regression would be silent.
+
+    A cycle reasons on a snapshot taken when it begins, not on one taken before
+    it waited. Moving the read back above `_await_wake` would pass every
+    behavioural test in the suite — the cycle still runs, still plans, still
+    records — and would restore a defect whose only symptom is that a change
+    made while a Manager was parked takes an extra full wake to apply.
+
+    Two reads, deliberately: the first answers how long to wait and whether to
+    wait at all, the second is the cycle's own.
+    """
+    loop = SOURCE.split("async def run(")[1].split("async def _load_context")[0]
+    assert loop.count("self._load_context(") == 2
+    assert loop.index("self._await_wake(") < loop.rindex("self._load_context("), (
+        "the cycle's context must be read after the wake, not before it"
+    )
+
+
+def test_the_post_wake_reload_is_versioned() -> None:
+    """M6-F33: a change to a live workflow path ships behind a patch.
+
+    The reload adds a command to the cycle path, so a Manager parked when it
+    shipped would diverge on recovery without a version boundary. Asserted on
+    the source because deleting the guard is a one-line edit that leaves every
+    test green except the replays — and the replays would then be failing for a
+    reason nobody would read as "this needed versioning".
+
+    `tests/test_workflow_versioning.py` holds the rest: the id discipline, the
+    proof that both captured histories take the old branch, and the control that
+    forces this branch open against those same histories.
+    """
+    guarded = [
+        node
+        for node in ast.walk(TREE)
+        if isinstance(node, ast.If)
+        and isinstance(node.test, ast.Call)
+        and isinstance(node.test.func, ast.Name)
+        and node.test.func.id == "_reloads_context_after_wake"
+        and "_load_context" in ast.dump(node)
+    ]
+    assert len(guarded) == 1, "the post-wake read is the patched branch"
+    assert "workflow.patched(PATCH_POST_WAKE_CONTEXT)" in SOURCE
+
+
+def test_the_planner_s_targets_are_read_defensively_from_the_context() -> None:
+    """M8-F7 plus spec §11: a history captured before the field must replay.
+
+    `None` means the context predates the field and the carried state is what
+    that history planned against; `()` is a live answer meaning no targets are
+    set. A truthiness check would collapse them, which would both break those
+    histories' honesty and make a future refresh unable to remove the last
+    target.
+    """
+    assert "state.kpi_targets if ctx.kpi_targets is None else ctx.kpi_targets" in SOURCE
+    assert "ctx.kpi_targets or state.kpi_targets" not in SOURCE
+
+
 def test_measurement_precedes_the_decision_record() -> None:
     """D-027.1 fixes the order: after synthesis, before the decision record.
 

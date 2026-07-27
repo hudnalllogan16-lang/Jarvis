@@ -69,6 +69,31 @@ STANDARD_RETRY = RetryPolicy(
 retry/timeout discipline as any other workflow, so a stuck Manager surfaces
 rather than holding its business in an indefinite pending state."""
 
+PATCH_POST_WAKE_CONTEXT = "post-wake-cycle-context"
+"""Versioning id for the change that moved the cycle's context load after the
+wake (M7-F45, scoped to the whole snapshot by audit F-B).
+
+**Changes to a live workflow path are versioned, never shipped bare (M6-F33).**
+A Manager parked on its wake timer is a *running history*: deploy a worker whose
+cycle body issues one more command than that history recorded and the parked
+business fails on recovery, which is the one failure mode D-004 exists to
+prevent. M6-3 shipped such a change by terminating and restarting the Manager —
+tolerable against a development database, unacceptable for a business with work
+in flight, and recorded as unacceptable ever since.
+
+`workflow.patched` is the SDK's own answer and is what this project uses. An
+execution that was already running when this shipped carries no marker for this
+id, so it replays the single-load path it actually ran; every execution started
+since takes the new one. Nothing about the old path is emulated — it is simply
+still there, which is why both committed fixtures replay unedited.
+
+Conventions, enforced by `tests/test_workflow_versioning.py` so a slip fails a
+gate rather than silently splitting one cohort of histories in two:
+one module constant per patch, named `PATCH_*`, its value dash-separated and
+descriptive of the change rather than of the milestone; never a bare literal at
+the call site; each id used by exactly one `workflow.patched` call.
+"""
+
 CEILING_REFUSAL_TYPES = frozenset({"BudgetExceededError", "CircuitBreakerOpenError"})
 """Failure types that mean *a ceiling refused the work*, not that the work failed
 (D-003). Matched by name because a workflow sees a serialised failure, never the
@@ -144,6 +169,26 @@ class BusinessManagerWorkflow:
     async def run(self, state: ManagerState) -> ManagerState:
         """Wake, act, suspend — until it is time to continue as new.
 
+        The loop reads its context twice per round, and the two reads answer
+        different questions. The first answers *whether and how long to wait*:
+        whether this business accepts dispatch at all (D-008 I-4) and what its
+        schedule interval is. The second, taken once the wake has fired, is the
+        snapshot the cycle itself reasons on.
+
+        Until M8-3 there was one read, before the wait, so a woken cycle ran on
+        a context up to a full wake period old (M7-F45; audit F-B scoped it to
+        the whole snapshot rather than to `measures_kpis` alone). Two observed
+        consequences: a business whose type gained KPI mappings measured nothing
+        on its first cycle after the upgrade and only started on its second, and
+        `day_ordinal` — which is the *whole* of the wake-rate accounting's idea
+        of today — could be yesterday's by the time the cycle it bounds began.
+        D-021 already fixes the start of a cycle at the start of planning; a
+        context loaded before the wait belongs to no cycle at all.
+
+        The second read is behind `PATCH_POST_WAKE_CONTEXT` (M6-F33), so a
+        Manager that was already parked when this shipped replays the one-read
+        path it ran, and every execution started since runs this one.
+
         Args:
             state: Durable state, carried across continuations (D-005).
 
@@ -153,32 +198,57 @@ class BusinessManagerWorkflow:
         self._state = state
 
         while True:
-            context = await workflow.execute_activity(
-                "load_cycle_context",
-                state.business_id,
-                start_to_close_timeout=ACTIVITY_TIMEOUT,
-                retry_policy=STANDARD_RETRY,
-            )
-            ctx = CycleContext.model_validate(context)
+            wake_ctx = await self._load_context(state.business_id)
 
-            if not ctx.dispatchable:
+            if not wake_ctx.dispatchable:
                 # Paused, retiring, or retired (D-008 I-4). Wait to be woken
                 # rather than polling: a paused company must cost nothing.
                 await workflow.wait_condition(lambda: bool(self._wake_reasons))
                 self._wake_reasons.clear()
                 continue
 
-            fired = await self._await_wake(ctx)
+            fired = await self._await_wake(wake_ctx)
             reasons = list(self._wake_reasons)
             self._wake_reasons.clear()
             if not fired and not reasons:
                 continue
+
+            ctx = wake_ctx
+            if _reloads_context_after_wake():
+                ctx = await self._load_context(state.business_id)
+                if not ctx.dispatchable:
+                    # Stopped while it waited. Back to the top, which parks on a
+                    # signal instead of planning work for a business that has
+                    # been paused — the same answer D-008 I-4 gives above, now
+                    # also available for a pause that lands mid-wait. This is
+                    # not the authorization boundary: the activities re-derive
+                    # and re-check lifecycle themselves (M6-F1's fix, and audit
+                    # F-B confirms the stale read was never a hole). It is the
+                    # planning call it saves.
+                    continue
 
             state = await self._run_cycle(state, ctx, reasons)
             self._state = state
 
             if state.cycles_completed >= CYCLES_BEFORE_CONTINUATION:
                 workflow.continue_as_new(state)
+
+    async def _load_context(self, business_id: str) -> CycleContext:
+        """Read this business's current snapshot from outside the workflow.
+
+        One call site for both reads, so the wake's context and the cycle's are
+        the same question asked at two moments rather than two payloads that
+        could drift apart. Everything in it is I/O or a clock read, which is why
+        it is an activity with a recorded result and not a lookup here (D-004).
+        """
+        return CycleContext.model_validate(
+            await workflow.execute_activity(
+                "load_cycle_context",
+                business_id,
+                start_to_close_timeout=ACTIVITY_TIMEOUT,
+                retry_policy=STANDARD_RETRY,
+            )
+        )
 
     async def _await_wake(self, ctx: CycleContext) -> bool:
         """Suspend until a scheduled interval elapses or a signal arrives.
@@ -215,10 +285,13 @@ class BusinessManagerWorkflow:
         This changes nothing about retry policy. The activities keep their own
         bounded retries; this is only what happens once those are spent.
 
-        `load_cycle_context` is deliberately *not* covered: it runs before the
-        cycle exists, so there is no cycle to record, and surviving it needs a
-        policy for a Manager that cannot read its own context. That is M6-F13,
-        open — do not paper over it here.
+        Neither read of `load_cycle_context` is covered — not the wake's and not
+        the cycle's own: both happen before planning, which is where a cycle
+        begins (D-021), so there is no cycle to record, and surviving them needs
+        a policy for a Manager that cannot read its own context. That is M6-F13,
+        open — do not paper over it here. Moving the cycle's snapshot after the
+        wake put a second uncovered read on the path per round, which widens
+        M6-F13's reach without changing its shape (M8-F44).
         """
         day = ctx.day_ordinal
 
@@ -257,6 +330,16 @@ class BusinessManagerWorkflow:
             await workflow.wait_condition(lambda: bool(self._wake_reasons))
             return state
 
+        # M8-F7: the targets the planner works to come from this cycle's own
+        # context when it has them, and from carried state only for a history
+        # that predates the field. `is None` rather than a falsy check, because
+        # an empty tuple is a live answer — a business with no targets set — and
+        # falling back to carried state on it would make a future refresh unable
+        # to express the removal of the last target. Nothing is written back:
+        # the contract is the authority, and a second copy in workflow state is
+        # what made the planner stale in the first place.
+        kpi_targets = state.kpi_targets if ctx.kpi_targets is None else ctx.kpi_targets
+
         # Planning is where the cycle begins (D-021), so a failure here has no
         # cycle id to file itself under — the id does not exist until the
         # activity that mints it returns.
@@ -267,7 +350,7 @@ class BusinessManagerWorkflow:
                     business_id=state.business_id,
                     wake_reasons=tuple(reasons),
                     current_plan=state.plan,
-                    kpi_targets=state.kpi_targets,
+                    kpi_targets=kpi_targets,
                     pending_approval_id=state.pending_approval_id,
                 ),
                 start_to_close_timeout=ACTIVITY_TIMEOUT,
@@ -657,6 +740,23 @@ def _approvals_decided(reasons: list[str]) -> list[str]:
         if approval_id and approval_id not in seen:
             seen.append(approval_id)
     return seen
+
+
+def _reloads_context_after_wake() -> bool:
+    """Return whether this execution reads its cycle context after the wake.
+
+    False for any history captured before M8-3, which is what lets both
+    committed fixtures replay unedited (spec §11) — see
+    `PATCH_POST_WAKE_CONTEXT`. True for everything started since.
+
+    A named function rather than an inline call so the decision has one place a
+    negative control can force open: `tests/test_workflow_versioning.py` replays
+    the real captured histories with this pinned True and requires the replayer
+    to reject them. Without that, a gate that never opens and a gate that never
+    closes look identical from a green suite (the D-025/D-027 negative-control
+    discipline).
+    """
+    return workflow.patched(PATCH_POST_WAKE_CONTEXT)
 
 
 def _refused_by_a_ceiling(error: ActivityError) -> bool:
