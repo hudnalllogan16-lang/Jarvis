@@ -23,16 +23,33 @@ seconds. In a proportional face the digits change width, the row reflows, and th
 to motion that means nothing. Tabular figures make a changing number change *in place*. Every
 numeric value in the surface uses `--font-data` with `font-variant-numeric: tabular-nums`.
 
-### The fallback stack is part of the design
+### The fallback stack is what actually renders — M8-F21, closed at M8-4
 
-    --font-display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif
+    --font-display: "Bricolage Grotesque", "Segoe UI Variable Display",
+                    "Segoe UI Semibold", Optima, Avenir, system-ui, sans-serif
     --font-body:    "IBM Plex Sans", "Segoe UI", system-ui, sans-serif
     --font-data:    "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace
 
-The webfonts load from Google Fonts. **This is a known weakness, recorded as finding M8-F21:**
-a locally-run platform should not make a third-party network request to render its own chrome,
-and offline the display face silently degrades. The fallbacks are chosen so that degradation is
-graceful rather than broken, and self-hosting is a follow-up.
+M8-F21 recorded that the webfonts loaded from Google Fonts: a locally-run platform should not
+make a third-party network request to render its own chrome, and doing so tells a third party
+when the operator opened their dashboard.
+
+**It was closed by deletion, not by vendoring.** The `<link>` tags are gone and no `@font-face`
+replaced them, so the surface makes zero third-party requests — pinned by
+`tests/test_design_system.py`. Vendoring the actual `.woff2` files into
+`jarvis/api/static/fonts/` remains the *complete* fix and is a follow-up; shipping `@font-face`
+rules pointing at files that are not in the repository would have traded one network failure for
+three, which is worse than honest degradation.
+
+So today the first name in each stack matches nothing and **the platform faces are the design**.
+Two consequences, stated rather than discovered later:
+
+1. The display/body distinction is carried by a *different* first fallback rather than by a
+   different family — plus weight, size and tracking, which were always doing most of the work.
+   It is weaker than Bricolage Grotesque against IBM Plex Sans, and it is honest.
+2. The data face is unaffected: monospace fallbacks are universal, so every rule below about
+   numbers, tabular figures and eyebrow labels holds exactly as written. That is the half of the
+   typographic system that carries measurement, and it did not degrade at all.
 
 ---
 

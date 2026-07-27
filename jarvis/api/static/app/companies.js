@@ -14,7 +14,7 @@ function meter(health, band) {
   const lit = Math.round(health / 10);
   const segs = Array.from(
     { length: 10 },
-    (_, i) => `<span class="seg${i < lit ? ' seg--on' : ''}"></span>`,
+    (_, i) => `<span class="meter__seg${i < lit ? ' meter__seg--on' : ''}"></span>`,
   ).join('');
   return `<div class="meter meter--${esc(band)}">${segs}</div>`;
 }
@@ -58,7 +58,7 @@ export function coCard(c) {
 function goalLine(g) {
   const goal = g.direction === 'below' ? 'at most' : 'at least';
   return `<div class="entry"><p>${esc(g.label)}</p>
-     <p class="why">${esc(g.measured)} ${esc(g.unit)} &middot; goal is ${goal} ${esc(
+     <p class="entry__why">${esc(g.measured)} ${esc(g.unit)} &middot; goal is ${goal} ${esc(
        g.target,
      )} ${esc(g.unit)}</p></div>`;
 }
@@ -76,7 +76,8 @@ function goalsSection(goals) {
   return goals
     .map((g) =>
       g.measured === null
-        ? `<div class="entry"><p>${esc(g.label)}</p><p class="why">Not measured yet.</p></div>`
+        ? `<div class="entry"><p>${esc(g.label)}</p>
+           <p class="entry__why">Not measured yet.</p></div>`
         : goalLine(g),
     )
     .join('');
@@ -103,17 +104,17 @@ export async function openCo(id) {
         (e) =>
           `<div class="entry"><time datetime="${esc(e.when)}">${esc(ago(e.when))}</time>
      <p>${esc(e.what)}</p>
-     <p class="why">${esc(e.why)}</p></div>`,
+     <p class="entry__why">${esc(e.why)}</p></div>`,
       )
       .join('') ||
-    `<div class="entry"><p class="why">Nothing has happened yet.</p></div>`;
+    `<div class="entry"><p class="entry__why">Nothing has happened yet.</p></div>`;
   // "/100" is explicit on every part rather than three bare numbers sitting one
   // line above a dollar amount that could be mistaken for the same kind of
   // figure (M7-5b item 2).
   const parts = Object.entries(c.health_parts || {})
     .map(
       ([label, val]) =>
-        `<div class="part"><span>${esc(label)}</span><b>${esc(val)}/100</b></div>`,
+        `<div class="health-parts__item"><span>${esc(label)}</span><b>${esc(val)}/100</b></div>`,
     )
     .join('');
 
@@ -121,9 +122,9 @@ export async function openCo(id) {
     <h2 id="sheetTitle">${esc(c.name)}</h2>
     <p class="kind">${esc(c.kind)}</p>
     <p class="kind-desc">${esc(c.kind_description)}</p>
-    <p class="reason" style="margin:0 0 2px">${esc(c.health_reason)}
+    <p class="reason reason--tight">${esc(c.health_reason)}
        &middot; health ${esc(c.health)}</p>
-    <div class="parts">${parts}</div>
+    <div class="health-parts">${parts}</div>
     <p class="co-card__money">spent <b>${money(c.spent)}</b> of ${money(c.budget)}
        &middot; most per work session <b>${money(c.per_round_limit)}</b></p>
     ${stuck}${alone}
@@ -131,7 +132,7 @@ export async function openCo(id) {
     <h3 class="section-head">What ${esc(c.name)} is doing</h3>
     ${feed}
     <details id="fullDetails"><summary>Full details</summary><pre id="raw">Loading…</pre></details>
-    <div class="acts" style="border:0;margin-top:18px">
+    <div class="acts acts--plain">
       <button class="btn" data-act="close-sheet">Close</button></div>`);
 
   // Raw audit detail is fetched only when the operator opens it. Drill-down is

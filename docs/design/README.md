@@ -23,6 +23,7 @@ like; this says what that feeling is *made of*.
 | 09 | [Accessibility Standards](09-accessibility.md) | Contrast (measured), focus, reduced motion |
 | 10 | [Interaction Patterns](10-interaction-patterns.md) | Progressive disclosure, empty/null/error states |
 | 11 | [Persona Components](11-persona-components.md) | Manager personas (spec v1.5 / D-028.1) — spec only |
+| 12 | [The Application Shell](12-application-shell.md) | Rail, top bar, workspaces, routing, reserved slots |
 
 ## Where the system lives in code
 
@@ -32,6 +33,11 @@ like; this says what that feeling is *made of*.
       styles/base.css       reset, document defaults, typography application
       styles/components.css every component in 06-components.md
       app/*.js              ES modules — behaviour only, no styling decisions
+      app/shell.js          the frame: rail, routing, region resolution
+      app/focus.js          focus containment shared by the sheet and the rail
+
+No third-party requests: the surface fetches nothing but its own assets and its own API
+(finding M8-F21, closed at M8-4 by removing the webfont CDN — see 03-typography.md).
 
 **Dependency-light is a constraint, not an accident** (M8-PLAN Part 5): no build step, no
 framework, no package manager in the browser path. Modular vanilla ES modules are the floor.

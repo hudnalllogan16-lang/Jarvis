@@ -14,9 +14,9 @@ async function openNew() {
     // An empty state that teaches: what a template is, and the one step that
     // gets past this screen.
     openSheet(`<h2 id="sheetTitle">No templates installed</h2>
-      <p class="reason" style="margin:10px 0 18px">A company template describes what a company
+      <p class="reason reason--lede">A company template describes what a company
       does. Install the starter template, then come back here to create a company from it.</p>
-      <div class="acts" style="border:0">
+      <div class="acts acts--plain">
         <button class="btn btn--primary" data-act="install-templates">Install starter template</button>
         <button class="btn" data-act="close-sheet">Close</button>
       </div>`);
@@ -31,7 +31,7 @@ async function openNew() {
     .join('');
   openSheet(`
     <h2 id="sheetTitle">New company</h2>
-    <div class="field" style="margin-top:16px">
+    <div class="field field--lead">
       <label for="tpl">What should it do</label>
       <select id="tpl">${opts}</select>
       <p class="field__hint" id="tplWhat">${esc(templates[0].what_it_does)}</p>
@@ -52,7 +52,7 @@ async function openNew() {
       <p class="field__hint">A cap on one round of work, inside the spending limit above.</p>
     </div>
     <p class="formErr" id="newErr"></p>
-    <div class="acts" style="border:0">
+    <div class="acts acts--plain">
       <button class="btn btn--primary" data-act="create-co">Create and start</button>
       <button class="btn" data-act="close-sheet">Cancel</button>
     </div>`);

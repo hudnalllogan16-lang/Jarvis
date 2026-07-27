@@ -1,23 +1,44 @@
-// The modal sheet — the surface's only overlay.
+// The modal sheet — the surface's only overlay above the workspace.
 //
-// Known gap (finding M8-F23): focus is not trapped inside the open sheet and
-// is not restored to the invoking control on close. Recorded in
-// docs/design/09-accessibility.md rather than half-fixed here; it belongs with
-// the Application Shell's focus management (M8-4), which owns chrome.
+// Finding M8-F23 is closed here: focus is contained while the sheet is open
+// and returned to the invoking control when it closes (WCAG 2.4.3). The
+// containment itself lives in focus.js, which the rail overlay also uses —
+// the two overlays have identical obligations and solving it twice is how
+// they drift apart.
+
+import { trapFocus, focusFirst } from './focus.js';
 
 const el = (id) => document.getElementById(id);
+
+/** Non-null exactly while the sheet is open. Also the "already open" flag:
+ *  several flows re-render an open sheet in place (revoking a grant reopens
+ *  Details, toggling a subsystem reopens Settings, installing templates
+ *  reopens New company), and trapping again on each would stack listeners and
+ *  overwrite the remembered invoker with a button inside the sheet. */
+let release = null;
 
 /** Replace the sheet's contents and open it. */
 export function openSheet(html) {
   el('sheet').innerHTML = html;
+  const first = !release;
   el('panel').classList.add('panel--open');
+  if (first) release = trapFocus(el('sheet'), el('ws'));
+  focusFirst(el('sheet'));
 }
 
 /** The sheet element, for callers that need to bind to what they just wrote. */
 export const sheet = () => el('sheet');
 
 export function closeSheet() {
+  if (!el('panel').classList.contains('panel--open')) return;
   el('panel').classList.remove('panel--open');
+  const done = release;
+  release = null;
+  if (done) done();
+}
+
+export function sheetOpen() {
+  return !!release;
 }
 
 /** Dismissal paths: the scrim, Escape, and the sheet's own Close button

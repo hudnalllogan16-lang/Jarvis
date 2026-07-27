@@ -69,18 +69,26 @@ svg {
   outline-offset: 2px;
 }
 
-/* ── The page frame (docs/design/05-layout.md) ───────────────────────────── */
-.wrap {
-  max-width: var(--layout-max);
-  margin: 0 auto;
-  padding: var(--space-10) var(--space-8) var(--space-13);
+/* Skip link — the first thing a keyboard operator reaches, and invisible
+   until it holds focus. The shell puts a nav rail ahead of the workspace, so
+   without this every keyboard visit pays for the whole rail before reaching
+   the content (docs/design/09-accessibility.md). */
+.skip-link {
+  position: absolute;
+  left: var(--space-5);
+  top: var(--space-5);
+  z-index: var(--z-panel);
+  padding: var(--space-4) var(--space-7);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  transform: translateY(-200%);
+  transition: transform var(--motion-quick) var(--ease-standard);
 }
 
-@media (max-width: 640px) {
-  .wrap {
-    padding-left: var(--space-5);
-    padding-right: var(--space-5);
-  }
+.skip-link:focus-visible {
+  transform: none;
 }
 
 /* ── Reduced motion ───────────────────────────────────────────────────────

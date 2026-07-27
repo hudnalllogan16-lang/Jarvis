@@ -32,8 +32,12 @@ change lands.
 |---|---|---|
 | Card grid | `repeat(auto-fill, minmax(292px, 1fr))`, gap 12px | company cards |
 | Tile row | `repeat(auto-fit, minmax(180px, 1fr))`, gap 12px | stat tiles |
-| Fact grid | `repeat(auto-fit, minmax(190px, 1fr))`, gap 14px 22px | approval card facts |
-| Part row | flex, wrap, gap 18px | health parts in Details |
+| Fact grid | `repeat(auto-fit, minmax(190px, 1fr))`, gap 14px 24px | approval card facts |
+| Part row | flex, wrap, gap 20px | health parts in Details |
+
+The last two gaps were 22px and 18px until M8-4 — neither on the 4px grid, and undocumented as
+optical exceptions, so they were snapped to `--space-9` and `--space-8` in the same pass that
+moved the ten inline styles onto the scale. `190px` became `--layout-fact-min`.
 
 **`auto-fill` for cards, `auto-fit` for tiles** — and the difference matters. `auto-fill` keeps
 empty column tracks, so one company card stays card-width instead of stretching across the
@@ -56,8 +60,10 @@ a dark shadow on a dark background is invisible, and the usual fix (a light shad
 glow. The border-and-value model works identically in both themes, which is the deciding
 argument.
 
-`--z-panel: 10` is the only stacking context in the system today. Toasts and popovers will need
-`--z-toast`/`--z-popover` when they exist; they are not invented here.
+Three stacking contexts since M8-4, and the order is an argument: `--z-topbar: 15` (the rail
+scrim) < `--z-rail: 20` < `--z-panel: 30`. The modal must cover the rail, because a dialog opened
+from the rail has to cover the thing that opened it. Toasts and popovers will need `--z-toast`/
+`--z-popover` when they exist; they are not invented here.
 
 ## Responsive behaviour
 
@@ -75,19 +81,24 @@ survivable: a phone-width Jarvis is still status → attention → companies, ju
 The card grid needs no media query — `auto-fill` with a 292px minimum handles every width on its
 own. The breakpoints exist for the masthead and the panel, which have fixed structure.
 
-## The slots the Application Shell will fill
+## The slots the Application Shell fills — implemented at M8-4
 
-M8-4 introduces the command-center frame. This system reserves its shape now so that packet
-extends rather than rewrites:
+Full specification: `12-application-shell.md`. The shapes reserved here were filled, with one
+correction:
 
-- **Sidebar** — a fixed-width primary nav rail (`--layout-rail`, currently unset). Layout becomes
-  `grid-template-columns: var(--layout-rail) 1fr` at `--bp-lg` and collapses to an overlay below
-  it.
-- **Top bar** — the masthead becomes the shell's top bar; the stat tile row moves into the
-  workspace body as a Command Center element rather than masthead chrome.
-- **Workspace** — the region between rail and viewport edge; today's `.wrap` is its ancestor.
+- **Sidebar** — `--layout-rail: 216px`. Layout is `grid-template-columns: var(--layout-rail) 1fr`
+  and collapses to an overlay below **`--bp-shell` (1180px)**, not `--bp-lg`. The reservation
+  above said `--bp-lg`, which was wrong by exactly the rail's own width: the docked rail needs
+  216px *plus* the 1080px workspace measure, so docking at 1080 would have squeezed the card grid
+  out of its three-up target on the very width the target was chosen for.
+- **Top bar** — the masthead became the top bar; the stat tile row moved into the workspace body
+  as a Command Center element, as reserved. `.top`, `.mark` and `.top__acts` were deleted rather
+  than left as dead rules.
+- **Workspace** — `.ws`, capped at `--layout-max`. `.wrap` is gone; `.shell__body` is its
+  successor and owns the gutters.
 
-None of these are implemented. They are named so the tokens they will need have obvious homes.
+`--layout-max` keeps its value and its argument: it is now the *workspace* measure rather than
+the viewport measure, and the card arithmetic behind 1080 is unchanged.
 
 ## Layout rules
 
