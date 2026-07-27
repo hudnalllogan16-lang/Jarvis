@@ -1755,3 +1755,23 @@ D-035 notice''s live path is auto-pause → operator answers → drop; rare toda
 owner''s nothing-silently-lost intent (flagged to owner in report). F134 (reason-kind not a
 stored notification field — schema change if the surface needs it) and F132 (kind→copy
 wiring) routed to M8-9 mid-flight.
+
+## M8-F115 … M8-F121 — surface round + the queue''s first conflict (M8-9, wave 2 Lane B)
+
+Merged at 956 tests after the merge queue''s FIRST conflict in 22 merges — the healthy shape:
+the lane''s correctly-withdrawn D-035 draft colliding with main''s real mechanism in three
+files; bounced to the lane per protocol, resolved main-wins, both Manager-approved copy
+replacements applied in passing, gates 0. Landed: the Part 6 field-to-sentence surface
+(11 sentences, deterministic, unrenderable=unrefreshable), pending-update component +
+apply/dismiss routes (honest 409 until wired), not_ready_count consumer (M8-F61 closed),
+forbidden-term list single-sourced into tests/surface_sources.py — gates.sh''s stale copy was
+missing "woken"/"business" (M7-F12 + M8-F103 closed).
+
+- **M8-F115 (open, wave 3):** plan_refresh unreachable from api by layering — wire through
+  the kernel builder at composition, the M6-F20 pattern; the surface is an honest seam.
+- **M8-F120 (recorded as norm):** the worker flagged Manager mid-flight relays as an
+  unrecognized channel and verified against git before acting — that verify-first behaviour
+  is CORRECT and now the documented expectation for any mid-packet instruction; relays are
+  legitimate but never self-authenticating.
+- **M8-F119 closed** (copy applied during resolution). Grid-level pending-update indicator:
+  deferred as a product decision for the workspace phase.
