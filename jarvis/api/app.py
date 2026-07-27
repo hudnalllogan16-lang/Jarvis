@@ -22,7 +22,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy import select, text
 
-from jarvis.api.pending_update import PendingUpdateView
+from jarvis.api.pending_update import PendingUpdateView, render_plan
 from jarvis.api.render import render_doing_now, render_operator_text
 from jarvis.approvals.models import OPERATOR_LABELS as APPROVAL_LABELS
 from jarvis.approvals.models import ApprovalRequest, ApprovalState
@@ -37,8 +37,9 @@ from jarvis.budget.ledger import BudgetLedger
 from jarvis.domain.contract import BusinessContract
 from jarvis.domain.lifecycle import OPERATOR_LABELS as LIFECYCLE_LABELS
 from jarvis.domain.lifecycle import LifecycleState
+from jarvis.domain.refresh import ContractRefreshPlan, RefreshConsent, RefreshOutcome
 from jarvis.kernel.container import KernelServices, PlatformKernel
-from jarvis.kernel.errors import JarvisError
+from jarvis.kernel.errors import BusinessNotFoundError, JarvisError
 from jarvis.kernel.ids import BusinessId, BusinessTypeName, DecisionId, new_decision_id
 from jarvis.kernel.logging import get_logger
 from jarvis.kpi.engine import KpiEngine
@@ -200,37 +201,54 @@ def create_app(kernel: PlatformKernel) -> FastAPI:
         return False
 
     async def _pending_update(
-        svc: KernelServices, contract: BusinessContract
+        svc: KernelServices, contract: BusinessContract, types: dict[str, dict[str, str]]
     ) -> PendingUpdateView | None:
         """Whether this company has a pending Band-B template update to show.
 
-        design `PLUGIN-FRAMEWORK.md` Part 4/6 (D-030): detecting a Band-B
-        drift is `plan_refresh` (Part 4.4), owned by packet M8-8
-        (platform-engineer) because its sibling `apply_refresh` rewrites a
-        stored contract and needs opus-level review. That packet had not
-        merged into this lane at the time this route was written (see the
-        M8-9 report's coordination note), and `plan_refresh`'s diff needs
-        `BusinessTypeDefinition` (`jarvis.businesses`, milestone 5) — a
-        forward import `jarvis/api` (milestone 3) may not make even locally
+        design `PLUGIN-FRAMEWORK.md` Part 4/6 (D-030, M8-F115). `plan_refresh`
+        needs `BusinessTypeDefinition` (`jarvis.businesses`, milestone 5), a
+        forward import this milestone-3 module may not make even locally
         (`tests/test_layering.py` walks the whole AST, not just top-level
-        imports), so this route cannot compute the diff itself without
-        widening the layering exemption list, which is not this packet's
-        call to make.
+        imports) — so the service is built by the Kernel, the composition
+        root that may, and handed here session-scoped, the same M6-F20
+        pattern `build_approvals` already uses. This route reads only the
+        typed `ContractRefreshPlan` (`jarvis.domain.refresh`, milestone 1),
+        which is safe to import directly (container.py's own reasoning for
+        why the plan and result models live there rather than beside their
+        producer).
 
-        Returning None here is not a placeholder trick: Part 4.3 makes "no
-        pending update" today's status quo for every company until an
-        operator consents to one, so answering None everywhere is the
-        correct, safe default while the detection mechanism is unwired — the
-        same way a company with a genuinely empty diff (Summit Trail Gear,
-        Part 5's negative control) is meant to answer.
+        A refusal to compute the plan — the type this company was built from
+        is no longer installed, or refreshing it against the installed
+        definition would itself be invalid (M8-F111 refuses this at install
+        for every *new* upgrade, but a row installed before that guard
+        existed could still be in this state) — answers None rather than
+        raising: either way there is nothing here an operator could act on,
+        and that is also the safe, correct answer Part 4.3 gives for a
+        company that is simply current (Summit Trail Gear, the negative
+        control).
 
-        `jarvis/api/pending_update.py` renders the operator-facing half
-        (design Part 6's field-to-sentence table) end to end and is fully
-        tested against synthetic diffs shaped like Part 5's three real
-        companies; wiring the real `plan_refresh` output through to it is
-        the integration step that lands with M8-8.
+        Args:
+            types: The installed-type display-data map `_type_catalog`
+                already builds for the card, reused here for the sentence
+                Part 6's worked example phrases: "The {type} setup has
+                changed since this company was created."
         """
-        return None
+        refresh = kernel.build_refresh(svc)
+        try:
+            plan: ContractRefreshPlan = await refresh.plan_refresh(contract.business_id)
+        except JarvisError as exc:
+            logger.warning(
+                "pending-update plan could not be computed",
+                extra={
+                    "context": {
+                        "business_id": contract.business_id,
+                        "failure_class": type(exc).__name__,
+                    }
+                },
+            )
+            return None
+        kind = types.get(contract.business_type, {}).get("kind") or "your company template"
+        return render_plan(plan, company_name=contract.display_name, type_display_name=kind)
 
     def _stuck_reading(stuck_count: int) -> str:
         """Plain-language reading of the stuck-work part (M7-5b item 1).
@@ -327,8 +345,8 @@ def create_app(kernel: PlatformKernel) -> FastAPI:
             payload["goals"] = await _goal_readings(svc, contract)
             # design PLUGIN-FRAMEWORK.md Part 4/6 (D-030): a pending template
             # update lives on the company's own page, never in the approvals
-            # queue. None today for every company — see `_pending_update`.
-            update = await _pending_update(svc, contract)
+            # queue. See `_pending_update`.
+            update = await _pending_update(svc, contract, types)
             payload["pending_update"] = (
                 {
                     "headline": update.headline,
@@ -630,19 +648,37 @@ def create_app(kernel: PlatformKernel) -> FastAPI:
     ) -> dict[str, str]:
         """Consent to a pending template update — never through §8 (D-030).
 
-        design `PLUGIN-FRAMEWORK.md` Part 4.3/4.4: this route's job is to be
-        an explicit operator action distinct from the approvals queue — no
-        `action_type`, so it structurally cannot graduate. The write itself
-        (`apply_refresh`) is packet M8-8's, not wired into this lane yet (see
-        `_pending_update`'s docstring), so today this always reports the
-        honest state rather than pretending to apply anything.
+        design `PLUGIN-FRAMEWORK.md` Part 4.3/4.4: an explicit operator action
+        distinct from the approvals queue — the route carries no
+        `action_type`, so it structurally cannot graduate (D-030's whole
+        point). The plan is recomputed here, inside this request's
+        transaction, rather than trusting a client-supplied plan identifier:
+        there is no request body naming one, and D-030's consent is to
+        "whatever this company's pending update currently is", which only the
+        platform's own stored values can answer (D-011's discipline, applied
+        to what the operator is consenting to rather than only to what they
+        are shown).
         """
         async with kernel.services() as svc:
+            refresh = kernel.build_refresh(svc)
             try:
-                await svc.registry.get_contract(BusinessId(business_id))
-            except JarvisError as exc:
+                plan: ContractRefreshPlan = await refresh.plan_refresh(BusinessId(business_id))
+            except BusinessNotFoundError as exc:
                 raise HTTPException(404, exc.operator_message) from exc
-        raise HTTPException(409, "This isn't ready to apply yet. Check back soon.")
+            except JarvisError as exc:
+                raise HTTPException(409, exc.operator_message) from exc
+            if plan.is_empty:
+                raise HTTPException(409, "This isn't ready to apply yet. Check back soon.")
+            try:
+                result = await refresh.apply_refresh(
+                    BusinessId(business_id),
+                    plan,
+                    consent=RefreshConsent(plan_key=plan.plan_key, granted=True),
+                )
+            except JarvisError as exc:
+                raise HTTPException(409, exc.operator_message) from exc
+        status = "Updated." if result.outcome is RefreshOutcome.APPLIED else "Already up to date."
+        return {"status": status}
 
     @app.post("/api/companies/{business_id}/pending-update/dismiss")
     async def dismiss_pending_update(  # pyright: ignore[reportUnusedFunction]
@@ -651,16 +687,30 @@ def create_app(kernel: PlatformKernel) -> FastAPI:
         """Decline a pending template update for now (design Part 4.3).
 
         "Not now" is a real, recorded outcome, not a deferral loop — re-offered
-        only on the next version change. Recording a decline needs the same
-        mechanism `apply_refresh` needs (packet M8-8), so this is the same
-        honest stub as :func:`apply_pending_update` until that lands.
+        only on the next version change. M8-F102 (decline persistence) stays
+        deferred: nothing is stored to suppress the offer, so the next visit
+        recomputes the same plan and shows it again honestly, rather than
+        silently remembering a "no" nowhere the operator can see it recorded.
         """
         async with kernel.services() as svc:
+            refresh = kernel.build_refresh(svc)
             try:
-                await svc.registry.get_contract(BusinessId(business_id))
-            except JarvisError as exc:
+                plan = await refresh.plan_refresh(BusinessId(business_id))
+            except BusinessNotFoundError as exc:
                 raise HTTPException(404, exc.operator_message) from exc
-        raise HTTPException(409, "This isn't ready yet. Check back soon.")
+            except JarvisError as exc:
+                raise HTTPException(409, exc.operator_message) from exc
+            if plan.is_empty:
+                raise HTTPException(409, "This isn't ready yet. Check back soon.")
+            try:
+                await refresh.decline_refresh(
+                    BusinessId(business_id),
+                    plan,
+                    consent=RefreshConsent(plan_key=plan.plan_key, granted=False),
+                )
+            except JarvisError as exc:
+                raise HTTPException(409, exc.operator_message) from exc
+        return {"status": "Not now."}
 
     @app.get("/api/settings/subsystems")
     async def subsystems() -> list[dict[str, Any]]:  # pyright: ignore[reportUnusedFunction]

@@ -43,6 +43,18 @@ def test_every_asset_the_markup_references_exists() -> None:
         assert target.exists(), f"index.html references a missing asset: {ref}"
 
 
+def test_fonts_are_linked_ahead_of_tokens() -> None:
+    """M8-11 (M8-F21 closes): `fonts.css` must register the three vendored
+    families before `tokens.css`'s stacks can ask for them by name — a swap
+    would leave the first paint racing the stylesheet that names it."""
+    refs = re.findall(r'href="(/static/[^"]+\.css)"', markup())
+    assert "/static/fonts.css" in refs, "fonts.css is not linked into the page"
+    assert refs.index("/static/fonts.css") < refs.index("/static/styles/tokens.css"), (
+        "fonts.css must be linked ahead of tokens.css so the families are "
+        "registered before anything asks for them"
+    )
+
+
 def test_the_entry_module_is_loaded_as_a_module() -> None:
     """ES modules are the floor for this phase (M8-PLAN Part 5). Without
     `type="module"` the imports fail silently and the surface renders empty."""

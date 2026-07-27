@@ -16,6 +16,7 @@ from __future__ import annotations
 import hashlib
 import json
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -26,6 +27,9 @@ from jarvis.domain.contract import (
     KpiTarget,
 )
 from jarvis.domain.kpi import KpiMapping
+
+if TYPE_CHECKING:
+    from jarvis.persistence.models import BusinessTypeRow
 
 
 class BusinessTypeDefinition(BaseModel):
@@ -120,3 +124,32 @@ def compute_digest(definition: BusinessTypeDefinition) -> str:
     """
     canonical = json.dumps(definition.model_dump(mode="json"), sort_keys=True)
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def read_installed_definition(row: BusinessTypeRow | None) -> BusinessTypeDefinition | None:
+    """Return the `BusinessTypeDefinition` stored on an installed-type row.
+
+    The single reader of `plugin_metadata["definition"]` (M8-F110): before
+    this, `ProvisioningService.available_types`,
+    `ContractRefreshService._installed_definition`, and
+    `PlatformKernel.type_definition` each parsed the same stored JSON blob
+    independently — three call sites a change to the storage shape had to
+    find and update in step, and the shape a fourth would have copied rather
+    than reused.
+
+    `row is None`, a row installed with no `metadata` argument, and a row
+    installed before this key existed (M8-F3's live `affiliate` v1.0.1 row)
+    all mean the same thing to a caller: there is no definition to read.
+    This function does not distinguish between them — every caller here
+    already has, or does not need, its own words for "not installed" versus
+    "installed but empty"; this is only the parse.
+
+    Args:
+        row: An installed type's Registry row, or None.
+
+    Returns:
+        The parsed definition, or None if `row` is None or carries no
+        `"definition"` key.
+    """
+    raw = (row.plugin_metadata or {}).get("definition") if row is not None else None
+    return BusinessTypeDefinition.model_validate(raw) if raw else None

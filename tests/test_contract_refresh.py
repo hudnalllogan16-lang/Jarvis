@@ -776,6 +776,64 @@ async def test_a_refresh_that_would_produce_an_invalid_contract_is_refused(
         await refresh.plan_refresh(company)
 
 
+# ── installer guard (M8-F111) ────────────────────────────────────────────────
+
+
+async def test_an_upgrade_that_would_break_an_existing_company_s_refresh_is_refused(
+    session: AsyncSession, registry: BusinessRegistry
+) -> None:
+    """Install-time refusal, reusing `plan_refresh`'s own validation.
+
+    The companion to `test_a_refresh_that_would_produce_an_invalid_contract_is_
+    refused` above: there, the bad version installs cleanly because no company
+    of the type exists yet and the defect surfaces only when a later company
+    asks for a refresh. Here a company already exists, so the same defect must
+    be caught at install — the version bump never lands, and nothing about the
+    installed type changes.
+    """
+    provisioning = _provisioning(session, registry)
+    await provisioning.install(_affiliate())
+    await _company(registry, _affiliate(), "Summit Trail Gear", ceiling=Decimal("2.00"))
+
+    with pytest.raises(ConfigurationError, match="no valid refresh"):
+        await provisioning.install(
+            _affiliate("1.1.0", schedule_cron=None, event_triggers=frozenset())
+        )
+
+    installed = await registry.installed_type(BusinessTypeName("affiliate"))
+    assert installed is not None
+    assert installed.version == "1.0.1", "the refused upgrade must not have written anything"
+
+
+async def test_an_upgrade_safe_for_every_existing_company_still_installs(
+    session: AsyncSession, registry: BusinessRegistry
+) -> None:
+    """The guard's other half: it must not fire on an upgrade that stays valid."""
+    provisioning = _provisioning(session, registry)
+    await provisioning.install(_affiliate())
+    await _company(registry, _affiliate(), "Summit Trail Gear", ceiling=Decimal("2.00"))
+
+    await provisioning.install(_affiliate("1.1.0", compliance_requirements=("A newer rule.",)))
+
+    installed = await registry.installed_type(BusinessTypeName("affiliate"))
+    assert installed is not None
+    assert installed.version == "1.1.0"
+
+
+async def test_a_fresh_install_with_no_existing_companies_is_never_checked_against_one(
+    session: AsyncSession, registry: BusinessRegistry
+) -> None:
+    """A first install of a type has no company to break yet — the M8-F111
+    guard only applies to an upgrade of an *already-installed* type."""
+    provisioning = _provisioning(session, registry)
+
+    await provisioning.install(_affiliate("1.1.0", schedule_cron=None, event_triggers=frozenset()))
+
+    installed = await registry.installed_type(BusinessTypeName("affiliate"))
+    assert installed is not None
+    assert installed.version == "1.1.0"
+
+
 # ── helpers ─────────────────────────────────────────────────────────────────
 
 

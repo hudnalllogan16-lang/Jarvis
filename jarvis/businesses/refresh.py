@@ -31,7 +31,7 @@ from decimal import Decimal
 
 from pydantic import ValidationError
 
-from jarvis.businesses.definition import BusinessTypeDefinition
+from jarvis.businesses.definition import BusinessTypeDefinition, read_installed_definition
 from jarvis.domain.contract import BusinessContract, KpiDirection, KpiTarget
 from jarvis.domain.refresh import (
     ContractRefreshPlan,
@@ -140,7 +140,7 @@ class ContractRefreshService:
         """
         contract = await self._registry.get_contract(business_id)
         definition = await self._installed_definition(contract.business_type)
-        target = _refreshed_contract(contract, definition)
+        target = refreshed_contract(contract, definition)
 
         return ContractRefreshPlan(
             business_id=business_id,
@@ -219,7 +219,7 @@ class ContractRefreshService:
             )
 
         definition = await self._installed_definition(contract.business_type)
-        refreshed = _refreshed_contract(contract, definition)
+        refreshed = refreshed_contract(contract, definition)
         if band_b_digest(refreshed) != plan.target_digest:
             raise RegistryError(
                 f"the company template for {contract.business_type} changed since this "
@@ -331,15 +331,15 @@ class ContractRefreshService:
         be offered a change from a definition the platform has not installed.
         """
         row = await self._registry.installed_type(name)
-        raw = (row.plugin_metadata or {}).get("definition") if row is not None else None
-        if not raw:
+        definition = read_installed_definition(row)
+        if definition is None:
             raise BusinessTypeNotFoundError(
                 f"business type {name} is not installed, or carries no definition"
             )
-        return BusinessTypeDefinition.model_validate(raw)
+        return definition
 
 
-def _refreshed_contract(
+def refreshed_contract(
     contract: BusinessContract, definition: BusinessTypeDefinition
 ) -> BusinessContract:
     """Return ``contract`` with its Band B values taken from ``definition``.
@@ -350,6 +350,12 @@ def _refreshed_contract(
 
     `max_cycles_per_day` is carried through untouched: the type has no field
     for it, so a type upgrade may not move it (design Part 4.2).
+
+    Public (M8-F111) so `ProvisioningService.install` can reuse this exact
+    validation to refuse an upgrade whose Band B projection would break an
+    existing company, rather than a second copy of "what does a refreshed
+    contract look like" living in `businesses/provisioning.py` and drifting
+    from this one.
 
     Raises:
         ConfigurationError: If the result is not a valid contract.
