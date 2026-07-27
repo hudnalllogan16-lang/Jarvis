@@ -66,13 +66,28 @@ def _package_of(path: pathlib.Path) -> str:
     return parts[0] if len(parts) > 1 else "kernel"
 
 
+def read_source(path: pathlib.Path) -> str:
+    """Return a source file's text, always decoded as UTF-8.
+
+    Explicit because `Path.read_text()` uses the platform default, which on a
+    Windows cp1252 locale cannot decode every byte a UTF-8 source may contain
+    — a curly double quote in one docstring raised `UnicodeDecodeError` here
+    and took gate 2 with it, since `scripts/gates.sh` imports this module's
+    `_forward_imports`. A structural gate that fails for a reason unrelated
+    to the property it checks is worse than one that does not run, because it
+    reads as a layering violation. `tests/surface_sources.py` already reads
+    every source as UTF-8 for exactly this reason.
+    """
+    return path.read_text(encoding="utf-8")
+
+
 def _forward_imports(path: pathlib.Path) -> set[str]:
     """Return packages this file imports from a later milestone."""
     milestone = MILESTONE.get(_package_of(path))
     if milestone is None:
         return set()
     out: set[str] = set()
-    for node in ast.walk(ast.parse(path.read_text())):
+    for node in ast.walk(ast.parse(read_source(path))):
         if isinstance(node, ast.ImportFrom) and node.module:
             if not node.module.startswith("jarvis."):
                 continue
@@ -119,7 +134,7 @@ def test_every_package_has_a_milestone() -> None:
 
 def test_documented_milestones_match_the_code() -> None:
     """Keeps the table in docs/DEPENDENCIES.md honest about what exists."""
-    doc = pathlib.Path("docs/DEPENDENCIES.md").read_text()
+    doc = read_source(pathlib.Path("docs/DEPENDENCIES.md"))
     for package in MILESTONE:
         assert f"`{package}`" in doc, f"{package} is missing from the layering table"
 
@@ -139,6 +154,6 @@ def test_entrypoint_roots_hold_no_logic() -> None:
     import ast as _ast
 
     for root in ENTRYPOINT_ROOTS:
-        tree = _ast.parse(root.read_text())
+        tree = _ast.parse(read_source(root))
         classes = [n.name for n in _ast.walk(tree) if isinstance(n, _ast.ClassDef)]
         assert not classes, f"{root} defines {classes}; move behaviour into a component"

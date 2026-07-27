@@ -123,12 +123,22 @@ roadmap revision 2.
 | `CredentialManager` (§10) | M2 | M6-3 — `execute_approved_action` / the publish tool (M6-F28) | Retired |
 | Business Manager workflow (§2.1) | M4 | M5 — started by `ManagerLifecycle` | Retired |
 | `KpiEngine.record` (§5, §11 dashboard) | M3 | M7-3b — `record_cycle_kpis` (D-027) | Retired |
+| `AutonomyCounterRow.plugin_major_version` — A-003's major-version graduation reset (§8) | M3 | M8-8 — `BusinessRegistry._reset_graduation_on_major_bump` | Retired |
 
 **The entry this ledger missed.** `KpiEngine.record` was written in M3 and had no caller for four
 milestones — it was never listed here, so the debt accrued invisibly and was found by a live run
 instead (M7-F21: `kpi_values` had never held a row, so every company's goal attainment was
 structurally zero rather than merely unmeasured). It is the ledger's own worked example of why
 the rule is "add the row when you build the component", not "add it when someone notices".
+
+**And the entry it missed twice.** `plugin_major_version` is the same shape and was found the
+same way — by reading, not by failing. The column existed from M3, A-003's rule was asserted in
+four separate docstrings and in both live type modules' version comments, and it had zero readers
+and zero writers for five milestones: nothing compared an installed major version to anything, and
+`_reset_counter` fired on correction, denial, and operator revocation but never on a version
+change. Recorded at M8-1 as **M8-F8** and retired here. Two worked examples of one rule is the
+point at which the rule is the finding: a component's ledger row is written when the component is,
+not when someone notices it never acquired a caller.
 
 **Deferred at M5.** `CredentialManager` was scheduled to gain a caller here through generic tool
 execution. Building it found the plan self-defeating: a tool-execution layer with no concrete tool

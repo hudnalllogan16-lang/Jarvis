@@ -27,6 +27,7 @@ from jarvis.domain.lifecycle import (
     accepts_dispatch,
     validate_transition,
 )
+from jarvis.domain.refresh import frozen_field_differences
 from jarvis.kernel.errors import (
     BusinessNotFoundError,
     BusinessTypeNotFoundError,
@@ -39,9 +40,14 @@ from jarvis.kernel.logging import get_logger
 from jarvis.kernel.runtime import RuntimeIdentity
 from jarvis.observability.audit import AuditLog
 from jarvis.observability.decision_log import DecisionLog
-from jarvis.persistence.models import BusinessInstanceRow, BusinessTypeRow
+from jarvis.persistence.models import AutonomyCounterRow, BusinessInstanceRow, BusinessTypeRow
 
 logger = get_logger(__name__)
+
+
+def _major(version: str) -> int:
+    """Return the major component of a semantic version string (A-003)."""
+    return int(version.split(".")[0])
 
 
 class BusinessRegistry:
@@ -88,6 +94,10 @@ class BusinessRegistry:
         insert, so without this an upgraded row would report its original
         install time forever (M7-F48).
 
+        An upgrade that changes the **major** version additionally resets every
+        graduation counter belonging to this type's companies, per A-003. See
+        `_reset_graduation_on_major_bump` for why that happens here.
+
         Raises:
             DuplicateBusinessError: If the same name and version is already
                 installed. Reinstalling an identical version is a caller bug,
@@ -99,6 +109,7 @@ class BusinessRegistry:
             raise DuplicateBusinessError(
                 f"business type {name} version {version} already installed"
             )
+        previous_version = existing.version if existing is not None else None
         if existing is None:
             self._session.add(
                 BusinessTypeRow(
@@ -123,6 +134,94 @@ class BusinessRegistry:
             actor="platform",
             payload={"name": name, "version": version},
         )
+        if previous_version is not None:
+            await self._reset_graduation_on_major_bump(name, previous_version, version)
+
+    async def _reset_graduation_on_major_bump(
+        self, name: BusinessTypeName, previous_version: str, version: str
+    ) -> int:
+        """Reset this type's graduation counters when its major version moves.
+
+        A-003: "Changing a business type's plugin **major** version resets its
+        counters; minor versions do not." The action's behaviour may have
+        changed, so the operator's prior approvals no longer vouch for it.
+
+        The rule was asserted in four docstrings, backed by a column, and had
+        zero readers and zero writers — the `KpiEngine.record` shape again
+        (M7-F21), and again absent from the deferred-completion ledger
+        (**M8-F8**). This is its reader and its writer.
+
+        **It runs at install, not at refresh acceptance**, which was the open
+        question in the design's Part 7.2. A-003 keys the rule to the version
+        change itself, and a reset that waited for consent would leave a
+        graduated action running unattended under changed behaviour for as long
+        as an operator ignored the offer — the opposite of what the rule is
+        for. A refresh is a change an operator agrees to; this is a safety
+        property they do not get to defer. It is deliberately *not* a Band C
+        exception: a graduation counter is not a contract field at all (design
+        Part 4.2), so nothing here touches `autonomy_policies`.
+
+        Args:
+            name: The type whose version changed.
+            previous_version: The version that was installed before this call.
+            version: The version now installed.
+
+        Returns:
+            How many counters were reset. Zero for a minor bump, and zero for a
+            major bump with nothing graduated — which is every case live today
+            (design 4.5: one counter row exists in the entire system, at zero,
+            ungraduated).
+        """
+        target_major = _major(version)
+        if _major(previous_version) == target_major:
+            return 0
+
+        instances = select(BusinessInstanceRow.business_id).where(
+            BusinessInstanceRow.business_type == name
+        )
+        stmt = select(AutonomyCounterRow).where(AutonomyCounterRow.business_id.in_(instances))
+        counters = (await self._session.scalars(stmt)).all()
+
+        reset = 0
+        for counter in counters:
+            if (
+                counter.plugin_major_version == target_major
+                and counter.consecutive_approvals == 0
+                and not counter.graduated
+            ):
+                # Already at this major and holding nothing: rewriting it would
+                # produce an audit entry describing a reset that reset nothing.
+                continue
+            counter.consecutive_approvals = 0
+            counter.graduated = False
+            counter.plugin_major_version = target_major
+            reset += 1
+            await self._audit.record(
+                event_type="autonomy.reset",
+                actor="platform",
+                business_id=BusinessId(counter.business_id),
+                payload={
+                    "action_type": counter.action_type,
+                    "reason": "plugin_major_version",
+                    "major_version": target_major,
+                },
+            )
+        await self._session.flush()
+        await self._audit.record(
+            event_type="business_type.graduation_reset",
+            actor="platform",
+            payload={
+                "name": name,
+                "from_major": _major(previous_version),
+                "to_major": target_major,
+                "counters_reset": reset,
+            },
+        )
+        logger.info(
+            "graduation counters reset on a major version bump",
+            extra={"context": {"name": name, "counters_reset": reset}},
+        )
+        return reset
 
     async def remove_business_type(self, name: BusinessTypeName) -> None:
         """Remove an installed business type.
@@ -173,6 +272,10 @@ class BusinessRegistry:
     async def installed_types(self) -> Sequence[BusinessTypeRow]:
         """Return every installed business type."""
         return (await self._session.scalars(select(BusinessTypeRow))).all()
+
+    async def installed_type(self, name: BusinessTypeName) -> BusinessTypeRow | None:
+        """Return one installed business type row, or None if not installed."""
+        return await self._session.get(BusinessTypeRow, name)
 
     # ── Business instances (spec §0.1) ─────────────────────────────────────
 
@@ -231,6 +334,71 @@ class BusinessRegistry:
         """
         row = await self._require_row(business_id)
         return BusinessContract.model_validate(row.contract)
+
+    async def refresh_contract(
+        self,
+        business_id: BusinessId,
+        contract: BusinessContract,
+        *,
+        audit_ref_payload: dict[str, Any],
+    ) -> int:
+        """Replace a company's stored contract, refusing to touch Band C (D-029).
+
+        The only contract writer besides `register_instance`, and deliberately
+        narrow: it re-reads the stored contract, compares every Band C field
+        against the proposal, and refuses the whole write if any of them moved.
+        The guard lives here rather than in the planner because a guard at the
+        write boundary holds for every future caller, including ones that do
+        not exist yet — and the fields it protects are identity, the operator's
+        money, and the two authorization records `authorize_invocation` reads.
+
+        The new contract is validated by `BusinessContract` before it arrives
+        (the caller constructs it through the model), so a refresh that would
+        produce an invalid contract — a type that dropped every wake condition,
+        say — never reaches this method.
+
+        Args:
+            business_id: The company whose contract is being replaced.
+            contract: The full replacement contract.
+            audit_ref_payload: Before/after detail for the audit record. Passed
+                in rather than derived here so the Registry stays bookkeeping
+                and the caller — which knows what it changed and why — owns the
+                description.
+
+        Returns:
+            The audit row id, usable as a Decision Log `audit_ref`.
+
+        Raises:
+            BusinessNotFoundError: If no such instance exists.
+            RegistryError: If the proposal differs from the stored contract in
+                any Band C field, or names a different company.
+        """
+        row = await self._require_row(business_id)
+        stored = BusinessContract.model_validate(row.contract)
+
+        if contract.business_id != business_id:
+            raise RegistryError(
+                f"refresh for {business_id} carries a contract for {contract.business_id}"
+            )
+        moved = frozen_field_differences(stored, contract)
+        if moved:
+            raise RegistryError(
+                f"refusing to refresh {business_id}: it would change never-refreshed "
+                f"fields {list(moved)} (D-029 Band C)",
+                operator_message="Jarvis stopped an update that would have changed "
+                "settings you chose.",
+            )
+
+        row.contract = contract.model_dump(mode="json")
+        await self._session.flush()
+        audit_ref = await self._audit.record(
+            event_type="business.contract_refreshed",
+            actor="operator",
+            business_id=business_id,
+            payload=audit_ref_payload,
+        )
+        logger.info("contract refreshed", extra={"context": {"id": business_id}})
+        return audit_ref
 
     async def get_state(self, business_id: BusinessId) -> LifecycleState:
         """Return the current lifecycle state of ``business_id``."""
