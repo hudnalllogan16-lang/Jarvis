@@ -1542,3 +1542,35 @@ widening, security-engineer's call; A-003 graduation-reset implementation = its 
 - M8-F2 silent install skips; M8-F4 (M10's real dependency is KpiSource membership, not
   packaging); M8-F5 (prose-in-Python future trigger); M8-F6 (Band B target rule expires with
   per-instance editing). All scheduled in the design's Part 9 packet cut.
+
+---
+
+## D-033 — changes to a live workflow path are versioned, not restarted
+**Fills:** M6-F33 (the standing pre-production requirement); ratifies M8-3's convention
+
+Any change to the commands `BusinessManagerWorkflow` issues on a path a running execution can
+reach ships behind `workflow.patched`, id declared as a `PATCH_*` constant, one id per branch,
+never a literal. Recorded-result gating (D-023/D-025/D-027) remains correct where the
+platform's own answer for an old history is still the old one; versioning is what remains when
+it is not. Terminating and restarting a Manager to ship (as M6-3 did) is not available once a
+business has work in flight. Enforced by `tests/test_workflow_versioning.py`, including a
+frozen inventory of the nine activities the workflow may schedule. Retroactive audit: exactly
+one shipped change would have required it — M6-3's `execute_approved_action` wiring, the one
+that forced the restart. First patch in force: `PATCH_POST_WAKE_CONTEXT` (M8-3).
+**M6-F33 is closed.**
+
+## M8-F40 … M8-F48 — workflow hardening round (M8-3, Lane C)
+
+M7-F45 fixed at FULL scope (F-B): the wake reads what the wake needs; the cycle reads its own
+snapshot after the wake — a type upgrade applies on the first post-upgrade cycle (tested);
+a pause landing mid-wait no longer buys a paid planning round (M8-F41); M8-F7 folded in
+mid-flight (kpi_targets ride the post-wake context; M8-F43). Both fixtures replay unedited;
+negative controls name their divergence. Tests 734 → 754.
+
+Open, scheduled: **M8-F44** (the reload doubles M6-F13's reachable surface — the context-load
+failure policy is now due, resilience wave); **M8-F45** (wake reasons dropped for a
+non-dispatchable business, incl. a decided approval — D-008/D-024 question, needs a decision
+before the refresh surface lands); **M8-F46** (ManagerState.kpi_targets vestigial — retire
+with the refresh mechanism, D-005 note); **M8-F42** (CycleContext.wake_cycle_ceiling_usd read
+by nothing — drop at next touch); **M8-F48** (first patch: deprecation only after no
+pre-M8-3 execution remains queryable).
