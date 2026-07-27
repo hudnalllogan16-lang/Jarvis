@@ -1738,3 +1738,20 @@ packet, post-M8); **M8-F108** diff copy needs the product pass (M8-9); **M8-F110
 definition readers to consolidate; **M8-F111** install-time validation should refuse an
 upgrade whose Band B projection is invalid (installer follow-up). M8-6''s migration order
 stands: Summit → Portfolio Watch → Trailhead, all minor-version, counter-neutral, provable.
+
+## M8-F130 … M8-F139 — workflow closeout round (M8-10, wave 2 Lane C)
+
+Merged at 926 tests. M8-F87 fixed (ordinal resets at continue-as-new; daily allowance
+crosses intact — F139 pinned the careless version; safe BECAUSE D-034.2 namespaces keys by
+run id); M8-F88 fixed (finally-guarded hold release; cancellation inside settle deliberately
+defers to the reconcile — F138 recorded as intent, not gap); D-035 implemented broadened,
+behind PATCH_PAUSED_WAKE_NOTICE at BOTH drop sites (F130), via a new activity and new
+NotificationKind.WAITING_ON_RESUME (needed: the approval kinds reconcile against pending and
+would filter the notice out — F133). Worker latitude ratified on both additions.
+
+Notable: **F131** — no behavioural test had ever reached a continuation; that is how F87
+survived two milestones. **F136** — dispatch_events signals ACTIVE companies only, so the
+D-035 notice''s live path is auto-pause → operator answers → drop; rare today, matches the
+owner''s nothing-silently-lost intent (flagged to owner in report). F134 (reason-kind not a
+stored notification field — schema change if the surface needs it) and F132 (kind→copy
+wiring) routed to M8-9 mid-flight.
