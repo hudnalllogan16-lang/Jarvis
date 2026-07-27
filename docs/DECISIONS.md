@@ -1714,3 +1714,11 @@ Also decided for wave 2 (mechanism within existing decisions): **M8-F87** — co
 resets the cycle ordinal at continue-as-new (D-005 state shape); **M8-F88** — dispatch gains
 the cancellation handler `_ask_model` already has (D-022). Retrospective adopted as M9
 operating model (owner directive): DELEGATION amendment AFTER m8-baseline, not during M8.
+
+## Owner ratifications (M8 wave 2)
+
+D-035 confirmed as Option B, scope broadened to ANY actionable wake reason arriving while
+paused (not only decided approvals) — relayed to the running M8-10 lane mid-flight. Font
+vendoring approved and done: three OFL families committed with license texts and provenance
+(jarvis/api/static/fonts/); page hookup deferred one merge to avoid lane conflicts
+(M8-F21 fully closes there).
