@@ -14,6 +14,14 @@ interpolation prints a placeholder rather than a key.
 Resolution is also authorization-checked against the business's contract, which
 is defence in depth — the pool already validated scope (D-002), and this catches
 the case where a code path reaches a credential without going through the pool.
+
+**This class stays sessionless, and its refusals are still audited (D-034.4).**
+It holds no database handle by design, so for four milestones its three refusal
+paths were the platform's last §10 denials that left no record at all (M6-F42).
+The record is written by `ToolExecutor`, the only caller, through D-025.1's
+independent-commit path — see `_resolved_secret` there for why that side rather
+than this one. Nothing about the refusals themselves changed: they still say
+nothing about which of the three fired.
 """
 
 from __future__ import annotations

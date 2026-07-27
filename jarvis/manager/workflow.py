@@ -61,6 +61,27 @@ running for months does not accumulate its way into a hard failure."""
 ACTIVITY_TIMEOUT = timedelta(minutes=5)
 DISPATCH_TIMEOUT = timedelta(minutes=15)
 
+DEGRADED_RETRY_INTERVAL = timedelta(minutes=15)
+"""How long a Manager that cannot read its own context waits before looking
+again (D-034.1, closing M6-F13 and M8-F44).
+
+D-034.1 says such a Manager "never dies and never loops hot", and those are two
+different requirements answered by two different things. Not dying is the
+`ActivityError` handler in `_load_context`. Not looping hot is this bound: a
+platform outage otherwise turns a parked Manager into a retry storm that costs
+nothing per attempt and never stops.
+
+Fifteen minutes, because the shortest schedule the platform supports is hourly
+(`_interval_seconds`): a degraded Manager therefore re-checks four times inside
+its own fastest wake period, so it recovers within a quarter of a cycle of the
+platform recovering, and a business whose context has been unreadable for a day
+has cost 96 bounded activity attempts and no model call.
+
+A wake signal cuts the wait short — see `_park`. Waiting only on a signal was
+rejected: a schedule-only business (Finance, M7-F2) subscribes to no events, so
+a signal-only park is indistinguishable from death for exactly the businesses
+most likely to be parked."""
+
 STANDARD_RETRY = RetryPolicy(
     initial_interval=timedelta(seconds=2),
     maximum_attempts=3,
@@ -103,6 +124,20 @@ workflow code, would put a live type from the I/O side of D-004 in here.
 `CircuitBreakerOpenError` is included because it subclasses `BudgetExceededError`
 in the kernel taxonomy: from the cycle's point of view both mean the same thing,
 that spending stopped it rather than a fault."""
+
+CYCLE_KEY_PREFIX = "cyc_"
+"""Shared with the id-minting helper in `jarvis/kernel/ids.py`, so a derived key
+and a minted one are the same kind of thing to everything downstream (D-034.2).
+Spelled out here rather than imported, because the determinism gate reads this
+module's source for the minting helpers by name and a bare import would look
+exactly like a workflow that mints.
+
+They stay distinguishable by shape — a derived key carries its cycle ordinal
+after the run's hex, a minted one does not — which is what lets a ledger row or
+a Decision Log entry say, at a glance and years later, whether the cycle it
+belongs to was scoped deterministically or by a `plan_cycle` that minted a fresh
+id on every attempt (M6-F17, observed live as M7-F25)."""
+
 
 CEILING_STOP_SUMMARY = "{name} stopped early to stay inside its spending limit."
 CEILING_STOP_RATIONALE = "It had used the amount set aside for one round of work."
@@ -189,6 +224,17 @@ class BusinessManagerWorkflow:
         Manager that was already parked when this shipped replays the one-read
         path it ran, and every execution started since runs this one.
 
+        **Either read can fail, and neither failure is fatal (D-034.1).** Both
+        happen before planning, so there is no cycle to file the failure under
+        (D-021) — which is why M6-F13 sat open for two milestones and why M8-3
+        widened it by putting a second unguarded read on the path (M8-F44).
+        D-034.1 settles it: the Manager records the park, waits out
+        `DEGRADED_RETRY_INTERVAL` or a wake signal, and looks again. `degraded`
+        is a loop local, not durable state — it exists only to keep one outage
+        from writing an activity-feed entry every quarter hour, and a
+        `continue_as_new` cannot happen inside a park because a park never
+        completes a cycle.
+
         Args:
             state: Durable state, carried across continuations (D-005).
 
@@ -196,9 +242,14 @@ class BusinessManagerWorkflow:
             Final state, when the workflow is cancelled rather than continued.
         """
         self._state = state
+        degraded = False
 
         while True:
             wake_ctx = await self._load_context(state.business_id)
+            if wake_ctx is None:
+                degraded = await self._park(state.business_id, recorded=degraded)
+                continue
+            degraded = False
 
             if not wake_ctx.dispatchable:
                 # Paused, retiring, or retired (D-008 I-4). Wait to be woken
@@ -215,7 +266,15 @@ class BusinessManagerWorkflow:
 
             ctx = wake_ctx
             if _reloads_context_after_wake():
-                ctx = await self._load_context(state.business_id)
+                reloaded = await self._load_context(state.business_id)
+                if reloaded is None:
+                    # The same answer as a failed wake read, deliberately: both
+                    # are "this Manager cannot see the company it runs", and a
+                    # cycle planned on the pre-wait snapshot instead would be
+                    # M7-F45 reintroduced as a failure-path shortcut.
+                    degraded = await self._park(state.business_id, recorded=degraded)
+                    continue
+                ctx = reloaded
                 if not ctx.dispatchable:
                     # Stopped while it waited. Back to the top, which parks on a
                     # signal instead of planning work for a business that has
@@ -227,28 +286,108 @@ class BusinessManagerWorkflow:
                     # planning call it saves.
                     continue
 
-            state = await self._run_cycle(state, ctx, reasons)
+            state = await self._run_cycle(
+                state, ctx, reasons, cycle_key=_cycle_key(state.cycles_completed)
+            )
             self._state = state
 
             if state.cycles_completed >= CYCLES_BEFORE_CONTINUATION:
                 workflow.continue_as_new(state)
 
-    async def _load_context(self, business_id: str) -> CycleContext:
-        """Read this business's current snapshot from outside the workflow.
+    async def _load_context(self, business_id: str) -> CycleContext | None:
+        """Read this business's current snapshot, or None if it cannot be read.
 
         One call site for both reads, so the wake's context and the cycle's are
         the same question asked at two moments rather than two payloads that
         could drift apart. Everything in it is I/O or a clock read, which is why
         it is an activity with a recorded result and not a lookup here (D-004).
+
+        Returns:
+            The snapshot, or None once the activity's bounded retries are spent
+            (D-034.1). None rather than a raise, because the caller's answer is
+            a park and a park is not an error condition to be handled somewhere
+            further out — there is nowhere further out. This is the only
+            `execute_activity` in the file whose failure is not a *cycle*
+            failure, because it is the only one that runs before a cycle exists.
         """
-        return CycleContext.model_validate(
-            await workflow.execute_activity(
+        try:
+            payload = await workflow.execute_activity(
                 "load_cycle_context",
                 business_id,
                 start_to_close_timeout=ACTIVITY_TIMEOUT,
                 retry_policy=STANDARD_RETRY,
             )
-        )
+        except ActivityError:
+            return None
+        return CycleContext.model_validate(payload)
+
+    async def _park(self, business_id: str, *, recorded: bool) -> bool:
+        """Record a degraded Manager and wait before looking again (D-034.1).
+
+        Three things, in the order D-034.1 lists them. The park is *recorded*,
+        so an owner asking why nothing happened reads a sentence rather than
+        silence — best-effort, because a platform that cannot answer
+        `load_cycle_context` may well not be able to write the entry either, and
+        failing to explain a park must not escalate into failing the Manager
+        (the M6-F9 posture, one layer earlier). It is recorded once per episode:
+        `recorded` stays False until the entry actually lands, so a write that
+        failed is retried on the next attempt rather than lost, and a write that
+        succeeded is not repeated every quarter hour into the activity feed.
+        Then it waits — bounded, and cut short by a wake signal, so an operator
+        resuming a company does not wait out the remainder of a timer.
+
+        **A *new* signal, not any pending one.** Waiting on `self._wake_reasons`
+        being non-empty looks equivalent and is not: a reason that arrived during
+        the previous park is still queued, so the condition is already true when
+        the next park begins and the wait returns instantly. One signal to an
+        unreadable Manager would then spin the loop at the speed of a failing
+        activity — the hot loop D-034.1 forbids, reached by the ordinary path of
+        being woken while degraded. Comparing against the count taken here gives
+        each new signal exactly one extra look, and — unlike clearing the queue —
+        loses no reason: an answered approval that arrives while the Manager is
+        parked is still in the list when it recovers, and D-024's effect still
+        runs (M6-F31).
+
+        Args:
+            business_id: Whose Manager is parked.
+            recorded: Whether this episode's entry has already been written.
+
+        Returns:
+            Whether the episode is now recorded.
+        """
+        if not recorded:
+            recorded = await self._record_park(business_id)
+        already = len(self._wake_reasons)
+        with suppress(TimeoutError):
+            await workflow.wait_condition(
+                lambda: len(self._wake_reasons) > already, timeout=DEGRADED_RETRY_INTERVAL
+            )
+        return recorded
+
+    async def _record_park(self, business_id: str) -> bool:
+        """Ask the platform to explain this park to the operator (D-034.1).
+
+        One activity for both records — the Decision Log entry and the
+        notification — because they describe one event and because the sentence
+        needs the company's display name, which is precisely the fact the failed
+        read could not deliver. Composing it there rather than here is the same
+        trade the rest of this file makes for `record_cycle_decision`: the
+        workflow decides *that* something is recorded, the activity knows what
+        the company is called.
+
+        Returns:
+            True if the record landed, False if its own retries were spent.
+        """
+        try:
+            await workflow.execute_activity(
+                "record_manager_park",
+                {"business_id": business_id},
+                start_to_close_timeout=ACTIVITY_TIMEOUT,
+                retry_policy=STANDARD_RETRY,
+            )
+        except ActivityError:
+            return False
+        return True
 
     async def _await_wake(self, ctx: CycleContext) -> bool:
         """Suspend until a scheduled interval elapses or a signal arrives.
@@ -270,7 +409,12 @@ class BusinessManagerWorkflow:
     # ── one wake cycle ─────────────────────────────────────────────────────
 
     async def _run_cycle(
-        self, state: ManagerState, ctx: CycleContext, reasons: list[str]
+        self,
+        state: ManagerState,
+        ctx: CycleContext,
+        reasons: list[str],
+        *,
+        cycle_key: str = "",
     ) -> ManagerState:
         """Plan, dispatch, synthesize, decide — once (spec §2.1).
 
@@ -285,13 +429,22 @@ class BusinessManagerWorkflow:
         This changes nothing about retry policy. The activities keep their own
         bounded retries; this is only what happens once those are spent.
 
-        Neither read of `load_cycle_context` is covered — not the wake's and not
-        the cycle's own: both happen before planning, which is where a cycle
-        begins (D-021), so there is no cycle to record, and surviving them needs
-        a policy for a Manager that cannot read its own context. That is M6-F13,
-        open — do not paper over it here. Moving the cycle's snapshot after the
-        wake put a second uncovered read on the path per round, which widens
-        M6-F13's reach without changing its shape (M8-F44).
+        Neither read of `load_cycle_context` is covered here, and that is still
+        deliberate: both happen before planning, which is where a cycle begins
+        (D-021), so there is no cycle to record them against. What changed is
+        that they are no longer *uncovered* — D-034.1 gives them the park in
+        `run`, which closes M6-F13 and M8-F44 without pretending a failed
+        context read is a failed cycle.
+
+        Args:
+            state: Durable state.
+            ctx: This cycle's snapshot, taken after the wake.
+            reasons: What woke it.
+            cycle_key: This cycle's budget scope key, derived in `run` from the
+                run id and the cycle ordinal (D-034.2). Empty for a caller with
+                no run to derive from — a `_run_cycle`-level test, or any future
+                caller that is not the wake loop — in which case `plan_cycle`
+                mints as D-021 originally specified.
         """
         day = ctx.day_ordinal
 
@@ -317,7 +470,7 @@ class BusinessManagerWorkflow:
             # Retries are safe (the effect is idempotent under A-001) but not
             # unlimited; once they are spent the cycle ends visibly rather than
             # continuing as though the action had run.
-            return await self._end_in_failure(state, ctx, "", error)
+            return await self._end_in_failure(state, ctx, cycle_key, error)
 
         if state.wake_budget_exhausted(ctx.max_cycles_per_day, day_ordinal=day):
             # §2.1's cost ceiling bounds one cycle; this bounds their frequency.
@@ -340,9 +493,14 @@ class BusinessManagerWorkflow:
         # what made the planner stale in the first place.
         kpi_targets = state.kpi_targets if ctx.kpi_targets is None else ctx.kpi_targets
 
-        # Planning is where the cycle begins (D-021), so a failure here has no
-        # cycle id to file itself under — the id does not exist until the
-        # activity that mints it returns.
+        # Planning is where the cycle begins (D-021) — but the scope its spend
+        # counts against no longer waits for planning to return. `cycle_key`
+        # travels *into* the activity, so all three attempts of a retried
+        # `plan_cycle` reserve against one cycle ceiling instead of one each
+        # (M6-F17; observed live as M7-F25's three $0.16 reservations for one
+        # logical cycle). Derivation, not minting: D-004 holds because the key
+        # is a function of the run id and the cycle ordinal, both of which
+        # replay identically.
         try:
             plan_payload = await workflow.execute_activity(
                 "plan_cycle",
@@ -352,15 +510,29 @@ class BusinessManagerWorkflow:
                     current_plan=state.plan,
                     kpi_targets=kpi_targets,
                     pending_approval_id=state.pending_approval_id,
+                    cycle_key=cycle_key,
                 ),
                 start_to_close_timeout=ACTIVITY_TIMEOUT,
                 retry_policy=STANDARD_RETRY,
             )
         except ActivityError as error:
-            return await self._end_in_failure(state, ctx, "", error)
+            # D-021 note 3 recorded this as a cycle that fails "before it has an
+            # id", filed under an empty one. It has one now — the key its
+            # released reservations already carry — so the entry an operator
+            # reads and the ledger rows behind it group together for the first
+            # time. An empty key means no run to derive from, which is D-021's
+            # original case and keeps its behaviour.
+            return await self._end_in_failure(state, ctx, cycle_key, error)
 
         # `.get`, not `[...]`: a history captured before D-021 has no cycle id in
-        # this payload, and replaying it must not raise (spec §11).
+        # this payload, and replaying it must not raise (spec §11). Read from the
+        # *recorded result* rather than from `cycle_key`, which is the D-023 /
+        # D-027 compatibility hinge and not an oversight: a history captured
+        # before D-034 carries a minted id, its ledger rows and audit entries are
+        # filed under that id, and the platform's own answer for that history is
+        # therefore still the old one (D-033). For an execution started since,
+        # the recorded id *is* the derived key — `plan_cycle` returns what it
+        # scoped against — so the two agree without the workflow choosing.
         cycle_id = str(plan_payload.get("cycle_id") or "")
         plan = TacticalPlan.model_validate(plan_payload["plan"]).bounded()
         requests = tuple(ScopedRequest.model_validate(r) for r in plan_payload["requests"])
@@ -740,6 +912,33 @@ def _approvals_decided(reasons: list[str]) -> list[str]:
         if approval_id and approval_id not in seen:
             seen.append(approval_id)
     return seen
+
+
+def _cycle_key(ordinal: int) -> str:
+    """Return the budget scope key for the cycle about to begin (D-034.2).
+
+    Derived, never minted — which is what keeps it inside D-004. `run_id` is
+    assigned by the Temporal server and replays identically for the life of a
+    run; `ordinal` is the Manager's own completed-cycle count, which advances
+    exactly once per cycle that reaches planning and is therefore unique within
+    a run. A `continue_as_new` changes the run id, so uniqueness survives it
+    without the ordinal having to.
+
+    This is the fix for the defect D-021's implementation left behind:
+    `plan_cycle` minted the id, so each of an activity's three attempts opened a
+    *fresh* cycle scope and a refusal caused by accumulated cycle spend passed on
+    retry (M6-F17). M7-F25 is that defect in the live record — three
+    RESERVED→RELEASED reservations across three `plan_cycle` attempts, one
+    logical cycle, three ceilings' worth of headroom.
+
+    Args:
+        ordinal: Cycles this Manager has completed in this run so far.
+
+    Returns:
+        A key of the same shape as a minted cycle id, with the ordinal appended
+        so the two remain distinguishable in the record (`CYCLE_KEY_PREFIX`).
+    """
+    return f"{CYCLE_KEY_PREFIX}{workflow.info().run_id.replace('-', '')}_{ordinal}"
 
 
 def _reloads_context_after_wake() -> bool:

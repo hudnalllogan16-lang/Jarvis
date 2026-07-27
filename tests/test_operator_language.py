@@ -225,6 +225,42 @@ def test_manager_cycle_outcomes_are_written_for_the_operator(template: str) -> N
     assert text.endswith(".")
 
 
+@pytest.mark.parametrize(
+    "template",
+    [
+        "MANAGER_PARKED_SUMMARY",
+        "MANAGER_PARKED_RATIONALE",
+        "MANAGER_PARKED_TITLE",
+        "MANAGER_PARKED_BODY",
+    ],
+)
+def test_the_park_records_are_written_for_the_operator(template: str) -> None:
+    """§12.5 for D-034.1's records, which live in the activity, not the workflow.
+
+    A Manager that cannot read its own context writes a Decision Log entry and
+    raises a notification, and both reach the operator's default view. They are
+    authored in `jarvis/manager/activities.py` rather than beside the branch that
+    chooses them, because the sentence names the company and the display name is
+    exactly what the failed read could not deliver — so they need the same guard
+    the workflow's own templates get above, applied where they actually are.
+    """
+    from jarvis.manager import activities as manager_activities
+
+    text = str(getattr(manager_activities, template)).format(name="Affiliate Co")
+    assert not contains_technical_language(text)
+    assert text[0].isupper()
+
+
+def test_the_park_notification_body_adds_to_its_title() -> None:
+    """A notification whose body restates its title tells an operator nothing
+    they have not already read. The title names the company; the body says what
+    it means and that nobody has to do anything about it."""
+    from jarvis.manager.activities import MANAGER_PARKED_BODY, MANAGER_PARKED_TITLE
+
+    assert MANAGER_PARKED_TITLE.format(name="Affiliate Co") not in MANAGER_PARKED_BODY
+    assert MANAGER_PARKED_BODY.endswith(".")
+
+
 def test_the_detector_actually_detects() -> None:
     """A guard that never fires is worse than none: it reads as coverage."""
     assert contains_technical_language("the workflow failed")

@@ -26,6 +26,7 @@ row cannot see a rollback, which is the M5-F5 failure mode wearing a green tick.
 from __future__ import annotations
 
 import ast
+import json
 import pathlib
 from collections.abc import AsyncIterator
 from decimal import Decimal
@@ -41,8 +42,9 @@ from sqlalchemy.pool import StaticPool
 from jarvis.approvals.models import ApprovalRequest
 from jarvis.businesses.affiliate import AFFILIATE
 from jarvis.capabilities import tools as tools_module
+from jarvis.capabilities.idempotency import IdempotencyStore
 from jarvis.capabilities.request import MemoryScope, ScopedRequest
-from jarvis.capabilities.tools import REQUIRED_PARAMS, WebhookPublishTool
+from jarvis.capabilities.tools import REQUIRED_PARAMS, ToolExecutor, WebhookPublishTool
 from jarvis.domain.contract import CapabilityType
 from jarvis.domain.lifecycle import LifecycleState
 from jarvis.kernel.config import LLMSettings, Settings
@@ -54,6 +56,7 @@ from jarvis.llm.base import CompletionResponse, Usage
 from jarvis.manager.activities import ManagerActivities
 from jarvis.persistence.models import AuditLogRow, Base, IdempotencyRow
 from jarvis.runtime.activities import KernelActivities
+from jarvis.security.credentials import CredentialManager
 from tests.conftest import as_business
 
 WEBHOOK_SECRET = "s3cr3t-blog-token"  # noqa: S105 — a test value, not a real credential
@@ -611,3 +614,118 @@ async def test_an_unpermitted_tool_denial_is_recorded(
     rows = await _violations(kernel, "tool.refused")
     assert [row.payload["reason"] for row in rows] == ["tool_not_permitted"]
     assert rows[0].payload["tool"] == "wire_transfer"
+
+
+# ── Part 3: M6-F42 — the credential refusal that nobody recorded ───────────
+
+
+TOOL = "publish_post"
+GRANTED = frozenset({"affiliate_blog_webhook"})
+
+
+async def _refused_credential(
+    kernel: PlatformKernel,
+    company: BusinessId,
+    *,
+    handle: str,
+    granted: frozenset[str],
+    secrets: dict[str, str] | None = None,
+) -> None:
+    """Run one effect whose credential cannot be resolved, and let it refuse."""
+    async with kernel.services() as svc:
+        contract = await svc.registry.get_contract(company)
+        executor = (
+            kernel.build_tools(svc)
+            if secrets is None
+            else ToolExecutor(
+                credentials=CredentialManager(secrets),
+                idempotency=IdempotencyStore(svc.session),
+                audit=svc.audit,
+            )
+        )
+        with pytest.raises(ScopeViolationError):
+            await executor.execute(
+                contract=contract,
+                invocation_id=InvocationId("inv_cred"),
+                tool_name=TOOL,
+                implementation_key="webhook_publish",
+                action_type="affiliate.publish_post",
+                params={"title": "T", "body": "B"},
+                credential_handle=handle,
+                granted_credentials=granted,
+            )
+
+
+@pytest.mark.parametrize(
+    ("handle", "granted", "secrets"),
+    [
+        ("affiliate_blog_webhook", frozenset(), None),
+        ("someone_elses_key", frozenset({"someone_elses_key"}), None),
+        ("affiliate_blog_webhook", GRANTED, {}),
+    ],
+    ids=["not-granted", "not-permitted", "not-in-the-secrets-manager"],
+)
+async def test_every_credential_refusal_leaves_a_record(
+    kernel: PlatformKernel,
+    company: BusinessId,
+    handle: str,
+    granted: frozenset[str],
+    secrets: dict[str, str] | None,
+) -> None:
+    """M6-F42, closed (D-034.4): the last §10 refusal that recorded nothing.
+
+    `CredentialManager` refuses three ways and held no session to write with, so
+    for four milestones an approved action could be refused at the credential
+    boundary and leave the platform with nothing to say about it — the same
+    invisibility M6-F39 had at the tool boundary one line above. All three are
+    parametrized here because the record belongs to the *resolution*, not to one
+    of its failure modes: fixing one would leave the next one free to be silent.
+
+    The third case is M6-F28's shape — a handle the contract permits and the
+    invocation was granted, with an empty secrets manager behind it. That is a
+    configuration fault rather than a caller fault, which is precisely why it
+    must be visible: it is indistinguishable, without a record, from a company
+    that had nothing to publish.
+    """
+    await _refused_credential(kernel, company, handle=handle, granted=granted, secrets=secrets)
+
+    rows = await _violations(kernel, "tool.refused")
+    assert [row.payload["reason"] for row in rows] == ["credential_not_resolved"]
+    assert rows[0].payload["handle"] == handle
+    assert rows[0].payload["tool"] == TOOL
+
+
+async def test_the_refusal_record_carries_no_secret(
+    kernel: PlatformKernel, company: BusinessId
+) -> None:
+    """§10: handles travel, values do not — and neither does which check fired.
+
+    The handle is safe to record and is the only useful thing in the entry.
+    Recording *which* of the three refusals fired would put back the difference
+    `CredentialManager` deliberately refuses to expose ("a probing caller learns
+    nothing from the difference"), one audit query away.
+    """
+    await _refused_credential(kernel, company, handle="affiliate_blog_webhook", granted=frozenset())
+
+    payload = (await _violations(kernel, "tool.refused"))[0].payload
+    assert WEBHOOK_SECRET not in json.dumps(payload)
+    assert set(payload) == {"tool", "action_type", "reason", "handle"}
+
+
+async def test_a_resolvable_credential_records_no_refusal(
+    kernel: PlatformKernel, company: BusinessId, sent: list[httpx.Request]
+) -> None:
+    """Negative control: the record is about refusal, not about credentials.
+
+    A guard that logged every resolution would satisfy every test above and turn
+    the audit log into a per-publish credential trace.
+    """
+    approval_id = await _approved(
+        kernel, company, parameters={"title": "Best Trail Runners", "body": "The full review."}
+    )
+    await as_business(
+        company, ManagerActivities(kernel).execute_approved_action, {"approval_id": approval_id}
+    )
+
+    assert len(sent) == 1
+    assert await _violations(kernel, "tool.refused") == []

@@ -44,7 +44,7 @@ concurrency claim would be vacuous (M5-F5).
 from __future__ import annotations
 
 import hashlib
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -378,6 +378,57 @@ class BudgetLedger:
                 return
             row.state = RELEASED
             await session.flush()
+
+    # ── reconciliation (D-034.3) ───────────────────────────────────────────
+
+    async def open_reservations(self, *, limit: int) -> Sequence[BudgetLedgerRow]:
+        """Return held reservations on the caller's session, oldest first.
+
+        D-022 point 3 makes terminality — not a timer — what resolves a hold,
+        and that is right whenever a terminal result arrives. Process death is
+        the case where none does: a worker that stops between `reserve` and
+        `settle`/`release` leaves a row RESERVED forever, and because RESERVED
+        counts toward every ceiling (`_COUNTING_STATES`), the business quietly
+        loses that headroom for good (M6-F18). D-034.3 answers it with a
+        scheduler-owned sweep; this is the read half of it.
+
+        Ordered oldest-first and bounded, so one sweep over a large backlog is a
+        bounded piece of work that makes progress on the oldest orphans and
+        leaves the rest for the next pass. The set is naturally small — a
+        RESERVED row is either an invocation in flight or an orphan, and both
+        leave it — so the bound is a guard on the pathological case, not a
+        constraint on the normal one.
+
+        Args:
+            limit: Most rows to return in one pass.
+        """
+        stmt = (
+            select(BudgetLedgerRow)
+            .where(BudgetLedgerRow.state == RESERVED)
+            .order_by(BudgetLedgerRow.recorded_at)
+            .limit(limit)
+        )
+        return (await self._session.scalars(stmt)).all()
+
+    async def release_reconciled(self, row: BudgetLedgerRow) -> None:
+        """Release an orphaned reservation **in the caller's transaction**.
+
+        The one release that does not run in its own transaction, and the
+        difference is deliberate. `release` resolves a hold whose owner is still
+        running and must commit immediately, before that owner's work finishes —
+        that is D-022 point 1's whole argument. A reconciled release has no such
+        owner; what it has is an audit entry explaining why a hold was returned
+        to a ceiling nobody was watching, and D-034.3 requires every one of them
+        to be audited. Sharing the reconciler's transaction is what makes that
+        true rather than nearly true: the release and its explanation commit
+        together or not at all, the same rule D-008 I-6 applies to a lifecycle
+        change and its two log entries.
+
+        Args:
+            row: A RESERVED row loaded on this ledger's own session.
+        """
+        row.state = RELEASED
+        await self._session.flush()
 
     # ── aggregates ─────────────────────────────────────────────────────────
 
