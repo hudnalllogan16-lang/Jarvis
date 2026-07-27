@@ -1492,3 +1492,29 @@ D-027 amendment pass (M7-F33/F49 metric semantics, M7-F32 idle-cycle measurement
 result-usefulness), D-011 extension for feed prose (M7-F50/F-C), M7-F48 (installed_at),
 M7-F65 (third type resolves naturally). Carried M6 ledger unchanged; M6-F33 workflow
 versioning remains required before any production posture.
+
+---
+
+## D-028 — M8 approved: spec v1.5 (Manager personas), experience-engineer, design system as artifact
+
+Owner approved the M8 plan (docs/reports/M8-PLAN.md) 2026-07-27 with amendments, all applied:
+1. **Spec v1.4 → v1.5, owner-authorized:** §12.5's Business Manager row changes from
+   "invisible" to "MAY be represented as a named operational persona" (responsibility,
+   ownership, current activity, health, workload) — an abstraction layer; internal worker
+   architecture (workers/capabilities/prompts/workflows and all §12.5 forbidden vocabulary)
+   remains invisible. D-007's manager row is superseded accordingly. Target experience:
+   "supervising a team of executives, not monitoring background processes."
+2. **experience-engineer** joins the roster: owns design system, application shell, workspace
+   layout, interaction patterns, information hierarchy, visual consistency, motion, premium
+   polish — architecture-aware. operator-surface-engineer retains operator copy, D-007
+   translation, rendering boundaries, §12.5 implementation, presentation correctness. The
+   split is deliberate and stays.
+3. **The Design System is a permanent platform artifact** (docs/design/): principles, color,
+   typography, components, layout, spacing, iconography, motion, accessibility, interaction
+   patterns — carrying architecture-documentation weight; future UI extends it, never
+   reinvents.
+4. **Product identity framing:** M8 establishes Jarvis's permanent product identity (how
+   operators understand the platform, how companies and managers are experienced); the
+   Premium UI Concept is the north star for craftsmanship, not a pixel spec.
+5. **Engineering discipline unchanged** — all D-026 practices, reviewer independence,
+   escalation discipline, and governance carry forward at full strength.
