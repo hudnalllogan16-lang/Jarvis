@@ -31,6 +31,13 @@ class NotificationKind(StrEnum):
     PAUSED = "paused"
     SPENDING = "spending"
     GRADUATED = "graduated"
+    # A D-035 "something arrived while paused" kind was drafted here
+    # (ANSWERED_WHILE_PAUSED) against this packet's own description. It is
+    # withdrawn: packet M8-10 merged into `main` mid-packet with the real
+    # kind, `WAITING_ON_RESUME`, covering every dropped wake reason rather
+    # than only decided approvals — see `jarvis/manager/activities.py`'s
+    # note and the M8-9 report for the reviewed copy that goes with it. This
+    # lane branched before that merge and has no path to `main`'s file.
 
 
 class NotificationService:

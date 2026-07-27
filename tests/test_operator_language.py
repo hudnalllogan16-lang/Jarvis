@@ -26,36 +26,17 @@ from jarvis.approvals.rendering import (
 from jarvis.domain.lifecycle import OPERATOR_LABELS as LIFECYCLE_LABELS
 from jarvis.kernel.ids import BusinessId
 from tests.surface_sources import (
+    FORBIDDEN,
     MARKUP,
     script_literals,
     surface_text,
     visible_text,
 )
 
-FORBIDDEN = [
-    "workflow",
-    "dag",
-    "agent",
-    "worker",
-    "capability",
-    "prompt",
-    "token",
-    "wake cycle",
-    "woken",
-    "temporal",
-    "event bus",
-    "orchestration",
-    "credential scope",
-    "retry",
-    "dead-letter",
-    "dead letter",
-    "business",
-]
-"""§12.5's own list, plus two morphological gaps the runtime guard
-(`contains_technical_language`) also had to close (M6 product re-review,
-runtime term coverage): "woken" is a form of "wake cycle" a phrase check
-never catches, and "business" is D-007's own Business -> Company term, never
-previously listed at all."""
+# FORBIDDEN moved to tests/surface_sources.py (design PLUGIN-FRAMEWORK.md
+# Part 6's M7-F12 note): scripts/gates.sh's structural gate carried its own
+# stale copy of this list, so a term this test forbade could still pass the
+# gate. Both now import the one list.
 
 
 def test_dashboard_exists() -> None:
@@ -259,6 +240,14 @@ def test_the_park_notification_body_adds_to_its_title() -> None:
 
     assert MANAGER_PARKED_TITLE.format(name="Affiliate Co") not in MANAGER_PARKED_BODY
     assert MANAGER_PARKED_BODY.endswith(".")
+
+
+# D-035's notification copy tests were drafted here against
+# PAUSED_ANSWERED_APPROVAL_TITLE/_BODY (this packet's own draft). Withdrawn
+# with the draft they tested — see jarvis/manager/activities.py's note.
+# `main`'s real DROPPED_WAKE_COPY/DROPPED_WAKE_DEFAULT is not importable
+# from this lane (it postdates this branch's parent commit), so the
+# equivalent guard runs where the real code is, not here.
 
 
 def test_the_detector_actually_detects() -> None:

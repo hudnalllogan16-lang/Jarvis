@@ -2,13 +2,13 @@
 
 import { get } from './api.js';
 import { action } from './actions.js';
-import { esc } from './format.js';
+import { esc, plural } from './format.js';
 import { openSheet, sheet, closeSheet } from './panel.js';
 import { refresh } from './refresh.js';
 
 const el = (id) => document.getElementById(id);
 
-async function openNew() {
+async function openNew(note) {
   const templates = await get('/api/company-templates');
   if (!templates.length) {
     // An empty state that teaches: what a template is, and the one step that
@@ -31,6 +31,7 @@ async function openNew() {
     .join('');
   openSheet(`
     <h2 id="sheetTitle">New company</h2>
+    ${note ? `<p class="reason reason--lede">${esc(note)}</p>` : ''}
     <div class="field field--lead">
       <label for="tpl">What should it do</label>
       <select id="tpl">${opts}</select>
@@ -115,6 +116,18 @@ export function registerNewCoActions() {
       btn.textContent = 'Install starter template';
       return;
     }
-    openNew(); // reopen with templates now present
+    // `not_ready_count` (M8-F61): a contained install failure used to log a
+    // warning nobody watching this screen would ever see. It is never a
+    // dead end — the templates that DID install are usable, so this is a
+    // note beside the form, not a blocking error.
+    const body = await res.json().catch(() => ({}));
+    const notReady = Number(body.not_ready_count) || 0;
+    openNew(
+      notReady
+        ? `${notReady} starter ${plural(notReady, 'template', 'templates')} ` +
+            `${plural(notReady, "wasn't", "weren't")} ready this time — Jarvis will try ` +
+            'again on its own. The rest are ready to use below.'
+        : undefined,
+    ); // reopen with templates now present
   });
 }

@@ -22,6 +22,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy import select, text
 
+from jarvis.api.pending_update import PendingUpdateView
 from jarvis.api.render import render_doing_now, render_operator_text
 from jarvis.approvals.models import OPERATOR_LABELS as APPROVAL_LABELS
 from jarvis.approvals.models import ApprovalRequest, ApprovalState
@@ -198,6 +199,39 @@ def create_app(kernel: PlatformKernel) -> FastAPI:
                 return True
         return False
 
+    async def _pending_update(
+        svc: KernelServices, contract: BusinessContract
+    ) -> PendingUpdateView | None:
+        """Whether this company has a pending Band-B template update to show.
+
+        design `PLUGIN-FRAMEWORK.md` Part 4/6 (D-030): detecting a Band-B
+        drift is `plan_refresh` (Part 4.4), owned by packet M8-8
+        (platform-engineer) because its sibling `apply_refresh` rewrites a
+        stored contract and needs opus-level review. That packet had not
+        merged into this lane at the time this route was written (see the
+        M8-9 report's coordination note), and `plan_refresh`'s diff needs
+        `BusinessTypeDefinition` (`jarvis.businesses`, milestone 5) — a
+        forward import `jarvis/api` (milestone 3) may not make even locally
+        (`tests/test_layering.py` walks the whole AST, not just top-level
+        imports), so this route cannot compute the diff itself without
+        widening the layering exemption list, which is not this packet's
+        call to make.
+
+        Returning None here is not a placeholder trick: Part 4.3 makes "no
+        pending update" today's status quo for every company until an
+        operator consents to one, so answering None everywhere is the
+        correct, safe default while the detection mechanism is unwired — the
+        same way a company with a genuinely empty diff (Summit Trail Gear,
+        Part 5's negative control) is meant to answer.
+
+        `jarvis/api/pending_update.py` renders the operator-facing half
+        (design Part 6's field-to-sentence table) end to end and is fully
+        tested against synthetic diffs shaped like Part 5's three real
+        companies; wiring the real `plan_refresh` output through to it is
+        the integration step that lands with M8-8.
+        """
+        return None
+
     def _stuck_reading(stuck_count: int) -> str:
         """Plain-language reading of the stuck-work part (M7-5b item 1).
 
@@ -291,6 +325,19 @@ def create_app(kernel: PlatformKernel) -> FastAPI:
             # Opt-in drill-down (§12.5): reached only when the operator opens
             # Details, never eagerly on the card list above.
             payload["goals"] = await _goal_readings(svc, contract)
+            # design PLUGIN-FRAMEWORK.md Part 4/6 (D-030): a pending template
+            # update lives on the company's own page, never in the approvals
+            # queue. None today for every company — see `_pending_update`.
+            update = await _pending_update(svc, contract)
+            payload["pending_update"] = (
+                {
+                    "headline": update.headline,
+                    "intro": update.intro,
+                    "changes": list(update.changes),
+                }
+                if update
+                else None
+            )
             feed = await svc.decisions.activity_feed(BusinessId(business_id), limit=40)
             payload["activity"] = [
                 {
@@ -576,6 +623,44 @@ def create_app(kernel: PlatformKernel) -> FastAPI:
             service = kernel.build_approvals(svc)
             await service.revoke_graduation(BusinessId(business_id), action_type)
             return {"status": "This needs your OK again."}
+
+    @app.post("/api/companies/{business_id}/pending-update/apply")
+    async def apply_pending_update(  # pyright: ignore[reportUnusedFunction]
+        business_id: str,
+    ) -> dict[str, str]:
+        """Consent to a pending template update — never through §8 (D-030).
+
+        design `PLUGIN-FRAMEWORK.md` Part 4.3/4.4: this route's job is to be
+        an explicit operator action distinct from the approvals queue — no
+        `action_type`, so it structurally cannot graduate. The write itself
+        (`apply_refresh`) is packet M8-8's, not wired into this lane yet (see
+        `_pending_update`'s docstring), so today this always reports the
+        honest state rather than pretending to apply anything.
+        """
+        async with kernel.services() as svc:
+            try:
+                await svc.registry.get_contract(BusinessId(business_id))
+            except JarvisError as exc:
+                raise HTTPException(404, exc.operator_message) from exc
+        raise HTTPException(409, "This isn't ready to apply yet. Check back soon.")
+
+    @app.post("/api/companies/{business_id}/pending-update/dismiss")
+    async def dismiss_pending_update(  # pyright: ignore[reportUnusedFunction]
+        business_id: str,
+    ) -> dict[str, str]:
+        """Decline a pending template update for now (design Part 4.3).
+
+        "Not now" is a real, recorded outcome, not a deferral loop — re-offered
+        only on the next version change. Recording a decline needs the same
+        mechanism `apply_refresh` needs (packet M8-8), so this is the same
+        honest stub as :func:`apply_pending_update` until that lands.
+        """
+        async with kernel.services() as svc:
+            try:
+                await svc.registry.get_contract(BusinessId(business_id))
+            except JarvisError as exc:
+                raise HTTPException(404, exc.operator_message) from exc
+        raise HTTPException(409, "This isn't ready yet. Check back soon.")
 
     @app.get("/api/settings/subsystems")
     async def subsystems() -> list[dict[str, Any]]:  # pyright: ignore[reportUnusedFunction]

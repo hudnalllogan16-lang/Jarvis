@@ -32,6 +32,38 @@ MARKUP = STATIC / "index.html"
 SCRIPT_DIR = STATIC / "app"
 STYLE_DIR = STATIC / "styles"
 
+FORBIDDEN = [
+    "workflow",
+    "dag",
+    "agent",
+    "worker",
+    "capability",
+    "prompt",
+    "token",
+    "wake cycle",
+    "woken",
+    "temporal",
+    "event bus",
+    "orchestration",
+    "credential scope",
+    "retry",
+    "dead-letter",
+    "dead letter",
+    "business",
+]
+"""§12.5's own list, plus two morphological gaps the runtime guard
+(`jarvis.approvals.rendering.contains_technical_language`) also had to close
+(M6 product re-review, runtime term coverage): "woken" is a form of "wake
+cycle" a phrase check never catches, and "business" is D-007's own
+Business -> Company term, never previously listed at all.
+
+Single-sourced here (design `PLUGIN-FRAMEWORK.md` Part 6's M7-F12 note):
+before this, `scripts/gates.sh` gate 2 carried its own seventeen-vs-fifteen-
+term copy of this list, out of sync with `tests/test_operator_language.py`'s
+— exactly the "a term the test forbids and the gate allows" gap that note
+warns about. Both now import this one list, the same discipline M8-F26
+already applied to *which files* carry operator-facing copy."""
+
 
 def script_paths() -> list[pathlib.Path]:
     """Every behaviour module. Asserts the set is real and non-empty."""
@@ -104,6 +136,7 @@ def script_literals() -> str:
 
 
 __all__ = [
+    "FORBIDDEN",
     "MARKUP",
     "SCRIPT_DIR",
     "STATIC",

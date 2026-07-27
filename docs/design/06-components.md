@@ -211,6 +211,31 @@ region collapses to a heading and "Nothing needs you right now.").
 words has not approved the words (§8). Every value on this card is escaped before it becomes
 markup — this card is the system's highest-value injection target.
 
+### Pending update — `.pending-update`
+
+A company whose installed template changed since it was created (design
+`PLUGIN-FRAMEWORK.md` Part 4/6, D-030). Lives on the company's own Details
+sheet, never in the approvals queue — it never carries an amount and can
+never graduate, so it must not read as an `.ask`.
+
+**Anatomy.**
+
+    "Trailhead Gear Reviews — an update is ready for this company."   ← headline, display
+    "The Affiliate publisher setup has changed since this company was created."  ← intro
+    • It will stop starting a new round of work when its own work comes back.
+    [Review and apply] [Not now]
+
+**States.** present (rendered only when at least one changed field has an approved sentence
+— design Part 6: an unrenderable field is an unrefreshable one) · absent (nothing renders;
+this is also today's status quo, so absent is always a safe default).
+
+**Rules.** Left rule is `--accent`, never `--status-risk` — this is the platform proposing a
+change, not a company asking for money or authorization (contrast `.ask`). Every sentence in
+the changed-fields list comes from the platform-owned field-to-sentence table, filled from
+stored values — never a raw field name, a version string, or model prose (D-011). "Review and
+apply" is `.btn--primary`, matching "one primary action per context" — the context is what
+distinguishes it from an approval's own primary button, not the button's own colour.
+
 ### Banner — `.banner`
 
 One-line status region with a 3px left rule.

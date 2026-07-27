@@ -764,6 +764,44 @@
   margin-top: var(--space-5);
 }
 
+/* ── Pending update — distinct from an approval by design (D-030) ──────────
+   An accent rule, never the risk-red `.ask` uses: this is the platform
+   proposing a change to a company, not a company asking for money or
+   authorization. It never appears in the approvals queue and never carries
+   an amount (docs/design/06-components.md). */
+.pending-update {
+  background: var(--surface-base);
+  border: 1px solid var(--border-subtle);
+  border-left: 4px solid var(--accent);
+  border-radius: var(--radius-md);
+  padding: var(--space-8);
+  margin-bottom: var(--space-8);
+}
+
+.pending-update__headline {
+  font-family: var(--font-display);
+  font-size: var(--size-xl);
+  font-weight: var(--weight-semi);
+  letter-spacing: var(--track-snug);
+  margin-bottom: var(--space-3);
+}
+
+.pending-update__intro {
+  font-size: var(--size-base);
+  color: var(--text-secondary);
+  margin-bottom: var(--space-5);
+}
+
+.pending-update__changes {
+  margin: 0 0 var(--space-6);
+  padding-left: var(--space-7);
+  font-size: var(--size-md);
+}
+
+.pending-update__changes li {
+  margin-bottom: var(--space-2);
+}
+
 /* ── Banner ──────────────────────────────────────────────────────────────
    States a consequence and, where one exists, a remedy. Never used for
    success: a successful action shows its result, not a congratulation. */

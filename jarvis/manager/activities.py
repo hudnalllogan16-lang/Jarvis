@@ -139,6 +139,22 @@ this activity — which can still read the contract — decides what it says.
 Same register as the rest: what it means for the company, never what failed
 inside the platform. `tests/test_operator_language.py` holds them to it."""
 
+# D-035's "answered while paused" copy was drafted here as
+# PAUSED_ANSWERED_APPROVAL_TITLE/_BODY against the packet's own description
+# ("a dropped decided-approval reason"). Mid-packet, packet M8-10 merged into
+# `main` (this lane branched before that and cannot merge it in — see the
+# M8-9 report) with the mechanism broadened, per owner ratification, to every
+# actionable dropped wake reason, not only decided approvals: `main`'s
+# `jarvis/manager/activities.py` now carries `DroppedWakeCopy`,
+# `DROPPED_WAKE_COPY` (keyed by reason kind — "approval",
+# "capability.result_returned", "kpi.threshold_breached") and
+# `DROPPED_WAKE_DEFAULT`, read by `record_dropped_wake` and written under
+# `NotificationKind.WAITING_ON_RESUME` (`jarvis/notifications/service.py`).
+# The draft above is withdrawn as superseded rather than left beside a
+# structure it no longer describes; the reviewed replacement wording for
+# `main`'s dict is in the M8-9 report for the Manager to apply directly,
+# since this worktree has no path to `main`'s file.
+
 DERIVED_CYCLE_KEY = re.compile(r"cyc_[0-9a-f]{32}_\d{1,9}")
 """The shape a workflow-derived cycle key has (D-034.2, `_cycle_key`).
 

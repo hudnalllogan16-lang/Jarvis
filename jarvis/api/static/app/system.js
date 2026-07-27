@@ -69,7 +69,7 @@ export async function paintNotes() {
      <time datetime="${esc(n.when)}">${esc(ago(n.when))}</time></div>`,
         )
         .join('')
-    : '<p class="calm">Nothing new. Jarvis leaves a note here when something happens that you should know about but do not have to decide.</p>';
+    : '<p class="calm">Nothing new. Jarvis leaves a note here for things worth knowing about but not worth deciding.</p>';
 }
 
 /** Settings is a workspace, not a dialog: it is a place the operator goes,
@@ -97,7 +97,9 @@ export async function paintSettings() {
           data-id="${esc(t.id)}" data-enabled="${t.enabled ? 'no' : 'yes'}">
           ${t.enabled ? 'Turn off' : 'Turn on'}</button></div></div>`,
         )
-        .join('') || '<p class="calm">Nothing installed yet.</p>'
+        .join('') ||
+      '<p class="calm">Nothing installed yet — company templates you install will show up ' +
+        'here, with a switch to turn each one on or off.</p>'
     }
     <h2 class="section-head">Parts of the app</h2>
     ${
@@ -113,7 +115,8 @@ export async function paintSettings() {
         }</span></div></div>`,
         )
         .join('') ||
-      '<p class="calm">Nothing to report — Jarvis is running as a single piece right now.</p>'
+      '<p class="calm">Nothing to report — everything Jarvis does is running together, ' +
+        'as one, right now.</p>'
     }`;
 }
 
