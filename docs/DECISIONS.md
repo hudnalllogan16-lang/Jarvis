@@ -1574,3 +1574,26 @@ before the refresh surface lands); **M8-F46** (ManagerState.kpi_targets vestigia
 with the refresh mechanism, D-005 note); **M8-F42** (CycleContext.wake_cycle_ceiling_usd read
 by nothing — drop at next touch); **M8-F48** (first patch: deprecation only after no
 pre-M8-3 execution remains queryable).
+
+## M8-F20 … M8-F27 — design system round (M8-2, Lane B)
+
+UI Phase 1 merged: twelve docs/design/ documents (permanent artifact per D-028.3), three-tier
+token architecture (components fenced to semantic tokens BY TEST — the mechanism that keeps
+both themes true), 620-line monolith → 12 ES modules behind a 46-line shell, delegated event
+handling, four-tile stat row. Dark-first with light as a complete alternate — ratified.
+No build step (Phase-2 retrospective decides, per plan). Persona components ship as spec+CSS
+with a test asserting nothing emits them until persona data exists.
+
+- **M8-F26 (fixed, process-grade):** after decomposition the §12.5 static gate would have
+  passed VACUOUSLY — three consumers regexed a now-absent inline script.
+  tests/surface_sources.py centralizes the surface definition and asserts non-empty inputs;
+  both failure modes proven by execution. This also subsumes M7-F12's single-sourcing need
+  for the term list's consumers.
+- **M8-F20/F22/F24/F25 (fixed):** light-theme AA failures corrected by measurement; reduced-
+  motion now covers transitions; three unescaped fields closed; the "Full details" toggle had
+  been binding the wrong element and never loading.
+- **M8-F21 (open):** webfonts from a third-party CDN in a local-first app — self-host at M8-4.
+- **M8-F23 (open, deferred to M8-4):** modal traps no focus, no restore — a real WCAG 2.4.3
+  failure, owned by the shell packet. **M8-F27:** 26px small buttons, same home.
+- Tile copy is placeholder-quality — operator-surface pass owed (the D-028 split working as
+  designed).
