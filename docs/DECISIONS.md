@@ -1883,3 +1883,26 @@ infrastructure-maintenance item squarely inside the delegation. Ambiguity rule s
 id that errors is listed and left, never blind-retried. The worker''s refusal to act on an
 unverifiable relay (its report of 2026-07-27) was CORRECT under M8-F120 and is part of why
 this entry exists.
+
+## M8-F162 closed; M8-F176 … M8-F179 (M8-13); D-037 — the M9 operating model
+
+**M8-F162 CLOSED:** 497/497 audited orphans terminated by the Manager under the recorded
+authorization (da3ba5d), then 11 diagnostic-run leaks terminated under the same evidence
+class (ids in the audit''s §7 and the M8-13 report); exactly the three protected Managers
+remain RUNNING, individually verified. The real leak path was tests/test_reservation_
+reconcile.py''s unmocked kernel fixture (M8-F177 — the DRYRUN §6 survey had missed it);
+fixed with the capturing-client pattern; the round-trip guard proven red/green; a full gates
+run now leaves the namespace flat (before/after proof in the M8-13 report). M8-F176
+(HOST/TASK_QUEUE same bug class, masked by defaults) and M8-F179 (historical packet doc
+spelling) → M9 backlog.
+
+**D-037 — the M9 operating model (owner-adopted from docs/reports/FABLE-RETRO.md):** rolling
+dispatch replaces lockstep waves (a merged lane''s ready successor dispatches immediately);
+packet prep pipelines into wave runtime; warm-agent continuity is the default for
+same-territory chains; concurrency cap 4 lanes; owner-decision items surfaced at discovery
+and re-surfaced每 report until ruled. Two lessons added from execution: (1) **mandate
+reversals mid-task are the trust anti-pattern** — a changed mandate goes to a fresh agent
+whose founding packet carries the authority (the M8-F162 refusals, both correct, are the
+evidence); (2) M8-F150 reconciled: a packet may name files outside an agent''s default
+territory explicitly, and the agent proceeds-and-flags rather than escalating. Measured
+against the retro''s +25–35% prediction through M9.

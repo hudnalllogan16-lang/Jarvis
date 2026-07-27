@@ -1,8 +1,8 @@
-# Delegation Model
+﻿# Delegation Model
 
 How Jarvis is built: an Engineering Manager owns architecture, decisions, and project
 memory; specialist subagents implement. This document is the operating manual for that
-split — the roster, how work is routed, what a work packet contains, and what comes back.
+split â€” the roster, how work is routed, what a work packet contains, and what comes back.
 
 Companion to `ROADMAP.md` (sequence), `DECISIONS.md` (why), and `DEPENDENCIES.md` (what
 depends on what). Those three are the Manager's memory and are **not** editable by workers.
@@ -29,26 +29,26 @@ worker-modified files for routine work.
 ## Layers, and where the boundary sits
 
 ```
-Owner ─── holds the Architecture Specification. Amendments are the owner's alone.
-  │
-Engineering Manager (Fable) ─── roadmap · architecture · decisions · project memory
-  │                             DECOMPOSES work into packets · REVIEWS · MERGES
-  │
-  ├──► architecture-auditor ────── "is it correct?"  · reports directly to the Manager
-  ├──► product-reviewer ────────── "is it delightful?" · reports directly to the Manager
-  ├──► spec-archaeologist ──────── read-only research, so recall costs 200 words not 2,000
-  │
-  └──► delivery-coordinator ────── EXECUTES prepared packets · drives gate retries
-         │                         cannot edit · cannot decide · cannot rewrite a packet
-         ├── platform-engineer
-         ├── workflow-engineer
-         ├── data-engineer
-         ├── security-engineer
-         ├── operator-surface-engineer
-         ├── business-type-author
-         ├── test-engineer
-         ├── docs-writer
-         └── refactorer
+Owner â”€â”€â”€ holds the Architecture Specification. Amendments are the owner's alone.
+  â”‚
+Engineering Manager (Fable) â”€â”€â”€ roadmap Â· architecture Â· decisions Â· project memory
+  â”‚                             DECOMPOSES work into packets Â· REVIEWS Â· MERGES
+  â”‚
+  â”œâ”€â”€â–º architecture-auditor â”€â”€â”€â”€â”€â”€ "is it correct?"  Â· reports directly to the Manager
+  â”œâ”€â”€â–º product-reviewer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ "is it delightful?" Â· reports directly to the Manager
+  â”œâ”€â”€â–º spec-archaeologist â”€â”€â”€â”€â”€â”€â”€â”€ read-only research, so recall costs 200 words not 2,000
+  â”‚
+  â””â”€â”€â–º delivery-coordinator â”€â”€â”€â”€â”€â”€ EXECUTES prepared packets Â· drives gate retries
+         â”‚                         cannot edit Â· cannot decide Â· cannot rewrite a packet
+         â”œâ”€â”€ platform-engineer
+         â”œâ”€â”€ workflow-engineer
+         â”œâ”€â”€ data-engineer
+         â”œâ”€â”€ security-engineer
+         â”œâ”€â”€ operator-surface-engineer
+         â”œâ”€â”€ business-type-author
+         â”œâ”€â”€ test-engineer
+         â”œâ”€â”€ docs-writer
+         â””â”€â”€ refactorer
 ```
 
 Requires `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH: "2"`, set in `.claude/settings.json`, since
@@ -61,7 +61,7 @@ each packet may and may not touch, and which model each needs is the highest-val
 architectural work in this system. It requires holding the specification, every numbered
 decision, and every prior finding simultaneously. Anything cheap enough to be worth delegating
 cannot hold that; anything that can hold it costs Manager prices. Delegating decomposition
-doesn't save money — it produces packets that are subtly wrong in the exact way only the
+doesn't save money â€” it produces packets that are subtly wrong in the exact way only the
 Manager could have caught.
 
 Worked example: `docs/packets/M6-1-finance-type.md` forbids editing the generic machinery, so
@@ -71,20 +71,20 @@ exists. A coordinator writing that packet would have written "add the Finance ty
 
 **Coordination is delegated, because it is mechanical.** Dispatching a written packet, running
 gates, bouncing a worker on a gate failure with the failure text, re-running, consolidating
-reports — none of it needs project memory, and the retry loop in particular generates exactly
+reports â€” none of it needs project memory, and the retry loop in particular generates exactly
 the kind of error output this architecture exists to keep out of the Manager's context.
 
 ### Two rules that keep the layer from becoming a bottleneck
 
 1. **Escalations pass through verbatim.** The coordinator forwards a worker's escalation block
    unedited and stops dispatching. It never answers one. An escalation is a request for an
-   architectural decision, and its value is entirely in its specifics — M5-F5 was diagnosable
+   architectural decision, and its value is entirely in its specifics â€” M5-F5 was diagnosable
    only because the report carried exact `curl` output and the precise point the log stopped.
    Summarised twice, that becomes "dashboard doesn't start" and the root cause stays hidden.
 2. **The auditor never sits under the coordinator.** It is the Manager's instrument for
    deciding whether to merge. A coordinator that owned the auditor would decide what the
    Manager hears about compliance, which makes the review theatre. **The product-reviewer sits
-   in the same place for the same reason** — it reports experience findings straight to the
+   in the same place for the same reason** â€” it reports experience findings straight to the
    Manager, never filtered through execution.
 
 ### Two kinds of review, both gating
@@ -101,7 +101,7 @@ the other. So there are two independent reviewers, each reporting directly to th
 
 A milestone with both an architectural and an operator-facing surface needs **both** verdicts
 before it is complete. The product reviewer's constitution is `docs/PRODUCT.md`; it judges
-whether work moves toward the premium-desktop objective, not whether it has arrived there —
+whether work moves toward the premium-desktop objective, not whether it has arrived there â€”
 the prototype UI is allowed to look plain, but not to confuse or dead-end. Neither reviewer
 edits code or makes implementation decisions; both exist so the Manager decides on independent
 evidence.
@@ -110,7 +110,7 @@ evidence.
 
 Delegate straight to a worker when there is **one** packet, when the work is Tier C (the
 Manager is reading the code anyway, so a middle layer only adds paraphrase), or when the
-packet is likely to escalate — routing a probable escalation through a layer whose only
+packet is likely to escalate â€” routing a probable escalation through a layer whose only
 correct move is to forward it adds latency for nothing.
 
 Use the coordinator for **two or more prepared packets that can run without further
@@ -118,7 +118,7 @@ architectural decisions.** M6-0 through M6-3 is a good candidate; M6-4 (the audi
 is excluded by the coordinator's own instructions.
 
 **A caveat on tool restriction:** the `Agent(type1, type2)` allowlist syntax does not constrain
-a subagent — in a subagent definition any type list inside the parentheses is ignored. The
+a subagent â€” in a subagent definition any type list inside the parentheses is ignored. The
 coordinator's restriction to named-in-packet agents is therefore enforced by its system prompt
 rather than by configuration. Treat a coordinator that spawns an agent no packet named as a
 defect in its prompt, and tighten it.
@@ -126,7 +126,7 @@ defect in its prompt, and tighten it.
 ## The roster
 
 Eleven agents. Specialisation is justified only where an agent needs *different knowledge*,
-*different tool access*, or *a different model tier* — otherwise it would be a duplicate
+*different tool access*, or *a different model tier* â€” otherwise it would be a duplicate
 with a new name, and overlapping descriptions cause misrouting.
 
 ### Implementers
@@ -137,13 +137,13 @@ with a new name, and overlapping descriptions cause misrouting.
 | `workflow-engineer` | Temporal workflows and activities, determinism, concurrency, async coordination | Opus |
 | `data-engineer` | Models, migrations, indexes, session scoping | Sonnet |
 | `security-engineer` | Credentials, scopes, identity, approval gating, budget enforcement, idempotency | Opus |
-| `operator-surface-engineer` | Dashboard markup, operator copy, §12.5 compliance | Sonnet |
-| `business-type-author` | Business type definitions — pure configuration (D-014) | Sonnet |
+| `operator-surface-engineer` | Dashboard markup, operator copy, Â§12.5 compliance | Sonnet |
+| `business-type-author` | Business type definitions â€” pure configuration (D-014) | Sonnet |
 | `test-engineer` | Test suites, executable gates, fixtures | Sonnet |
 | `docs-writer` | User and developer documentation, docstring passes | Haiku |
 | `refactorer` | Behaviour-preserving changes only | Sonnet |
 
-### Reviewers — read-only, and the main context savings
+### Reviewers â€” read-only, and the main context savings
 
 | Agent | Purpose | Default model |
 |---|---|---|
@@ -185,14 +185,14 @@ Model choice is a judgement over four properties of the task, not a lookup from 
 Score each, then route. The rubric exists so the decision is reproducible and can be
 revisited when model capabilities or pricing change.
 
-**1. Gate coverage — the dominant factor.**
+**1. Gate coverage â€” the dominant factor.**
 Is correctness *mechanically checkable* by something already in `scripts/gates.sh`?
 
-- **Fully covered** → route cheaper by one step. A wrong answer fails a gate, the worker
+- **Fully covered** â†’ route cheaper by one step. A wrong answer fails a gate, the worker
   sees the failure, and it fixes itself before the Manager ever looks. Retries on a cheap
   model beat one attempt on an expensive one.
-- **Partly covered** → route at tier default.
-- **Not covered — correctness is a judgement** → route up. This is where reasoning depth
+- **Partly covered** â†’ route at tier default.
+- **Not covered â€” correctness is a judgement** â†’ route up. This is where reasoning depth
   actually buys something, because nothing but a good reviewer will catch a mistake.
 
 This is the main economic lever in the system. Extending gate coverage is therefore not
@@ -201,10 +201,10 @@ Tier B rather than being treated as overhead.
 
 **2. Blast radius.** What does a plausible mistake do?
 
-- Corrupts persisted data, leaks a secret, or lets an action bypass approval → **Opus, always.**
-- Produces wrong behaviour that looks correct → Opus.
-- Produces obviously broken behaviour → the gates catch it; cheaper is fine.
-- Produces a cosmetic defect → cheapest capable.
+- Corrupts persisted data, leaks a secret, or lets an action bypass approval â†’ **Opus, always.**
+- Produces wrong behaviour that looks correct â†’ Opus.
+- Produces obviously broken behaviour â†’ the gates catch it; cheaper is fine.
+- Produces a cosmetic defect â†’ cheapest capable.
 
 **3. Reversal cost.** Trivially revertable (a doc, a template, an isolated module) tolerates
 a cheaper model. Anything embedded in a migration chain, a persisted schema, or an
@@ -218,7 +218,7 @@ many invariants simultaneously is precisely what higher reasoning capacity is fo
 ### Applying it
 
 Frontmatter sets each agent's *default* model. The Manager overrides per invocation when
-the rubric says otherwise — a per-invocation model parameter takes precedence over
+the rubric says otherwise â€” a per-invocation model parameter takes precedence over
 frontmatter, and persists if the subagent is resumed. So:
 
 - `data-engineer` defaults to Sonnet, but a task that changes a primary key or makes an
@@ -238,7 +238,7 @@ in one line usually means the packet isn't decomposed enough yet.
 
 `docs/packets/` holds written packets for the current milestone, so a session can begin by
 delegating rather than planning. M6 is fully packeted: `M6-0-bootstrap` (establish the real
-test baseline) through `M6-4-audit`. Run M6-0 first — nothing else is trustworthy until the
+test baseline) through `M6-4-audit`. Run M6-0 first â€” nothing else is trustworthy until the
 suite has actually executed once.
 
 Keep packets in the repo after they're done. A completed packet plus its report is the
@@ -248,31 +248,31 @@ milestone report.
 ## The work packet
 
 Workers start cold. A subagent doesn't see the Manager's conversation, and the only channel
-into it is the prompt string — so a vague packet produces confident garbage. Precision here
+into it is the prompt string â€” so a vague packet produces confident garbage. Precision here
 is the single highest-return discipline in the whole system.
 
 Note the division: **`CLAUDE.md` carries ambient rules** and loads into every worker
 automatically, so packets never restate the invariants. **The packet carries task-specific
-context** — including the text of any decision the task touches, quoted inline rather than
+context** â€” including the text of any decision the task touches, quoted inline rather than
 referenced, because a worker that has to go find `DECISIONS.md` will read all of it.
 
 ```markdown
 ## Packet <milestone>-<n>: <one-line objective>
 
-**Agent:** <agent name>   **Model:** <model> — <one-line rubric justification>
+**Agent:** <agent name>   **Model:** <model> â€” <one-line rubric justification>
 
 **Objective**
 One sentence. What must be true when this is done.
 
 **Files in scope**
 Explicit paths. Read these first:
-- path/to/file.py — what it currently does
+- path/to/file.py â€” what it currently does
 Create:
-- path/to/new_file.py — what it should do
+- path/to/new_file.py â€” what it should do
 
 **Context you need**
 The decisions and spec requirements that bear on this task, quoted, not referenced.
-Nothing else — do not include background the task doesn't turn on.
+Nothing else â€” do not include background the task doesn't turn on.
 
 **Acceptance criteria**
 Executable wherever possible:
@@ -301,7 +301,7 @@ and defeats the point. **Target 300 words, hard cap 500.** Prose, not a file lis
 
 ```markdown
 ## Changed
-- path — what changed and why, one line each
+- path â€” what changed and why, one line each
 
 ## Decisions I did not make
 Anything requiring an architectural or invariant judgement, with what I did instead
@@ -309,7 +309,7 @@ Anything requiring an architectural or invariant judgement, with what I did inst
 a valid and common answer.
 
 ## Gates
-Output of `bash scripts/gates.sh`. Test count before → after.
+Output of `bash scripts/gates.sh`. Test count before â†’ after.
 
 ## Verified vs written
 What I executed. What I only wrote and could not run, and why.
@@ -339,16 +339,16 @@ and returns:
 **Blocked on:** what decision is needed, in one sentence.
 **Why it's architectural:** which layer, responsibility, or invariant it would change.
 **Options:** each with what it costs and what it forecloses.
-**My recommendation:** which one and why — as a recommendation, not a decision.
+**My recommendation:** which one and why â€” as a recommendation, not a decision.
 **What I completed anyway:** the unblocked part, if any.
 ```
 
 Triggers, spelled out in every worker's system prompt:
 
-- A mechanism the architecture doesn't specify → needs a D-entry.
-- A responsibility that would move between layers → architecture amendment.
-- A new package, or a forward import → dependency graph change.
-- A test and the code disagreeing → one is wrong; deciding which is the Manager's call.
+- A mechanism the architecture doesn't specify â†’ needs a D-entry.
+- A responsibility that would move between layers â†’ architecture amendment.
+- A new package, or a forward import â†’ dependency graph change.
+- A test and the code disagreeing â†’ one is wrong; deciding which is the Manager's call.
 - A security boundary that would widen.
 - An invariant that would need weakening to make the task possible.
 
@@ -369,7 +369,7 @@ Manager's context.
 **The manifest is generated, never authored.** `scripts/gates.sh` writes a record of each
 gate outcome at the moment that gate runs; `scripts/manifest.py` assembles those records plus
 git's view of the working tree into the manifest. The coordinator triggers the script and
-cannot write the file — it has no Write tool.
+cannot write the file â€” it has no Write tool.
 
 This matters because a coordinator-authored manifest would be a structured self-report, which
 is exactly what the coordinator itself is told not to accept from a worker claiming its gates
@@ -384,7 +384,7 @@ does not. So the schema separates and labels two zones:
 `status` is derived from observed facts and the escalation count only: `escalated` if anything
 escalated, then `failed` if a gate failed, then `degraded` if a gate could not run, then
 `success`. Degraded is a distinct status because a degraded run has verified nothing and must
-never be mistaken for a pass — that conflation is the M5-F5 failure mode in a new form.
+never be mistaken for a pass â€” that conflation is the M5-F5 failure mode in a new form.
 
 Query it with `scripts/runlog.py`, which labels the provenance of every answer:
 
@@ -404,7 +404,7 @@ which is the whole reason they pass through unedited.
 On `workers`: a high retry rate almost always means packets to that worker are underspecified
 rather than that the worker is weak. Read the packets before adjusting an agent prompt.
 
-Manifests are committed — they are project memory. The transient gate records in
+Manifests are committed â€” they are project memory. The transient gate records in
 `.jarvis-run/` are gitignored and consumed on assembly.
 
 ## The Manager's context budget
@@ -412,13 +412,13 @@ Manifests are committed — they are project memory. The transient gate records 
 Rules the Manager holds itself to, since nothing enforces them mechanically:
 
 1. **Don't read worker-modified files on Tier A or B work.** Read the report and the
-   auditor's verdict. If those are insufficient, the report format needs fixing — say so
+   auditor's verdict. If those are insufficient, the report format needs fixing â€” say so
    rather than compensating by reading the diff.
 2. **Route research to `spec-archaeologist`.** Re-reading `DECISIONS.md` to recall a
    decision spends the exact resource this architecture exists to protect.
 3. **One packet, one concern.** A packet that needs three agents is three packets. Compound
    packets come back as compound reports, which are long reports.
-4. **Audit before reading.** On Tier C, the Manager reads the code — but after the auditor's
+4. **Audit before reading.** On Tier C, the Manager reads the code â€” but after the auditor's
    verdict, so it knows where to look instead of reading everything.
 5. **Distil, then discard.** A merged milestone's reports get compressed into
    `DECISIONS.md`, `DEPENDENCIES.md`, and the milestone report. The reports themselves are
@@ -430,10 +430,10 @@ Rules the Manager holds itself to, since nothing enforces them mechanically:
 
 | Tier | Automatic gates | Auditor | Manager reads code |
 |---|---|---|---|
-| A | Yes | No | No — report only |
+| A | Yes | No | No â€” report only |
 | B | Yes | Yes | Only if the auditor says REVISE or ESCALATE |
 | C | Yes | Yes, always | Yes, always, after the verdict |
-| Any escalation | — | — | Yes |
+| Any escalation | â€” | â€” | Yes |
 | Any security boundary | Yes | Yes | Yes, always |
 
 "Automatic gates" means `scripts/gates.sh`, wired as a `Stop` hook in `.claude/settings.json`
@@ -475,18 +475,18 @@ ownership of it: a per-lane Postgres database (same server), a per-lane Temporal
 and a per-lane API port, all set via the lane's `.env` (`JARVIS_DATABASE_URL`,
 `JARVIS_TEMPORAL__NAMESPACE`, plus the API port variable). `scripts/lane_env.py` provisions and
 tears these down. Postgres-backed tests must be marker-gated and skip *visibly* when the stack
-is unreachable — a skip is reported, never counted as verified (D-025.2, M5-F5 discipline).
+is unreachable â€” a skip is reported, never counted as verified (D-025.2, M5-F5 discipline).
 
 ### The merge queue
 
-**Only the Manager merges.** One lane at a time, in dependency order — data/migrations first,
-security next, platform/workflow, surface, docs last — so the riskiest changes land earliest
+**Only the Manager merges.** One lane at a time, in dependency order â€” data/migrations first,
+security next, platform/workflow, surface, docs last â€” so the riskiest changes land earliest
 and reviews see final state.
 
 1. Lane gates pass in the worktree (the worker's report says so, with the exit code).
 2. The Manager merges the lane branch into `main` (`--no-ff` for multi-commit lanes is fine;
    a clean fast-forward is fine too).
-3. **Main gates run on the merged result.** A packet is *done* only when this passes — lane
+3. **Main gates run on the merged result.** A packet is *done* only when this passes â€” lane
    gates prove the packet, main gates prove the composition.
 4. The worktree and lane branch are removed.
 5. A lane whose merge conflicts is bounced back to its worker with the conflict text. Another
@@ -500,7 +500,7 @@ never contend:
 - **Migrations:** the linear chain is data-engineer's exclusive lane; the Manager pre-allocates
   the next migration number in the packet text.
 - **Finding and decision numbers:** the Manager allocates a per-packet range (e.g. "your
-  findings are M7-F10–F19") so parallel reports cannot collide. `DECISIONS.md` remains
+  findings are M7-F10â€“F19") so parallel reports cannot collide. `DECISIONS.md` remains
   Manager-only.
 - **`tests/conftest.py` and shared fixtures:** test-engineer custody. Other lanes add
   per-domain fixture modules; they do not edit shared conftest.
@@ -517,16 +517,29 @@ came from M6 evidence: security packets lead their wave; read-only work always o
 implementation; schedule at most ~70% of capacity, because findings will spawn packets that do
 not exist yet. Warm resumption (`SendMessage` to an existing worker) is preferred over a cold
 respawn whenever the same territory continues. A failed worker is resumed with an explicit
-"verify your own prior state first" instruction — never replaced cold without a tree-state
+"verify your own prior state first" instruction â€” never replaced cold without a tree-state
 check.
 
 M7 runs this workflow at **2 implementation lanes** as the deliberate pilot before M8 scales it.
 
 ---
 
+## The M9 scheduling model (D-037)
+
+Rolling dispatch replaces lockstep waves: when a lane merges and its successor packet's
+inputs exist, the successor dispatches immediately — the wave is a concurrency cap (4), not
+a barrier. Packet prep happens during wave runtime, the moment inputs merge. Warm-agent
+continuity is the default for same-territory chains. Mid-task mandate reversals are
+forbidden: a changed mandate goes to a fresh agent whose founding packet carries the
+authority and its verifiable basis (M8-F162's worked example). A packet may explicitly name
+files outside its agent's default territory; the agent proceeds and flags (M8-F150).
+Owner-decision items are surfaced with options at discovery and re-surfaced until ruled.
+
+---
+
 ## What must not change here
 
 This document governs implementation *process*. It has no authority over the architecture.
-A change to what Jarvis *is* — a layer, a responsibility, an invariant — is an amendment to
+A change to what Jarvis *is* â€” a layer, a responsibility, an invariant â€” is an amendment to
 the Architecture Specification and belongs to the owner, not to this document, not to the
 Manager, and never to a worker.
