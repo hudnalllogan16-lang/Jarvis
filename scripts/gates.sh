@@ -93,19 +93,33 @@ assert not undocumented, f"packages missing from the layering table: {undocument
 FORBIDDEN = ["workflow", "dag", "agent", "worker", "capability", "prompt", "token",
              "wake cycle", "temporal", "event bus", "orchestration",
              "credential scope", "retry", "dead-letter", "dead letter"]
-html = pathlib.Path("jarvis/api/static/index.html").read_text()
-visible = re.sub(r"<[^>]+>", " ",
-                 re.sub(r"<script.*?</script>", " ",
-                        re.sub(r"<style.*?</style>", " ", html, flags=re.S), flags=re.S))
-leaked = [t for t in FORBIDDEN if t in visible.lower()]
+# Which files carry operator-facing copy is defined ONCE, in
+# tests/surface_sources.py, and imported by this gate and by the two test
+# modules asserting the same property. Before M8-2 each re-derived it with its
+# own regex over a single inline <script>; after the decomposition that regex
+# would have matched nothing and this gate would have passed VACUOUSLY.
+# surface_sources asserts its inputs are non-empty, so an emptied, renamed or
+# moved module set raises here instead of silently disabling the check.
+import surface_sources
+
+modules = surface_sources.script_paths()
+assert len(modules) >= 2, f"S12.5 gate: expected the decomposed module set, found {modules}"
+
+leaked = [t for t in FORBIDDEN if t in surface_sources.visible_text().lower()]
 assert not leaked, f"S12.5: forbidden terms in dashboard markup: {leaked}"
 
-script = re.sub(r"//.*", "", "".join(re.findall(r"<script.*?>(.*?)</script>", html, flags=re.S)))
-literals = re.sub(r"/api/\S*", " ", " ".join(re.findall(r"['\"`]([^'\"`]{4,})['\"`]", script)))
-leaked = [t for t in FORBIDDEN if t in literals.lower()]
+leaked = [t for t in FORBIDDEN if t in surface_sources.script_literals().lower()]
 assert not leaked, f"S12.5: forbidden terms in dashboard copy: {leaked}"
 
-print("structural invariants OK: layering, entrypoints, package/doc sync, S12.5")
+# The decomposition's own new failure mode: index.html now references its
+# stylesheets and entry module by path. A typo there unstyles the entire
+# surface without failing any other check, because the markup still parses and
+# the server still serves it.
+for ref in re.findall(r'(?:href|src)="(/static/[^"]+)"', surface_sources.markup()):
+    target = pathlib.Path("jarvis/api") / ref.lstrip("/")
+    assert target.exists(), f"index.html references a missing asset: {ref}"
+
+print("structural invariants OK: layering, entrypoints, package/doc sync, S12.5, assets")
 PY
 record_gate "structural" "passed"
 

@@ -1,0 +1,926 @@
+/* ============================================================================
+   Jarvis component library — docs/design/06-components.md
+
+   RULE: every declaration below references TIER 2 semantic tokens only.
+   A raw hex or a tier-1 primitive in this file is a bug: it hard-codes a
+   theme, because the whole theme swap happens at tier 2.
+   ========================================================================= */
+
+/* ── Eyebrow label ────────────────────────────────────────────────────────
+   The strongest identity signal in the surface. Structural furniture set in
+   the data face at small size with wide tracking reads as instrument-panel
+   marking — it recedes as text and registers as position. */
+.eyebrow {
+  font-family: var(--font-data);
+  font-size: var(--size-2xs);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* ── Section heading ─────────────────────────────────────────────────────── */
+.section-head {
+  font-family: var(--font-data);
+  font-size: var(--size-xs);
+  font-weight: var(--weight-regular);
+  letter-spacing: var(--track-wide);
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin: var(--space-11) 0 var(--space-5);
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  transition: color var(--motion-slow) var(--ease-standard);
+}
+
+.section-head__count {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 1px var(--space-3);
+  font-size: var(--size-xs);
+  transition: background var(--motion-slow) var(--ease-standard),
+              color var(--motion-slow) var(--ease-standard);
+}
+
+/* The page's centre of gravity moving — docs/design/01-principles.md #2. */
+.section-head--urgent {
+  color: var(--status-risk);
+}
+
+.section-head--urgent .section-head__count {
+  background: var(--status-risk);
+  border-color: var(--status-risk);
+  color: var(--text-inverse);
+}
+
+.section-head__action {
+  margin-left: auto;
+}
+
+/* ── Button ───────────────────────────────────────────────────────────────
+   Never transform on hover: a control that moves under the cursor is a
+   control that can be missed, and one of these spends money. */
+.btn {
+  font-family: var(--font-body);
+  font-size: var(--size-md);
+  font-weight: var(--weight-medium);
+  padding: var(--space-3) var(--space-7);
+  min-height: 32px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--surface-base);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background var(--motion-quick) var(--ease-standard),
+              border-color var(--motion-quick) var(--ease-standard),
+              color var(--motion-quick) var(--ease-standard);
+}
+
+.btn:hover {
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
+}
+
+.btn--primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+  font-weight: var(--weight-semi);
+}
+
+.btn--primary:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  filter: brightness(1.08);
+}
+
+.btn--small {
+  font-size: var(--size-sm);
+  padding: var(--space-2) var(--space-5);
+  min-height: 26px;
+}
+
+.btn:disabled {
+  opacity: .6;
+  cursor: not-allowed;
+}
+
+/* In-prose affordance — "more in Details". */
+.btn--link {
+  background: none;
+  border: 0;
+  padding: 0;
+  min-height: 0;
+  font: inherit;
+  color: var(--accent);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.btn--link:hover {
+  background: none;
+  color: var(--text-primary);
+}
+
+/* ── Field ───────────────────────────────────────────────────────────────── */
+.field {
+  margin-bottom: var(--space-6);
+}
+
+.field label {
+  display: block;
+  font-family: var(--font-data);
+  font-size: var(--size-2xs);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: var(--space-3);
+}
+
+.field input,
+.field select,
+.field textarea {
+  width: 100%;
+  padding: var(--space-3) var(--space-5);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+  font-family: var(--font-body);
+  font-size: var(--size-md);
+  color: var(--text-primary);
+}
+
+.field input:focus-visible,
+.field select:focus-visible,
+.field textarea:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.field__hint {
+  font-size: var(--size-base);
+  color: var(--text-muted);
+  margin-top: var(--space-3);
+}
+
+/* Errors sit ABOVE the action buttons, never trailing after them, and use
+   the risk colour rather than the timestamp style (M7 product re-review F4).
+   Class name pinned by tests/test_operator_language.py. */
+.formErr {
+  color: var(--status-risk);
+  font-size: var(--size-base);
+  margin: 0 0 var(--space-5);
+  min-height: 1.2em;
+}
+
+/* ── Stat tile ────────────────────────────────────────────────────────────
+   Every tile maps to a field the API actually serves. A tile whose number
+   has no endpoint does not ship — docs/design/06-components.md. */
+.tile-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(var(--layout-tile-min), 1fr));
+  gap: var(--space-5);
+  margin-bottom: var(--space-7);
+}
+
+.tile {
+  background: var(--surface-base);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: var(--space-6) var(--space-7);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.tile__label {
+  font-family: var(--font-data);
+  font-size: var(--size-2xs);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.tile__value {
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--size-3xl);
+  font-weight: var(--weight-medium);
+  color: var(--text-primary);
+  line-height: var(--leading-tight);
+}
+
+/* Scale lives here. A value with no denominator is a number, not a
+   measurement — docs/design/06-components.md. */
+.tile__context {
+  font-size: var(--size-base);
+  color: var(--text-secondary);
+}
+
+.tile--attention .tile__value {
+  color: var(--status-risk);
+}
+
+.tile--healthy .tile__value {
+  color: var(--status-healthy);
+}
+
+/* ── Company card ─────────────────────────────────────────────────────────
+   One meter and one sentence. The three health parts belong to Details
+   (ratified M7-5a). Colour on this card means health and nothing else. */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--layout-card-min), 1fr));
+  gap: var(--space-5);
+}
+
+.co-card {
+  background: var(--surface-base);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: var(--space-8);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+.co-card--paused {
+  background: var(--surface-sunken);
+  color: var(--text-secondary);
+}
+
+.co-card__top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.co-card__name {
+  font-family: var(--font-display);
+  font-size: var(--size-xl);
+  font-weight: var(--weight-semi);
+  letter-spacing: var(--track-snug);
+  line-height: var(--leading-snug);
+}
+
+.co-card__state {
+  font-family: var(--font-data);
+  font-size: var(--size-2xs);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  white-space: nowrap;
+}
+
+/* A quiet label, not a badge: colour on this card already means health
+   status and must stay that way (M7-5a item 1). The negative margin is an
+   optical correction for the display face's descender — docs/design/
+   04-spacing.md, "optical corrections". */
+.kind {
+  font-family: var(--font-data);
+  font-size: var(--size-2xs);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-top: -7px;
+}
+
+.kind-desc {
+  font-size: var(--size-base);
+  color: var(--text-secondary);
+  margin: var(--space-1) 0 var(--space-6);
+}
+
+.co-card__money {
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--size-sm);
+  color: var(--text-muted);
+}
+
+.co-card__money b {
+  color: var(--text-primary);
+  font-weight: var(--weight-medium);
+}
+
+.co-card__doing {
+  font-size: var(--size-md);
+  border-top: 1px solid var(--border-subtle);
+  padding-top: var(--space-5);
+}
+
+.co-card__doing .eyebrow {
+  display: block;
+  margin-bottom: var(--space-2);
+}
+
+.co-card__acts {
+  display: flex;
+  gap: var(--space-4);
+  margin-top: auto;
+  padding-top: var(--space-2);
+}
+
+/* ── Status dot ──────────────────────────────────────────────────────────
+   Always paired with a text status label; never the sole carrier of state. */
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--text-muted);
+  flex: none;
+}
+
+.co-card--running .dot {
+  background: var(--status-healthy);
+  animation: breathe 2.6s var(--ease-breathe) infinite;
+}
+
+/* The only looping animation in the system. It encodes a fact no static
+   mark carries: "running" and "paused" are the same dot in a screenshot.
+   2.6s reads as breathing; 1s would read as an alarm. */
+@keyframes breathe {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: .28; }
+}
+
+/* ── Meter ───────────────────────────────────────────────────────────────
+   Ten segments, not a progress bar: a progress bar implies a task moving
+   toward completion, and health is a level that moves both ways. */
+.meter {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.seg {
+  flex: 1;
+  height: 14px;
+  border-radius: var(--radius-sm);
+  background: var(--meter-track);
+}
+
+.seg--on {
+  background: var(--status-healthy);
+}
+
+.co-card--watch .seg--on,
+.meter--watch .seg--on {
+  background: var(--status-watch);
+}
+
+.co-card--at_risk .seg--on,
+.meter--at_risk .seg--on {
+  background: var(--status-risk);
+}
+
+.meter__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--size-2xs);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: var(--space-3);
+}
+
+.meter__value {
+  color: var(--text-primary);
+  font-size: var(--size-xs);
+}
+
+.reason {
+  font-size: var(--size-base);
+  color: var(--text-secondary);
+  margin-top: var(--space-3);
+}
+
+/* ── Health parts (Details only) ─────────────────────────────────────────── */
+.parts {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  padding: var(--space-5) 0;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.part {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.part span {
+  font-family: var(--font-data);
+  font-size: var(--size-2xs);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.part b {
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--size-lg);
+  font-weight: var(--weight-medium);
+}
+
+/* ── Approval card — the loud object ─────────────────────────────────────── */
+.ask {
+  background: var(--surface-base);
+  border: 1px solid var(--border-subtle);
+  border-left: 4px solid var(--status-risk);
+  border-radius: var(--radius-md);
+  padding: var(--space-8);
+  margin-bottom: var(--space-5);
+}
+
+.ask h2 {
+  font-family: var(--font-display);
+  font-size: var(--size-2xl);
+  font-weight: var(--weight-semi);
+  letter-spacing: var(--track-snug);
+  margin-bottom: var(--space-6);
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: var(--space-6) 22px;
+  padding: var(--space-6) 0;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.fact dt {
+  font-family: var(--font-data);
+  font-size: var(--size-2xs);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: var(--space-1);
+}
+
+.fact dd {
+  font-size: var(--size-md);
+}
+
+.acts {
+  display: flex;
+  gap: var(--space-4);
+  align-items: center;
+  flex-wrap: wrap;
+  padding-top: var(--space-6);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.waited {
+  font-family: var(--font-data);
+  font-size: var(--size-xs);
+  color: var(--text-muted);
+  margin-left: auto;
+}
+
+/* ── The payload being authorised ────────────────────────────────────────
+   Shown open, in full, never trimmed: an operator who approves a summary of
+   the words has not approved the words (§8). Class name and `open` are
+   pinned by tests/test_approval_visibility_and_identity.py. */
+.outgoing {
+  margin-top: 0;
+  border-top: 1px solid var(--border-subtle);
+  padding-top: var(--space-6);
+}
+
+.outgoing .fld {
+  margin-top: var(--space-5);
+}
+
+.outgoing .fld label {
+  display: block;
+  font-family: var(--font-data);
+  font-size: var(--size-2xs);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: var(--space-2);
+}
+
+.outgoing .fld input,
+.outgoing .fld textarea {
+  width: 100%;
+  padding: var(--space-4) var(--space-5);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+  font-family: var(--font-body);
+  font-size: var(--size-md);
+  color: var(--text-primary);
+  line-height: var(--leading-body);
+}
+
+.outgoing .fld textarea {
+  min-height: 180px;
+  resize: vertical;
+}
+
+.outgoing .fld input:focus-visible,
+.outgoing .fld textarea:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.outgoing .fld pre {
+  white-space: pre-wrap;
+  max-height: none;
+}
+
+.outgoing .why {
+  font-size: var(--size-base);
+  color: var(--text-secondary);
+  margin-top: var(--space-5);
+}
+
+/* ── Banner ──────────────────────────────────────────────────────────────
+   States a consequence and, where one exists, a remedy. Never used for
+   success: a successful action shows its result, not a congratulation. */
+.banner {
+  border-left: 3px solid var(--status-watch);
+  background: var(--wash-watch);
+  border-radius: var(--radius-sm);
+  padding: var(--space-4) var(--space-6);
+  margin: var(--space-7) 0 0;
+  font-size: var(--size-base);
+}
+
+.banner b {
+  font-weight: var(--weight-semi);
+}
+
+.banner--down {
+  border-left-color: var(--status-risk);
+  background: var(--wash-risk);
+}
+
+.banner--note {
+  border-left-color: var(--accent);
+  background: var(--surface-base);
+  margin: var(--space-4) 0 0;
+  display: flex;
+  gap: var(--space-4);
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+
+.banner--note time {
+  font-family: var(--font-data);
+  font-size: var(--size-2xs);
+  color: var(--text-muted);
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+#flash {
+  min-height: 0;
+}
+
+/* ── Feed entry ──────────────────────────────────────────────────────────── */
+.entry {
+  border-top: 1px solid var(--border-subtle);
+  padding: var(--space-5) 0;
+}
+
+.entry time {
+  font-family: var(--font-data);
+  font-size: var(--size-2xs);
+  color: var(--text-muted);
+}
+
+.entry p {
+  font-size: var(--size-md);
+  margin-top: var(--space-1);
+}
+
+.entry .why {
+  color: var(--text-secondary);
+  font-size: var(--size-base);
+  margin-top: var(--space-2);
+}
+
+.stuck {
+  background: var(--wash-risk);
+  border-left: 3px solid var(--status-risk);
+  border-radius: var(--radius-sm);
+  padding: var(--space-4) var(--space-5);
+  font-size: var(--size-base);
+  margin-bottom: var(--space-4);
+}
+
+/* ── Empty and calm states ───────────────────────────────────────────────
+   An empty state teaches: what will appear, what it does, how to begin.
+   `.calm` is for a GOOD emptiness — an empty approvals queue is success and
+   must not look like a failed load. */
+.empty {
+  background: var(--surface-base);
+  border: 1px dashed var(--border-default);
+  border-radius: var(--radius-md);
+  padding: var(--space-11);
+  text-align: center;
+}
+
+.empty p {
+  font-family: var(--font-display);
+  font-size: var(--size-xl);
+  font-weight: var(--weight-semi);
+  margin-bottom: var(--space-3);
+}
+
+.empty span {
+  font-size: var(--size-md);
+  color: var(--text-secondary);
+}
+
+.calm {
+  font-size: var(--size-lg);
+  color: var(--text-secondary);
+  padding: var(--space-6) 0;
+}
+
+/* ── Masthead ────────────────────────────────────────────────────────────── */
+.top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-7);
+  flex-wrap: wrap;
+  padding-bottom: var(--space-6);
+  border-bottom: 1px solid var(--border-strong);
+  margin-bottom: var(--space-8);
+}
+
+.mark {
+  font-family: var(--font-display);
+  font-weight: var(--weight-bold);
+  font-size: var(--size-4xl);
+  letter-spacing: var(--track-tight);
+  line-height: var(--leading-tight);
+}
+
+.top__acts {
+  display: flex;
+  gap: var(--space-4);
+  margin-left: auto;
+}
+
+.halted {
+  color: var(--status-risk);
+  font-weight: var(--weight-medium);
+}
+
+/* ── Panel / sheet — the system's only shadow ────────────────────────────── */
+.panel {
+  position: fixed;
+  inset: 0;
+  background: var(--surface-overlay);
+  display: none;
+  align-items: flex-start;
+  justify-content: center;
+  padding: var(--space-12) var(--space-7);
+  overflow-y: auto;
+  z-index: var(--z-panel);
+}
+
+.panel--open {
+  display: flex;
+  animation: panel-in var(--motion-base) var(--ease-standard);
+}
+
+@keyframes panel-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.sheet {
+  background: var(--surface-raised);
+  max-width: var(--layout-sheet);
+  width: 100%;
+  padding: var(--space-10);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sheet);
+  animation: sheet-in var(--motion-base) var(--ease-standard);
+}
+
+@keyframes sheet-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: none; }
+}
+
+.sheet h2 {
+  font-family: var(--font-display);
+  font-size: var(--size-3xl);
+  font-weight: var(--weight-bold);
+  letter-spacing: var(--track-tight);
+}
+
+/* ── Disclosure ──────────────────────────────────────────────────────────── */
+details {
+  margin-top: var(--space-8);
+  border-top: 1px solid var(--border-subtle);
+  padding-top: var(--space-6);
+}
+
+summary {
+  font-family: var(--font-data);
+  font-size: var(--size-xs);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+pre {
+  font-size: var(--size-xs);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: var(--space-5);
+  overflow-x: auto;
+  margin-top: var(--space-5);
+  max-height: 340px;
+  color: var(--text-secondary);
+}
+
+/* ── Template picker ─────────────────────────────────────────────────────── */
+.tmpl {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface-base);
+  padding: var(--space-5);
+  margin-bottom: var(--space-4);
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  font-family: var(--font-body);
+  color: var(--text-primary);
+}
+
+.tmpl:hover {
+  border-color: var(--border-strong);
+}
+
+.tmpl b {
+  font-family: var(--font-display);
+  font-size: var(--size-lg);
+  display: block;
+  margin-bottom: var(--space-1);
+}
+
+.tmpl span {
+  font-size: var(--size-base);
+  color: var(--text-secondary);
+}
+
+/* ── Persona components — SPEC ONLY, docs/design/11-persona-components.md ──
+   Styles are defined so the packet that plumbs persona DATA has nothing
+   left to invent. Nothing renders these today, deliberately: persona data
+   does not exist, and a persona invented to fill a chip would be exactly
+   the "decorative that lies" defect the design principles forbid. */
+.persona-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-1) var(--space-4) var(--space-1) var(--space-1);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-pill);
+  background: var(--surface-base);
+  cursor: pointer;
+  transition: background var(--motion-quick) var(--ease-standard);
+}
+
+.persona-chip:hover {
+  background: var(--surface-hover);
+}
+
+/* A monogram, never an avatar image: a photo of a person who does not exist
+   is the least honest thing this system could render. */
+.persona-chip__monogram {
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-hover);
+  border: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-data);
+  font-size: var(--size-2xs);
+  color: var(--text-secondary);
+  flex: none;
+}
+
+/* Never louder than the company it looks after: the company name is 17px
+   display, this is 12px. The operator owns companies. */
+.persona-chip__name {
+  font-family: var(--font-display);
+  font-size: var(--size-sm);
+  font-weight: var(--weight-semi);
+  color: var(--text-primary);
+}
+
+.persona-header {
+  display: flex;
+  gap: var(--space-6);
+  align-items: flex-start;
+  padding-bottom: var(--space-6);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.persona-header__monogram {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-hover);
+  border: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-data);
+  font-size: var(--size-lg);
+  color: var(--text-secondary);
+  flex: none;
+}
+
+.persona-roster {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Compliance-check chip — SPEC ONLY ────────────────────────────────────
+   Awaiting a compliance-result field on the approval payload. A passing
+   check is the healthy hue AND the word "passed": colour never carries
+   meaning alone (docs/design/09-accessibility.md). */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-family: var(--font-data);
+  font-size: var(--size-sm);
+  padding: var(--space-1) var(--space-4);
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-hover);
+  color: var(--text-secondary);
+}
+
+.chip--pass {
+  border-color: var(--status-healthy);
+  background: var(--wash-healthy);
+  color: var(--status-healthy);
+}
+
+.chip--fail {
+  border-color: var(--status-risk);
+  background: var(--wash-risk);
+  color: var(--status-risk);
+}
+
+.chip--pending {
+  border-color: var(--status-watch);
+  background: var(--wash-watch);
+  color: var(--status-watch);
+}
+
+/* ── Responsive (docs/design/05-layout.md) ────────────────────────────────
+   The card grid needs no media query: auto-fill with a 292px minimum
+   handles every width on its own. These exist for the masthead and panel,
+   which have fixed structure. */
+@media (max-width: 640px) {
+  .top {
+    align-items: flex-start;
+  }
+
+  .top__acts {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  .panel {
+    padding: var(--space-7) var(--space-5);
+  }
+
+  .sheet {
+    padding: var(--space-8) var(--space-7);
+  }
+}

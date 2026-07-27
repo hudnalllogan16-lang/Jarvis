@@ -1,0 +1,248 @@
+/* ============================================================================
+   Jarvis design tokens
+   Spec: docs/design/02-color.md, 03-typography.md, 04-spacing.md, 08-motion.md
+
+   Three tiers. Components reference TIER 2 ONLY.
+
+     tier 1  primitives   raw ramp values, declared once, never themed
+     tier 2  semantic     what a value MEANS, declared once per theme
+     tier 3  component    only where a component needs its own knob
+
+   A component that reaches for a tier-1 primitive has hard-coded a theme,
+   because the entire theme swap happens at tier 2. That rule is the only
+   reason light/dark costs nothing to maintain.
+   ========================================================================= */
+
+:root {
+  /* ── TIER 1 — primitives ───────────────────────────────────────────────
+     Cool-shifted neutrals: a pure-grey dark surface reads as dead, a warm
+     one reads as a document. Jarvis is an instrument. */
+  --n-950: #0B0E14;
+  --n-900: #10141C;
+  --n-850: #151A24;
+  --n-800: #1B2130;
+  --n-750: #232A3A;
+  --n-700: #2E3648;
+  --n-600: #3D4759;
+  --n-500: #5A6478;
+  --n-400: #8B97AD;
+  --n-300: #A7B2C6;
+  --n-200: #C2CBDC;
+  --n-100: #E4EAF4;
+  --n-050: #F4F7FB;
+  --n-000: #FFFFFF;
+
+  /* Light-theme page planes. A straight inversion of --n-950 is pure white
+     and loses the card/page distinction the layout depends on, so these two
+     are dedicated values rather than ramp steps. */
+  --n-l-page:   #EEF1F6;
+  --n-l-sunken: #E4E8F0;
+  --n-l-line:   #CBD2DE;
+  --n-l-hover:  #E9EDF4;
+
+  /* Status hues. NOT decorative — these arrive on the surface as data
+     (health_band), so each is defined per theme. Every value below is
+     contrast-measured in docs/design/09-accessibility.md. */
+  --green-dark: #3FBF8F;  --green-light: #1A6B4F;
+  --amber-dark: #E0A93C;  --amber-light: #8A5D0B;
+  --rose-dark:  #F2617A;  --rose-light:  #A11D42;
+  --azure-dark: #7C9BFF;  --azure-light: #33415C;
+
+  /* ── Typography (theme-independent) ─────────────────────────────────────
+     Three families, three jobs — docs/design/03-typography.md.
+     Fallbacks are part of the design: the webfonts load from a third party
+     (finding M8-F21) and must degrade gracefully, not brokenly. */
+  --font-display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --font-body:    "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --font-data:    "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+
+  --size-2xs:  10px;
+  --size-xs:   11px;
+  --size-sm:   12px;
+  --size-base: 13px;
+  --size-md:   14px;
+  --size-lg:   15px;
+  --size-xl:   17px;
+  --size-2xl:  19px;
+  --size-3xl:  22px;
+  --size-4xl:  26px;
+
+  --leading-tight: 1.2;
+  --leading-snug:  1.35;
+  --leading-body:  1.55;
+
+  --weight-regular: 400;
+  --weight-medium:  500;
+  --weight-semi:    600;
+  --weight-bold:    800;
+
+  --track-tight:  -.02em;
+  --track-snug:   -.01em;
+  --track-normal: 0;
+  --track-label:  .1em;
+  --track-wide:   .14em;
+
+  /* ── Spacing — the 4px grid (docs/design/04-spacing.md) ────────────────
+     --space-1 is the one sub-4 value, and exists for exactly one thing:
+     the gaps between meter segments, where 4px would make ten segments
+     read as ten objects rather than one divided bar. */
+  --space-0:  0;
+  --space-1:  2px;
+  --space-2:  4px;
+  --space-3:  6px;
+  --space-4:  8px;
+  --space-5:  12px;
+  --space-6:  14px;
+  --space-7:  16px;
+  --space-8:  20px;
+  --space-9:  24px;
+  --space-10: 28px;
+  --space-11: 34px;
+  --space-12: 48px;
+  --space-13: 80px;
+
+  /* ── Radius. Near-square: instruments are not rounded. ─────────────────── */
+  --radius-sharp: 0;
+  --radius-sm:    2px;
+  --radius-md:    3px;
+  --radius-pill:  999px;
+
+  /* ── Layout (docs/design/05-layout.md) ─────────────────────────────────
+     1080 = three 292px cards + two 12px gaps + gutters. Not arbitrary. */
+  --layout-max:      1080px;
+  --layout-card-min: 292px;
+  --layout-tile-min: 180px;
+  --layout-sheet:    640px;
+  --bp-sm: 640px;
+  --bp-md: 900px;
+  --bp-lg: 1080px;
+  --z-panel: 10;
+
+  /* ── Motion (docs/design/08-motion.md) ─────────────────────────────────
+     Asymmetric easing: things enter decelerating, leave accelerating. */
+  --motion-instant: 90ms;
+  --motion-quick:   150ms;
+  --motion-base:    220ms;
+  --motion-slow:    320ms;
+  --ease-standard: cubic-bezier(.2, 0, 0, 1);
+  --ease-exit:     cubic-bezier(.4, 0, 1, 1);
+  --ease-breathe:  ease-in-out;
+}
+
+/* ============================================================================
+   TIER 2 — semantic tokens
+   Declared twice, once per theme. This block IS the theme definition.
+   ========================================================================= */
+
+/* ── Dark: the shipped default (M8-PLAN Part 5, "dark-first") ────────────── */
+:root,
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --surface-page:    var(--n-950);
+  --surface-sunken:  var(--n-900);
+  --surface-base:    var(--n-850);
+  --surface-raised:  var(--n-800);
+  --surface-hover:   var(--n-750);
+  --surface-overlay: rgba(3, 5, 9, .66);
+
+  --text-primary:   var(--n-100);
+  --text-secondary: var(--n-300);
+  --text-muted:     var(--n-400);
+  --text-inverse:   var(--n-950);
+
+  --border-subtle:  var(--n-700);
+  --border-default: var(--n-600);
+  --border-strong:  var(--n-500);
+
+  --meter-track: var(--n-700);
+
+  --status-healthy: var(--green-dark);
+  --status-watch:   var(--amber-dark);
+  --status-risk:    var(--rose-dark);
+  --accent:         var(--azure-dark);
+  --accent-text:    var(--n-950);
+
+  --shadow-sheet: 0 24px 64px rgba(0, 0, 0, .55), 0 2px 8px rgba(0, 0, 0, .4);
+}
+
+/* ── Light: a complete alternate, never a degraded fallback ──────────────── */
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --surface-page:    var(--n-l-page);
+  --surface-sunken:  var(--n-l-sunken);
+  --surface-base:    var(--n-000);
+  --surface-raised:  var(--n-000);
+  --surface-hover:   var(--n-l-hover);
+  --surface-overlay: rgba(18, 21, 29, .5);
+
+  --text-primary:   #12151D;
+  --text-secondary: #4A5468;
+  --text-muted:     #5D6779;
+  --text-inverse:   var(--n-000);
+
+  --border-subtle:  var(--n-l-line);
+  --border-default: var(--n-l-line);
+  --border-strong:  #12151D;
+
+  --meter-track: var(--n-l-line);
+
+  --status-healthy: var(--green-light);
+  --status-watch:   var(--amber-light);
+  --status-risk:    var(--rose-light);
+  --accent:         var(--azure-light);
+  --accent-text:    var(--n-000);
+
+  --shadow-sheet: 0 24px 64px rgba(18, 21, 29, .18), 0 2px 8px rgba(18, 21, 29, .12);
+}
+
+/* System preference selects the theme when no explicit choice is recorded.
+   An explicit [data-theme] wins in BOTH directions — the rule above already
+   handles data-theme="light"; this handles a system-light user with no
+   choice recorded, without overriding data-theme="dark". */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+
+    --surface-page:    var(--n-l-page);
+    --surface-sunken:  var(--n-l-sunken);
+    --surface-base:    var(--n-000);
+    --surface-raised:  var(--n-000);
+    --surface-hover:   var(--n-l-hover);
+    --surface-overlay: rgba(18, 21, 29, .5);
+
+    --text-primary:   #12151D;
+    --text-secondary: #4A5468;
+    --text-muted:     #5D6779;
+    --text-inverse:   var(--n-000);
+
+    --border-subtle:  var(--n-l-line);
+    --border-default: var(--n-l-line);
+    --border-strong:  #12151D;
+
+    --meter-track: var(--n-l-line);
+
+    --status-healthy: var(--green-light);
+    --status-watch:   var(--amber-light);
+    --status-risk:    var(--rose-light);
+    --accent:         var(--azure-light);
+    --accent-text:    var(--n-000);
+
+    --shadow-sheet: 0 24px 64px rgba(18, 21, 29, .18), 0 2px 8px rgba(18, 21, 29, .12);
+  }
+}
+
+/* ── Status washes ──────────────────────────────────────────────────────────
+   Alpha composites of the hue over whatever surface they land on, which is
+   what lets ONE banner style work on --surface-page and --surface-raised
+   alike. The plain fallback is declared first: a browser without color-mix()
+   keeps the earlier declaration rather than dropping the property. */
+:root {
+  --wash-healthy: transparent;
+  --wash-watch:   transparent;
+  --wash-risk:    transparent;
+  --wash-healthy: color-mix(in srgb, var(--status-healthy) 12%, transparent);
+  --wash-watch:   color-mix(in srgb, var(--status-watch) 12%, transparent);
+  --wash-risk:    color-mix(in srgb, var(--status-risk) 12%, transparent);
+}
