@@ -166,11 +166,17 @@ async def _kpi_rows(kernel: PlatformKernel) -> dict[str, Decimal]:
     return {row.key: Decimal(str(row.value)) for row in rows}
 
 
-def _result(n: int, status: InvocationStatus, business_id: BusinessId) -> CapabilityResult:
+def _result(
+    n: int,
+    status: InvocationStatus,
+    business_id: BusinessId,
+    *,
+    capability: CapabilityType = CapabilityType.RESEARCH,
+) -> CapabilityResult:
     return CapabilityResult(
         invocation_id=InvocationId(f"inv_{n}"),
         business_id=business_id,
-        capability=CapabilityType.RESEARCH,
+        capability=capability,
         status=status,
         output="a figure and its source",
     )
@@ -200,8 +206,12 @@ async def _measure(
 async def test_a_completed_cycle_writes_kpi_values_for_finance(kernel: PlatformKernel) -> None:
     """D-027.1: the row `kpi_values` has never held (M7-F21).
 
-    Two results that succeeded and one that did not finish, so the count is a
-    real count rather than "however many were dispatched".
+    Two Finance-capability results that succeeded and one that did not
+    finish, so the count is a real count rather than "however many were
+    dispatched". Finance capability, not the `_result` default, because
+    `reports_delivered` now counts only that capability's successes
+    (M7-F33) — see `test_a_research_and_finance_cycle_counts_one_report`
+    for the mixed-capability case this scoping exists for.
     """
     contract = await _company(kernel, FINANCE)
     biz = contract.business_id
@@ -211,9 +221,9 @@ async def test_a_completed_cycle_writes_kpi_values_for_finance(kernel: PlatformK
         biz,
         cycle_id="cyc_measured",
         results=(
-            _result(1, InvocationStatus.SUCCEEDED, biz),
-            _result(2, InvocationStatus.SUCCEEDED, biz),
-            _result(3, InvocationStatus.DEAD_LETTERED, biz),
+            _result(1, InvocationStatus.SUCCEEDED, biz, capability=CapabilityType.FINANCE),
+            _result(2, InvocationStatus.SUCCEEDED, biz, capability=CapabilityType.FINANCE),
+            _result(3, InvocationStatus.DEAD_LETTERED, biz, capability=CapabilityType.FINANCE),
         ),
     )
 
@@ -222,6 +232,26 @@ async def test_a_completed_cycle_writes_kpi_values_for_finance(kernel: PlatformK
     rows = await _kpi_rows(kernel)
     assert rows["reports_delivered"] == Decimal("2")
     assert rows["metrics_tracked"] == Decimal("3")
+
+
+async def test_a_research_and_finance_cycle_counts_one_report(kernel: PlatformKernel) -> None:
+    """M7-F33, stated as the scenario the ruling names: a cycle running
+    Research *and* Finance scores one report for the one report delivered,
+    not two for the two capabilities that each individually succeeded.
+    """
+    biz = (await _company(kernel, FINANCE)).business_id
+
+    recorded = await _measure(
+        kernel,
+        biz,
+        cycle_id="cyc_mixed_capability",
+        results=(
+            _result(1, InvocationStatus.SUCCEEDED, biz, capability=CapabilityType.RESEARCH),
+            _result(2, InvocationStatus.SUCCEEDED, biz, capability=CapabilityType.FINANCE),
+        ),
+    )
+
+    assert recorded["reports_delivered"] == "1"
 
 
 async def test_results_belonging_to_another_company_are_not_counted(
@@ -242,8 +272,8 @@ async def test_results_belonging_to_another_company_are_not_counted(
         biz,
         cycle_id="cyc_mixed",
         results=(
-            _result(1, InvocationStatus.SUCCEEDED, biz),
-            _result(2, InvocationStatus.SUCCEEDED, other),
+            _result(1, InvocationStatus.SUCCEEDED, biz, capability=CapabilityType.FINANCE),
+            _result(2, InvocationStatus.SUCCEEDED, other, capability=CapabilityType.FINANCE),
         ),
     )
     assert recorded["reports_delivered"] == "1"
@@ -295,7 +325,11 @@ async def test_freshness_is_read_from_the_audit_row_a_real_dispatch_wrote(
     assert Decimal(recorded["data_freshness_hours"]) < Decimal("0.1"), (
         "work that just finished cannot be hours stale"
     )
-    assert recorded["reports_delivered"] == "1"
+    # A Research success, not a Finance one — `reports_delivered` is scoped to
+    # the Finance capability's own results (M7-F33), so this dispatch (real
+    # and SUCCEEDED as it is) does not count as a delivered report. Freshness
+    # is unaffected: it reads any capability's newest completion, on purpose.
+    assert recorded["reports_delivered"] == "0"
 
 
 async def test_freshness_is_unmeasured_rather_than_zero_before_any_work(
@@ -312,7 +346,33 @@ async def test_freshness_is_unmeasured_rather_than_zero_before_any_work(
 
     assert "data_freshness_hours" not in recorded
     assert "data_freshness_hours" not in await _kpi_rows(kernel)
-    assert recorded["reports_delivered"] == "0", "a cycle that delivered nothing still says so"
+
+
+async def test_a_cycle_with_no_results_measures_only_what_does_not_need_them(
+    kernel: PlatformKernel,
+) -> None:
+    """M7-F32 at the activity boundary.
+
+    `results=()` is what `record_cycle_kpis` receives on a NOTHING_TO_DO cycle
+    (`jarvis.manager.workflow.PATCH_NOTHING_TO_DO_KPIS`) — no dispatch, so
+    nothing for a cycle-result-scoped source (`reports_delivered`) to count.
+    `metrics_tracked` (`CONFIGURED_KPI_TARGET_COUNT`) is observation-scoped —
+    it reads the contract, not this cycle's results — so it is still recorded,
+    which is the behaviour this finding exists to add.
+    """
+    contract = await _company(kernel, FINANCE)
+    biz = contract.business_id
+    recorded = await _measure(kernel, biz, cycle_id="cyc_nothing_to_do")
+
+    assert "reports_delivered" not in recorded, (
+        "cycle-result-scoped, and this cycle carried no results — silence, not a zero"
+    )
+    assert recorded["metrics_tracked"] == str(len(contract.kpi_targets)), (
+        "observation-scoped: the contract's own target count needs no results at all"
+    )
+    rows = await _kpi_rows(kernel)
+    assert "reports_delivered" not in rows
+    assert rows["metrics_tracked"] == Decimal(len(contract.kpi_targets))
 
 
 async def test_a_stale_company_reports_the_hours_since_it_last_finished(
@@ -423,15 +483,21 @@ async def test_attainment_moves_once_the_cycle_measures(kernel: PlatformKernel) 
         kernel,
         biz,
         cycle_id="cyc_one",
-        results=tuple(_result(n, InvocationStatus.SUCCEEDED, biz) for n in range(4)),
+        results=tuple(
+            _result(n, InvocationStatus.SUCCEEDED, biz, capability=CapabilityType.FINANCE)
+            for n in range(4)
+        ),
     )
     async with kernel.services() as svc:
         attainment = await KpiEngine(svc.session).attainment(contract)
 
-    # reports_delivered 4/4 -> 1.0, metrics_tracked 3/5 -> 0.6, and freshness
-    # unmeasured (this company has completed nothing through the pool), so it
-    # is left out of the average rather than counted as a miss.
-    assert attainment == int((Decimal("1.0") + Decimal("0.6")) / 2 * 100)
+    # reports_delivered 4/4 -> 1.0; metrics_tracked 3/3 -> 1.0, the M7-F49 fix
+    # (target now derived from the type's own 3 targets rather than a
+    # hand-picked 5, so this metric is no longer capped at 60% by
+    # construction); freshness unmeasured (this company has completed nothing
+    # through the pool), so it is left out of the average rather than counted
+    # as a miss.
+    assert attainment == int((Decimal("1.0") + Decimal("1.0")) / 2 * 100)
 
 
 async def test_an_observation_that_misses_its_target_scores_below_it(
@@ -444,12 +510,12 @@ async def test_an_observation_that_misses_its_target_scores_below_it(
         kernel,
         biz,
         cycle_id="cyc_thin",
-        results=(_result(1, InvocationStatus.SUCCEEDED, biz),),
+        results=(_result(1, InvocationStatus.SUCCEEDED, biz, capability=CapabilityType.FINANCE),),
     )
     async with kernel.services() as svc:
         attainment = await KpiEngine(svc.session).attainment(contract)
-    # reports_delivered 1/4 -> 0.25, metrics_tracked 3/5 -> 0.6.
-    assert attainment == int((Decimal("0.25") + Decimal("0.6")) / 2 * 100)
+    # reports_delivered 1/4 -> 0.25; metrics_tracked 3/3 -> 1.0 (M7-F49).
+    assert attainment == int((Decimal("0.25") + Decimal("1.0")) / 2 * 100)
 
 
 async def test_freshness_attainment_reads_a_good_reading_as_a_near_full_score(
@@ -459,12 +525,12 @@ async def test_freshness_attainment_reads_a_good_reading_as_a_near_full_score(
 
     `data_freshness_hours` is lower-is-better and declares
     `direction=KpiDirection.BELOW` on Finance's target (`jarvis/businesses/
-    finance.py`, version 1.0.2). `KpiEngine.attainment` now computes
-    `target / actual` (capped at 1) for a BELOW metric instead of `actual /
-    target`, so data refreshed an hour ago against a 24-hour target reads as
-    essentially full attainment rather than the 4% miss this test used to pin
-    as a recorded defect. Combined with the other two targets, which are
-    genuinely at target, every metric now scores 1.0.
+    finance.py`). `KpiEngine.attainment` now computes `target / actual`
+    (capped at 1) for a BELOW metric instead of `actual / target`, so data
+    refreshed an hour ago against a 24-hour target reads as essentially full
+    attainment rather than the 4% miss this test used to pin as a recorded
+    defect. Combined with the other two targets, which are genuinely at or
+    past target, every metric now scores 1.0.
     """
     contract = await _company(kernel, FINANCE)
     biz = contract.business_id
@@ -475,7 +541,8 @@ async def test_freshness_attainment_reads_a_good_reading_as_a_near_full_score(
         await engine.record(business_id=biz, key="metrics_tracked", value=Decimal("5"))
         attainment = await engine.attainment(contract)
     # freshness: min(24/1, 1) -> 1.0; reports_delivered 4/4 -> 1.0;
-    # metrics_tracked 5/5 -> 1.0.
+    # metrics_tracked: target is provisioned as 3 (M7-F49), observed 5 exceeds
+    # it, min(5/3, 1) -> 1.0 — beating a goal still caps at 100%, not 166%.
     assert attainment == 100
 
 

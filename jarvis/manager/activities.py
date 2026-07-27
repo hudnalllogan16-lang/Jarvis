@@ -33,7 +33,7 @@ from jarvis.capabilities.request import (
 )
 from jarvis.capabilities.tools import DESTINATION_PARAM
 from jarvis.domain.contract import BusinessContract, CapabilityPermission, CapabilityType
-from jarvis.domain.kpi import KpiSource
+from jarvis.domain.kpi import KpiMapping, KpiObservationScope, KpiSource
 from jarvis.domain.lifecycle import accepts_dispatch
 from jarvis.kernel.container import KernelServices, PlatformKernel
 from jarvis.kernel.errors import ScopeViolationError
@@ -864,6 +864,15 @@ class ManagerActivities:
            company scored zero on a metric nobody defined reads as failing
            rather than as unmeasured.
 
+        Called on a NOTHING_TO_DO cycle too, not only a cycle that dispatched
+        something (M7-F32, `jarvis.manager.workflow.PATCH_NOTHING_TO_DO_KPIS`):
+        `request.results` is empty on that path, and `KpiSource.scope` is what
+        keeps a cycle-result-scoped mapping (`reports_delivered`) from being
+        recorded as a false zero there while an observation-scoped one
+        (`metrics_tracked`, `data_freshness_hours`) still gets re-read, because
+        the fact it reads did not stop existing just because this wake found
+        nothing to do.
+
         No `target` is passed to the engine, so this writes a series and
         publishes no threshold breach. Deliberate on both counts. The engine's
         own contract says the caller decides what a breach means "because the
@@ -893,7 +902,7 @@ class ManagerActivities:
             engine = self._kernel.build_kpis(svc)
             recorded: dict[str, str] = {}
             for mapping in mappings:
-                value = await self._observed(str(mapping.source), request, contract, svc)
+                value = await self._observed(mapping, request, contract, svc)
                 if value is None:
                     # No fact, no observation. A metric the platform cannot
                     # measure yet leaves a gap in the series, which is honest;
@@ -930,7 +939,7 @@ class ManagerActivities:
 
     async def _observed(
         self,
-        source: str,
+        mapping: KpiMapping,
         request: CycleKpiRequest,
         contract: BusinessContract,
         services: KernelServices,
@@ -942,16 +951,31 @@ class ManagerActivities:
         is what keeps the arithmetic behind a KPI inside the thing being
         audited.
         """
+        source = mapping.source
+
+        if source.scope is KpiObservationScope.CYCLE_RESULT and not request.results:
+            # A cycle-result-scoped source has nothing to count when this
+            # cycle dispatched nothing — the NOTHING_TO_DO case M7-F32 adds a
+            # measurement command to. No fact for *this* cycle, no
+            # observation: the same silence D-027.3 gives an unmapped metric,
+            # applied here to a cycle rather than a company.
+            return None
+
         if source == KpiSource.SUCCEEDED_RESULTS_IN_CYCLE:
             # Filtered to this business, not counted blindly: the results
             # arrive in a payload, and a payload's account of whose work it was
-            # is the malformed-request case D-002 exists for.
+            # is the malformed-request case D-002 exists for. Also filtered to
+            # the mapping's own capability when it declares one (M7-F33), so a
+            # cycle running research and finance in the same round scores one
+            # report for one delivered report rather than one per capability
+            # that merely succeeded.
             return Decimal(
                 sum(
                     1
                     for result in request.results
                     if result.status is InvocationStatus.SUCCEEDED
                     and result.business_id == contract.business_id
+                    and (mapping.capability is None or result.capability == mapping.capability)
                 )
             )
 
@@ -978,7 +1002,7 @@ class ManagerActivities:
         # definition ahead of its runtime — recorded and skipped, never guessed.
         logger.warning(
             "kpi mapping names an unknown source",
-            extra={"context": {"business_id": request.business_id, "source": source}},
+            extra={"context": {"business_id": request.business_id, "source": str(source)}},
         )
         return None
 
@@ -1400,7 +1424,7 @@ def _cycle_scope(supplied: str) -> str:
     return supplied if DERIVED_CYCLE_KEY.fullmatch(supplied) else new_cycle_id()
 
 
-def _declared_kpi_mappings(definition: Any) -> tuple[Any, ...]:
+def _declared_kpi_mappings(definition: Any) -> tuple[KpiMapping, ...]:
     """Return the KPI mappings a business type declares (D-027.2/.3).
 
     Duck-typed, like `_effect_binding`'s read of `tool_registry` and for the

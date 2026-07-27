@@ -217,6 +217,36 @@ def test_kpi_mappings_are_declared_as_data() -> None:
         assert isinstance(mapping.source, KpiSource)
 
 
+def test_reports_delivered_is_scoped_to_the_finance_capability() -> None:
+    """M7-F33: a cycle running Research then Finance scores one report for one.
+
+    Without the filter, `reports_delivered` would count every succeeded
+    result in the cycle — Research's fact-gathering success *and* Finance's
+    analysis success — as two reports for one thing the operator actually
+    receives. Pinned here as a fact about the shipped type, not only as
+    behaviour in `tests/test_cycle_kpi_measurement.py`, because a future edit
+    to this file could silently drop the filter and still pass every test
+    that only checks the *mapping's key*.
+    """
+    by_key = {m.key: m for m in FINANCE.kpi_mappings}
+    assert by_key["reports_delivered"].capability is CapabilityType.FINANCE
+    assert by_key["data_freshness_hours"].capability is None
+    assert by_key["metrics_tracked"].capability is None
+
+
+def test_metrics_tracked_target_matches_the_type_s_own_target_count() -> None:
+    """M7-F49: the declared default is honest about what provisioning ships.
+
+    `ProvisioningService.create_company` overwrites this target at company
+    creation (`jarvis.domain.kpi.provisioned_kpi_targets`), so the number
+    written here is not free-standing — it is required to already equal
+    `len(default_kpi_targets)`, or this file would describe a company that
+    provisioning never actually creates.
+    """
+    by_key = {t.key: t for t in FINANCE.default_kpi_targets}
+    assert by_key["metrics_tracked"].target_value == Decimal(len(FINANCE.default_kpi_targets))
+
+
 def test_freshness_is_the_only_target_declared_lower_is_better() -> None:
     """M7-F30: `data_freshness_hours` is the one metric this type owns whose
     direction runs the other way — a low reading is the good outcome. The
@@ -247,12 +277,14 @@ def test_the_version_was_bumped_so_the_live_registry_adopts_the_mappings() -> No
     calling, so a definition edited without a version bump never reaches a
     registry that already holds the old one — the type would keep serving a
     stale definition. 1.0.1 -> 1.0.2 for `data_freshness_hours` declaring its
-    direction (M7-F30). Not a major bump, on purpose: A-003 resets graduation
-    counters on a major change, and measurement changes nothing about what
-    this type may do (the same call M6-F22 made for affiliate).
+    direction (M7-F30); 1.0.2 -> 1.0.3 for the D-027 amendment pass (M8-5:
+    `reports_delivered`'s capability filter, `metrics_tracked`'s corrected
+    target). Not a major bump, on purpose: A-003 resets graduation counters on
+    a major change, and measurement changes nothing about what this type may
+    do (the same call M6-F22 made for affiliate).
     """
-    assert FINANCE.version == "1.0.2"
-    assert FINANCE.version != "1.0.1", "an unbumped definition never reaches a live registry"
+    assert FINANCE.version == "1.0.3"
+    assert FINANCE.version != "1.0.2", "an unbumped definition never reaches a live registry"
     assert FINANCE.major_version == 1
 
 

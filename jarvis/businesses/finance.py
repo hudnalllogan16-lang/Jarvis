@@ -32,15 +32,18 @@ from jarvis.domain.kpi import KpiMapping, KpiSource
 FINANCE = BusinessTypeDefinition(
     name="finance_tracking",
     # 1.0.0 -> 1.0.1 for the KPI mappings; 1.0.1 -> 1.0.2 for
-    # `data_freshness_hours` declaring its direction (M7-F30). Same reasoning
-    # each time: `ensure_builtin_types` is version-gated (M6-F22, M7-F4:
+    # `data_freshness_hours` declaring its direction (M7-F30); 1.0.2 -> 1.0.3
+    # for the D-027 amendment pass (M8-5, M7-F33/F49): `reports_delivered`
+    # scoped to the finance capability's own results, `metrics_tracked`'s
+    # target corrected to the type's real target count. Same reasoning each
+    # time: `ensure_builtin_types` is version-gated (M6-F22, M7-F4:
     # `install()` refuses a duplicate version and the caller compares), so a
     # definition change that does not bump the version never reaches the live
     # Registry — it would keep serving the stale one. Minor, not major: A-003
     # resets graduation counters on a major bump, and nothing about
     # measurement changes what this type may do, let alone what it has earned
     # the right to do unattended.
-    version="1.0.2",
+    version="1.0.3",
     display_name="Finance tracker",
     # Present tense, not "never": the owner rejected permanently encoding that
     # this type will not recommend trades (DECISIONS.md "M7 owner decision"),
@@ -92,7 +95,17 @@ FINANCE = BusinessTypeDefinition(
         KpiTarget(
             key="metrics_tracked",
             operator_label="Metrics tracked",
-            target_value=Decimal("5"),
+            # 3, matching the three targets below — not a free-standing choice.
+            # `metrics_tracked` maps to `CONFIGURED_KPI_TARGET_COUNT` below, so
+            # `ProvisioningService.create_company` overwrites this at company
+            # creation with the real count it derives from this very tuple
+            # (`jarvis.domain.kpi.provisioned_kpi_targets`, M7-F49). Written as
+            # 3 here rather than left at the old hand-picked 5, so a reader of
+            # this file sees the number that will actually ship rather than one
+            # the platform silently replaces — the old 5 was a structural 60%
+            # cap no company could ever clear, because a type with three
+            # targets can never carry more than three.
+            target_value=Decimal("3"),
             unit="metrics",
         ),
         KpiTarget(
@@ -122,7 +135,17 @@ FINANCE = BusinessTypeDefinition(
     # `direction=KpiDirection.BELOW`: an excellent (low) freshness reading now
     # scores as attainment instead of a miss (M7-F30, fixed).
     kpi_mappings=(
-        KpiMapping(key="reports_delivered", source=KpiSource.SUCCEEDED_RESULTS_IN_CYCLE),
+        # `capability=FINANCE`: a cycle gathers data with Research and then
+        # analyses it with Finance (both `prompt_templates` above), so an
+        # unscoped count would score two succeeded results — one per
+        # capability — for the one report the cycle actually delivered
+        # (M7-F33). Finance is the capability whose output *is* the report;
+        # Research's success is a step toward it, not a second one.
+        KpiMapping(
+            key="reports_delivered",
+            source=KpiSource.SUCCEEDED_RESULTS_IN_CYCLE,
+            capability=CapabilityType.FINANCE,
+        ),
         KpiMapping(
             key="data_freshness_hours",
             source=KpiSource.HOURS_SINCE_NEWEST_SUCCEEDED_RESULT,
