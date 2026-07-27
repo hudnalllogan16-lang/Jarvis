@@ -4,9 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Jarvis</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<!-- No third-party requests. Jarvis runs locally; a surface that fetches its own
+     chrome from someone else's CDN is offline-fragile and tells a third party
+     when the operator opened their dashboard (finding M8-F21). The type stacks
+     in styles/tokens.css degrade to platform faces — see
+     docs/design/03-typography.md, "the fallback stack is part of the design".
+     Pinned by tests/test_design_system.py. -->
 <!-- The design system, in three layers (docs/design/README.md):
      tokens      tier-1 primitives + tier-2 semantic tokens, both themes
      base        reset, document defaults, typography application
@@ -16,27 +19,73 @@
 <link rel="stylesheet" href="/static/styles/components.css">
 </head>
 <body>
-<div class="wrap">
-  <header class="top">
-    <div class="mark">Jarvis</div>
-    <div class="top__acts">
-      <button class="btn btn--small" id="newco" data-act="open-new">New company</button>
-      <button class="btn btn--small" data-act="open-settings">Settings</button>
-    </div>
-  </header>
+<a class="skip-link" href="#ws">Skip to content</a>
 
-  <!-- Regions are declared here and filled by app/main.js, so the document has
-       a stable shape before any data arrives and nothing shifts when it does. -->
-  <div class="tile-row" id="tiles"></div>
+<!-- The application shell (docs/design/12-application-shell.md). The frame is
+     permanent: rail, top bar, system strip, workspace. Only the workspace
+     changes when the operator navigates. -->
+<div class="shell">
 
-  <div id="healthbar" aria-live="polite"></div>
-  <div id="flash" aria-live="polite"></div>
-  <div id="notes"></div>
+  <aside class="rail" id="rail">
+    <div class="rail__mark">Jarvis</div>
+    <!-- Filled by app/shell.js from ONE list, so the reserved slots and the
+         shipped ones cannot drift apart. -->
+    <nav class="rail__nav" id="nav" aria-label="Workspaces"></nav>
+  </aside>
 
-  <section id="asks"></section>
+  <!-- Dismisses the rail when it is an overlay. Inert while the rail is
+       docked; the class is what makes it clickable. -->
+  <div class="rail-scrim" id="railScrim"></div>
 
-  <h2 class="section-head">Your companies</h2>
-  <div class="grid" id="cos"></div>
+  <div class="shell__body">
+
+    <header class="topbar">
+      <button class="btn btn--small rail-toggle" data-act="toggle-rail"
+        id="railToggle" aria-expanded="false" aria-controls="rail">Menu</button>
+      <h1 class="topbar__title" id="wsTitle">Command Center</h1>
+      <div class="topbar__acts">
+        <!-- Platform status, in one word, on every workspace. The banner below
+             carries the detail; this is the always-on indicator. -->
+        <span class="topbar__status" id="status"></span>
+        <button class="btn btn--small" data-act="toggle-notes" id="notesToggle"
+          aria-expanded="false" aria-controls="noteCenter">Updates</button>
+        <button class="btn btn--small btn--primary" data-act="open-new">New company</button>
+      </div>
+    </header>
+
+    <!-- System strip: platform-level, not workspace-level, so it lives in the
+         frame and shows on every workspace (docs/design/05-layout.md). -->
+    <div id="healthbar" aria-live="polite"></div>
+    <div id="flash" aria-live="polite"></div>
+    <div class="note-center" id="noteCenter" hidden></div>
+
+    <!-- Regions are declared here and filled by the modules, so the document
+         has a stable shape before any data arrives and nothing shifts when it
+         does. Every workspace's regions exist from the first paint; only the
+         active one is filled. -->
+    <main class="ws" id="ws" tabindex="-1">
+
+      <section class="ws__pane" data-ws="command-center">
+        <div class="tile-row" data-region="tiles"></div>
+        <section data-region="asks"></section>
+        <h2 class="section-head">Your companies</h2>
+        <div class="grid" data-region="companies"></div>
+      </section>
+
+      <section class="ws__pane" data-ws="companies" hidden>
+        <div class="grid" data-region="companies"></div>
+      </section>
+
+      <section class="ws__pane" data-ws="approvals" hidden>
+        <div data-region="asks"></div>
+      </section>
+
+      <section class="ws__pane" data-ws="settings" hidden>
+        <div data-region="settings"></div>
+      </section>
+
+    </main>
+  </div>
 </div>
 
 <div class="panel" id="panel" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">

@@ -4,7 +4,176 @@
    RULE: every declaration below references TIER 2 semantic tokens only.
    A raw hex or a tier-1 primitive in this file is a bug: it hard-codes a
    theme, because the whole theme swap happens at tier 2.
+
+   NAMING: `.block`, `.block__element`, `.block--modifier` — one convention,
+   stated in docs/design/06-components.md. A class only meaningful inside
+   another block carries that block's prefix; bare element selectors scoped to
+   a block (`.empty p`) are permitted for text-level children with no
+   variants. The half-migrated state inherited from M8-2 (BEM beside flat
+   legacy: `.facts`, `.fld`, `.why`, `.seg`, `.part`) is closed here.
    ========================================================================= */
+
+/* ── The application shell — docs/design/12-application-shell.md ───────────
+   The permanent frame: rail, top bar, system strip, workspace. Only the
+   workspace changes when the operator navigates, which is the whole argument
+   for a shell — the operator's orientation is furniture, not content. */
+.shell {
+  display: grid;
+  grid-template-columns: var(--layout-rail) minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+.shell__body {
+  min-width: 0;
+  padding: var(--space-8) var(--space-8) var(--space-13);
+}
+
+/* The workspace measure is unchanged by the shell: --layout-max still buys
+   exactly three company cards, it is simply no longer the viewport measure
+   (docs/design/05-layout.md, "content width"). */
+.ws {
+  max-width: var(--layout-max);
+}
+
+.ws:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: var(--space-2);
+}
+
+/* ── Nav rail ─────────────────────────────────────────────────────────────
+   Label-first, no icons (docs/design/07-iconography.md). The active item is
+   an accent left rule PLUS primary text — never colour alone
+   (docs/design/09-accessibility.md). */
+.rail {
+  grid-column: 1;
+  border-right: 1px solid var(--border-subtle);
+  background: var(--surface-sunken);
+  padding: var(--space-8) 0;
+  position: sticky;
+  top: 0;
+  align-self: start;
+  height: 100vh;
+  overflow-y: auto;
+  z-index: var(--z-rail);
+}
+
+.rail__mark {
+  font-family: var(--font-display);
+  font-weight: var(--weight-bold);
+  font-size: var(--size-3xl);
+  letter-spacing: var(--track-tight);
+  line-height: var(--leading-tight);
+  padding: 0 var(--space-8) var(--space-9);
+}
+
+.rail__nav {
+  display: flex;
+  flex-direction: column;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-8);
+  /* The active rule's width is always reserved, so becoming active moves no
+     text (docs/design/05-layout.md rule 2). */
+  border-left: 2px solid transparent;
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-size: var(--size-md);
+  min-height: 36px;
+  transition: background var(--motion-quick) var(--ease-standard),
+              color var(--motion-quick) var(--ease-standard);
+}
+
+.nav-item:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.nav-item--on {
+  border-left-color: var(--accent);
+  color: var(--text-primary);
+  background: var(--surface-base);
+}
+
+.nav-item__count {
+  margin-left: auto;
+  background: var(--status-risk);
+  color: var(--text-inverse);
+  border-radius: var(--radius-sm);
+  padding: 1px var(--space-3);
+  font-family: var(--font-data);
+  font-size: var(--size-xs);
+}
+
+/* Docked by default; an overlay below the width where rail and workspace both
+   fit. `.rail-toggle` and `.rail-scrim` exist only in the overlay mode. */
+.rail-toggle,
+.rail-scrim {
+  display: none;
+}
+
+/* ── Top bar ──────────────────────────────────────────────────────────────
+   Status, the workspace's name, and the one affirmative action. The stat tile
+   row moved into the workspace body at M8-4 — it is Command Center content,
+   not chrome (docs/design/05-layout.md). */
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  flex-wrap: wrap;
+  padding-bottom: var(--space-6);
+  border-bottom: 1px solid var(--border-strong);
+  margin-bottom: var(--space-8);
+}
+
+.topbar__title {
+  font-family: var(--font-display);
+  font-size: var(--size-2xl);
+  font-weight: var(--weight-semi);
+  letter-spacing: var(--track-snug);
+}
+
+.topbar__acts {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin-left: auto;
+}
+
+/* Always present, paired with the banner below: the word carries the state,
+   the colour only emphasises it. */
+.topbar__status {
+  font-family: var(--font-data);
+  font-size: var(--size-xs);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.topbar__status--bad {
+  color: var(--status-risk);
+}
+
+/* ── Notification center ──────────────────────────────────────────────────
+   Notifications used to stack as open banners above the operator's work. The
+   count on the top-bar control is always visible, so nothing is hidden — only
+   deferred to one click. */
+.note-center {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface-base);
+  padding: var(--space-5) var(--space-6);
+  margin-bottom: var(--space-7);
+}
+
+.note-center .calm {
+  padding: 0;
+  font-size: var(--size-base);
+}
 
 /* ── Eyebrow label ────────────────────────────────────────────────────────
    The strongest identity signal in the surface. Structural furniture set in
@@ -96,10 +265,28 @@
   filter: brightness(1.08);
 }
 
+/* 26px visually, 44px as a target. Finding M8-F27 asked for ≥44px touch
+   targets or a documented exception; this is neither a capitulation nor a
+   density regression, because WCAG 2.5.5 measures the region that ACCEPTS the
+   pointer, not the region that is painted. The pseudo-element extends the hit
+   area vertically to 44px and horizontally by half the 8px row gap, so two
+   adjacent card buttons meet exactly and never overlap. Full argument and the
+   measured numbers: docs/design/09-accessibility.md, "target sizes". */
 .btn--small {
   font-size: var(--size-sm);
   padding: var(--space-2) var(--space-5);
   min-height: 26px;
+  position: relative;
+}
+
+.btn--small::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: calc(var(--space-2) * -1);
+  right: calc(var(--space-2) * -1);
+  height: 44px;
+  transform: translateY(-50%);
 }
 
 .btn:disabled {
@@ -127,6 +314,12 @@
 /* ── Field ───────────────────────────────────────────────────────────────── */
 .field {
   margin-bottom: var(--space-6);
+}
+
+/* First field under a sheet title, where the title's own margin is not enough
+   separation. Was an inline `margin-top:16px` (UI Phase-1 gate debt). */
+.field--lead {
+  margin-top: var(--space-7);
 }
 
 .field label {
@@ -358,24 +551,24 @@
   gap: var(--space-1);
 }
 
-.seg {
+.meter__seg {
   flex: 1;
   height: 14px;
   border-radius: var(--radius-sm);
   background: var(--meter-track);
 }
 
-.seg--on {
+.meter__seg--on {
   background: var(--status-healthy);
 }
 
-.co-card--watch .seg--on,
-.meter--watch .seg--on {
+.co-card--watch .meter__seg--on,
+.meter--watch .meter__seg--on {
   background: var(--status-watch);
 }
 
-.co-card--at_risk .seg--on,
-.meter--at_risk .seg--on {
+.co-card--at_risk .meter__seg--on,
+.meter--at_risk .meter__seg--on {
   background: var(--status-risk);
 }
 
@@ -403,22 +596,36 @@
   margin-top: var(--space-3);
 }
 
+/* Sits directly above the health parts rule in the Details sheet — the two
+   read as one block, so the gap is the smallest on the scale. Was an inline
+   `margin:0 0 2px` (UI Phase-1 gate debt). */
+.reason--tight {
+  margin: 0 0 var(--space-1);
+}
+
+/* A lede under a title or a section heading: explains the section before the
+   operator meets its controls. Was inline `margin:10px 0 18px` and
+   `margin:0 0 10px`, neither on the 4px scale (UI Phase-1 gate debt). */
+.reason--lede {
+  margin: var(--space-4) 0 var(--space-8);
+}
+
 /* ── Health parts (Details only) ─────────────────────────────────────────── */
-.parts {
+.health-parts {
   display: flex;
-  gap: 18px;
+  gap: var(--space-8);
   flex-wrap: wrap;
   padding: var(--space-5) 0;
   border-top: 1px solid var(--border-subtle);
 }
 
-.part {
+.health-parts__item {
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
 }
 
-.part span {
+.health-parts__item span {
   font-family: var(--font-data);
   font-size: var(--size-2xs);
   letter-spacing: .08em;
@@ -426,7 +633,7 @@
   color: var(--text-muted);
 }
 
-.part b {
+.health-parts__item b {
   font-family: var(--font-data);
   font-variant-numeric: tabular-nums;
   font-size: var(--size-lg);
@@ -451,15 +658,15 @@
   margin-bottom: var(--space-6);
 }
 
-.facts {
+.ask__facts {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-  gap: var(--space-6) 22px;
+  grid-template-columns: repeat(auto-fit, minmax(var(--layout-fact-min), 1fr));
+  gap: var(--space-6) var(--space-9);
   padding: var(--space-6) 0;
   border-top: 1px solid var(--border-subtle);
 }
 
-.fact dt {
+.ask__fact dt {
   font-family: var(--font-data);
   font-size: var(--size-2xs);
   letter-spacing: var(--track-label);
@@ -468,7 +675,7 @@
   margin-bottom: var(--space-1);
 }
 
-.fact dd {
+.ask__fact dd {
   font-size: var(--size-md);
 }
 
@@ -481,7 +688,17 @@
   border-top: 1px solid var(--border-subtle);
 }
 
-.waited {
+/* An action row that closes a sheet rather than an approval: the rule above
+   it would be a second horizontal line inside an already-bordered panel.
+   Replaces four inline `border:0` sites with assorted off-scale margins
+   (UI Phase-1 gate debt) — they are one thing and now say so. */
+.acts--plain {
+  border-top: 0;
+  padding-top: 0;
+  margin-top: var(--space-8);
+}
+
+.ask__waited {
   font-family: var(--font-data);
   font-size: var(--size-xs);
   color: var(--text-muted);
@@ -498,11 +715,11 @@
   padding-top: var(--space-6);
 }
 
-.outgoing .fld {
+.outgoing__field {
   margin-top: var(--space-5);
 }
 
-.outgoing .fld label {
+.outgoing__field label {
   display: block;
   font-family: var(--font-data);
   font-size: var(--size-2xs);
@@ -512,8 +729,8 @@
   margin-bottom: var(--space-2);
 }
 
-.outgoing .fld input,
-.outgoing .fld textarea {
+.outgoing__field input,
+.outgoing__field textarea {
   width: 100%;
   padding: var(--space-4) var(--space-5);
   border: 1px solid var(--border-default);
@@ -525,23 +742,23 @@
   line-height: var(--leading-body);
 }
 
-.outgoing .fld textarea {
+.outgoing__field textarea {
   min-height: 180px;
   resize: vertical;
 }
 
-.outgoing .fld input:focus-visible,
-.outgoing .fld textarea:focus-visible {
+.outgoing__field input:focus-visible,
+.outgoing__field textarea:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -1px;
 }
 
-.outgoing .fld pre {
+.outgoing__field pre {
   white-space: pre-wrap;
   max-height: none;
 }
 
-.outgoing .why {
+.outgoing__why {
   font-size: var(--size-base);
   color: var(--text-secondary);
   margin-top: var(--space-5);
@@ -607,10 +824,34 @@
   margin-top: var(--space-1);
 }
 
-.entry .why {
+/* The reason line. Named `.entry__why` in docs/design/06-components.md since
+   M8-2 while the code shipped a bare `.why` — the doc-vs-code mismatch the
+   UI Phase-1 gate recorded, in a system whose first rule is "extend, don't
+   reinvent". The code moved to the doc's name rather than the reverse: `.why`
+   was also in use inside `.outgoing`, so one flat class was doing two blocks'
+   work. */
+.entry__why {
   color: var(--text-secondary);
   font-size: var(--size-base);
   margin-top: var(--space-2);
+}
+
+/* One line of an entry that carries a trailing control. Replaces an inline
+   `float:right` on the Settings toggle (UI Phase-1 gate debt) — a float in a
+   flex-era layout that also put the button outside the text baseline. */
+.entry__row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.entry__row .entry__why {
+  margin-top: 0;
+}
+
+.entry__act {
+  margin-left: auto;
 }
 
 .stuck {
@@ -646,37 +887,21 @@
   color: var(--text-secondary);
 }
 
+/* The empty state's first step. Was an inline `margin-top:16px` (UI Phase-1
+   gate debt). */
+.empty__act {
+  margin-top: var(--space-7);
+}
+
 .calm {
   font-size: var(--size-lg);
   color: var(--text-secondary);
   padding: var(--space-6) 0;
 }
 
-/* ── Masthead ────────────────────────────────────────────────────────────── */
-.top {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-7);
-  flex-wrap: wrap;
-  padding-bottom: var(--space-6);
-  border-bottom: 1px solid var(--border-strong);
-  margin-bottom: var(--space-8);
-}
-
-.mark {
-  font-family: var(--font-display);
-  font-weight: var(--weight-bold);
-  font-size: var(--size-4xl);
-  letter-spacing: var(--track-tight);
-  line-height: var(--leading-tight);
-}
-
-.top__acts {
-  display: flex;
-  gap: var(--space-4);
-  margin-left: auto;
-}
+/* The masthead is gone: the shell's rail carries the wordmark and its top bar
+   carries the actions (docs/design/12-application-shell.md). `.top`, `.mark`
+   and `.top__acts` were removed with it rather than left as dead rules. */
 
 .halted {
   color: var(--status-risk);
@@ -903,15 +1128,68 @@ pre {
 }
 
 /* ── Responsive (docs/design/05-layout.md) ────────────────────────────────
-   The card grid needs no media query: auto-fill with a 292px minimum
-   handles every width on its own. These exist for the masthead and panel,
-   which have fixed structure. */
-@media (max-width: 640px) {
-  .top {
-    align-items: flex-start;
+   The card grid still needs no media query: auto-fill with a 292px minimum
+   handles every width on its own. These exist for the shell, the top bar and
+   the panel, which have fixed structure. */
+
+/* Below the width where rail and workspace both fit, the rail becomes an
+   overlay: the workspace keeps the whole viewport and the rail slides over it
+   on demand. It is never removed from the document — a nav that stops
+   existing at a breakpoint is a nav a keyboard operator cannot reach. */
+@media (max-width: 1180px) {
+  .shell {
+    grid-template-columns: minmax(0, 1fr);
   }
 
-  .top__acts {
+  /* `visibility` is what takes the closed rail out of the tab order. Without
+     it a keyboard operator tabs through four nav links that are off-screen
+     and invisible before reaching the Menu button that reveals them — the
+     surface would be describing a rail nobody can see. Transform alone does
+     not do this: a translated element is still focusable. The visibility
+     change is delayed by the slide duration on the way out so the rail stays
+     visible while it leaves, and is immediate on the way in. */
+  .rail {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: var(--layout-rail);
+    height: auto;
+    transform: translateX(-100%);
+    visibility: hidden;
+    transition: transform var(--motion-base) var(--ease-standard),
+                visibility 0s linear var(--motion-base);
+  }
+
+  .rail-toggle {
+    display: inline-flex;
+    align-items: center;
+    order: -1;
+  }
+
+  .rail-open .rail {
+    transform: none;
+    visibility: visible;
+    transition: transform var(--motion-base) var(--ease-standard),
+                visibility 0s;
+  }
+
+  .rail-open .rail-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: var(--surface-overlay);
+    z-index: var(--z-topbar);
+  }
+}
+
+@media (max-width: 640px) {
+  .shell__body {
+    padding-left: var(--space-5);
+    padding-right: var(--space-5);
+  }
+
+  .topbar__acts {
     margin-left: 0;
     width: 100%;
   }

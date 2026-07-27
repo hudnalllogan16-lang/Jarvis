@@ -131,6 +131,7 @@ def test_both_themes_define_the_same_semantic_tokens() -> None:
         "09-accessibility.md",
         "10-interaction-patterns.md",
         "11-persona-components.md",
+        "12-application-shell.md",
     ],
 )
 def test_the_design_system_artifact_is_complete(doc: str) -> None:
@@ -140,6 +141,108 @@ def test_the_design_system_artifact_is_complete(doc: str) -> None:
     path = pathlib.Path("docs/design") / doc
     assert path.exists(), f"missing design-system document: {doc}"
     assert len(path.read_text(encoding="utf-8")) > 500, f"{doc} is a stub"
+
+
+SHELL = pathlib.Path("jarvis/api/static/app/shell.js")
+
+
+def test_every_nav_item_has_a_workspace_and_every_workspace_has_a_nav_item() -> None:
+    """docs/design/12-application-shell.md: "a nav item is a promise that a
+    destination exists".
+
+    This is docs/design/01-principles.md #3 applied to navigation. A rail entry
+    leading to an empty screen is decorative furniture that lies, and it is the
+    single most tempting thing to add to a shell — the concept image names
+    seven destinations and Jarvis serves data for four. The reserved three plus
+    Managers are recorded in the design document, where a reservation costs the
+    operator nothing; this test is what stops one drifting into the rail.
+
+    Asserted in both directions: an orphan pane is just as wrong, because it is
+    a surface the operator cannot reach.
+    """
+    nav_ids = set(re.findall(r"\bid:\s*'([a-z-]+)'", SHELL.read_text(encoding="utf-8")))
+    pane_ids = set(re.findall(r'data-ws="([a-z-]+)"', markup()))
+    assert nav_ids, "no workspaces found in shell.js — did WORKSPACES move?"
+    assert nav_ids == pane_ids, (
+        f"rail and workspaces disagree: only in rail {nav_ids - pane_ids}, "
+        f"only in markup {pane_ids - nav_ids}"
+    )
+
+
+def test_the_surface_makes_no_third_party_requests() -> None:
+    """Finding M8-F21. Jarvis runs locally; a surface that fetches its own
+    chrome from someone else's CDN is offline-fragile and tells that third
+    party when the operator opened their dashboard.
+
+    Closed at M8-4 by deleting the webfont links. The check covers CSS too:
+    `@import` and `url()` are the other doors a webfont can come back through,
+    and the next person to want Bricolage Grotesque will reach for one of them.
+    """
+    external = re.findall(r'(?:href|src)="(https?://[^"]+)"', markup())
+    assert not external, f"index.html requests third-party assets: {external}"
+    for path in style_paths():
+        css = path.read_text(encoding="utf-8")
+        css = re.sub(r"/\*.*?\*/", " ", css, flags=re.S)
+        remote = re.findall(r"(?:@import|url)\s*\(?\s*['\"]?(https?://[^)'\"]+)", css)
+        assert not remote, f"{path.name} requests third-party assets: {remote}"
+
+
+def test_no_inline_styles_anywhere_in_the_surface() -> None:
+    """The UI Phase-1 gate recorded ten inline `style=` sites in the JS
+    modules, several off the 4px scale. They moved to the sheet at M8-4.
+
+    Inline styles are not a tidiness question: a value in a template literal is
+    invisible to docs/design/04-spacing.md's scale, cannot be themed, and
+    cannot be found by anyone reading components.css to learn what a component
+    looks like — which is the file the design system points them at.
+    """
+    sources = {"index.html": markup()}
+    for path in script_paths():
+        sources[path.name] = path.read_text(encoding="utf-8")
+    offenders = {name: re.findall(r'style="[^"]*"', text) for name, text in sources.items()}
+    offenders = {name: found for name, found in offenders.items() if found}
+    assert not offenders, f"inline styles are a components.css concern: {offenders}"
+
+
+def test_the_overlays_contain_focus_and_give_it_back() -> None:
+    """Finding M8-F23 (WCAG 2.4.3), closed at M8-4.
+
+    Behaviour is verified in a browser, not here; what this pins is that the
+    sheet and the rail go through ONE implementation. They have identical
+    obligations, and the reason the modal shipped without a trap in the first
+    place is that focus management was nobody's single responsibility.
+    """
+    focus_module = pathlib.Path("jarvis/api/static/app/focus.js")
+    assert focus_module.exists(), "focus containment lives in app/focus.js"
+    for path in (pathlib.Path("jarvis/api/static/app/panel.js"), SHELL):
+        source = path.read_text(encoding="utf-8")
+        assert "trapFocus" in source, f"{path.name} opens an overlay without containing focus"
+
+
+def test_the_naming_convention_migration_stayed_closed() -> None:
+    """docs/design/06-components.md, "the naming convention".
+
+    The half-migrated state (BEM elements beside flat legacy classes doing
+    element work) is what let `.entry__why` be documented while `.why` shipped
+    — a doc-vs-code mismatch in a system whose first rule is "extend, don't
+    reinvent". These are the exact class names that were retired at M8-4.
+    """
+    retired = {
+        "why": "entry__why / outgoing__why",
+        "fld": "outgoing__field",
+        "seg": "meter__seg",
+        "part": "health-parts__item",
+        "parts": "health-parts",
+        "facts": "ask__facts",
+        "fact": "ask__fact",
+        "waited": "ask__waited",
+    }
+    emitted = surface_text()
+    for name, replacement in retired.items():
+        assert f'class="{name}"' not in emitted, (
+            f'flat legacy class "{name}" is back — it belongs to a block now, as '
+            f"{replacement} (docs/design/06-components.md, the naming convention)"
+        )
 
 
 def test_persona_components_ship_as_spec_with_no_rendering_path() -> None:

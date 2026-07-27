@@ -80,11 +80,30 @@ green fill (`06-components.md`).
   positive `tabindex`.
 - The focus ring must clear its surroundings at every plane; measured above.
 
-**Known gap, recorded as M8-F23:** the modal sheet does not trap focus, and focus is not
-restored to the invoking control on close. Tab from inside the open panel reaches the page
-behind it. The panel is otherwise correct (`role="dialog"`, `aria-modal`, `aria-labelledby`,
-Escape and scrim dismissal). This is a real AA failure under 2.4.3 and it belongs with the
-shell's focus management in M8-4 rather than being half-fixed here.
+**M8-F23 — closed at M8-4.** The modal sheet contains Tab while it is open and returns focus to
+the invoking control on close; the overlay nav rail does the same through the same module
+(`app/focus.js`). Verified live with real key presses: five Tab presses inside an open Details
+sheet stayed inside it, and Escape both closed the sheet and restored focus to the exact button
+that opened it.
+
+Two failure modes were found *by that verification* and would not have been found by reading:
+
+- Focus restored to an invoker the 15-second repaint had already replaced silently dropped the
+  operator on `<body>`. Fallback is now the workspace (**M8-F79**).
+- `document.activeElement` is `<body>` when nothing holds focus, and `body.focus()` is a no-op —
+  a restore that looks correct in source and does nothing in a browser.
+
+**Still not trapped:** the background is not `inert`. A screen reader's virtual cursor can still
+browse the page behind an open sheet even though Tab cannot reach it. `inert` is the correct fix
+and is a follow-up, not a silent omission.
+
+### Navigation
+
+The rail is `<a href>` elements — they navigate, so they are links — with `aria-current="page"`
+on the active one. The closed overlay rail is `visibility: hidden`, which is what removes it
+from the tab order; a transformed-off-screen element is still focusable, and leaving it that way
+would make a keyboard operator traverse four invisible links to reach the control that reveals
+them (**M8-F80**). A skip link precedes the rail so the workspace is one Tab away.
 
 ## Semantics
 
@@ -109,24 +128,42 @@ off, by the rule above.
 `prefers-color-scheme` selects the theme, and an explicit `[data-theme]` overrides it in both
 directions.
 
-## Target sizes and input
+## Target sizes and input — M8-F27, resolved at M8-4
 
-Interactive controls are at least 32px in their smaller dimension for default buttons. The
-`.btn--small` variant used on cards is 26px tall — **below** the 44px WCAG 2.5.5 (AAA) advisory
-and below the 24px AA minimum only in the sense that it clears it narrowly. Recorded as a
-follow-up for the shell pass rather than changed here, because raising it changes card density
-and that is M8-4's decision to make with the whole layout in view.
+Default buttons are ≥32px. `.btn--small`, used on cards and in sheets, is **26px painted and
+44px as a target**.
+
+The distinction is the whole resolution. WCAG 2.5.5 measures the region that *accepts the
+pointer*, not the region that is inked. `.btn--small::after` is an absolutely-positioned 44px-tall
+box centred on the button and extended horizontally by 4px each side — half the 8px row gap — so
+two adjacent card buttons meet exactly and never overlap. Verified live with
+`document.elementFromPoint` at ±21px above and below the button's centre: both hit the button.
+
+This satisfies the 44px AAA advisory **without** the density cost that motivated deferring it:
+raising the painted height to 44px would add ~36px to every company card and break the three-up
+grid that `--layout-max` exists to produce.
+
+For reference on the thresholds actually binding here: this system targets WCAG 2.1 AA, where
+target size is not a criterion at all; 2.5.8 (Target Size (Minimum), 24px) arrives in WCAG 2.2
+and the painted 26px already cleared it. So the pseudo-element buys the AAA advisory rather than
+fixing a conformance failure — recorded plainly rather than claimed as a fix for a violation
+that was not one.
 
 ## What is not yet verified
 
 Stated plainly, per this project's verified-vs-written discipline:
 
-- Contrast: **computed** from token values (arithmetic, reproducible).
+- Contrast: **computed** from token values (arithmetic, reproducible). Not recomputed for the
+  shell's own surfaces at M8-4 — the rail uses `--surface-sunken` with `--text-secondary` and
+  `--text-primary`, both already in the measured table above, so no new pairing was introduced.
 - Structure, roles, focus rules, live regions: **source-verified and rendered-DOM-verified**.
+- Focus containment and restore: **verified live**, with real key presses for the sheet and
+  programmatically for the rail (the browser pane stopped accepting synthetic input mid-session;
+  stated rather than glossed).
+- Tab order: **verified live** against the rendered DOM — skip link → rail → top bar →
+  workspace, matching reading order, with the closed overlay rail absent from the sequence.
 - Screen-reader behaviour with an actual screen reader: **not tested**.
-- Keyboard-only traversal of every path: **partially exercised**; the focus-trap gap above was
-  found by inspection, not by a full traversal audit.
+- `inert` on the background behind an open sheet: **not implemented**.
 
-A full assistive-technology audit is a follow-up, and it should happen after the Application
-Shell lands rather than before — auditing a surface that is about to gain a nav rail and a
-theme switch would be auditing the wrong thing.
+A full assistive-technology audit is now the right next step: the shell has landed, so the
+surface it would audit is the one that will exist.

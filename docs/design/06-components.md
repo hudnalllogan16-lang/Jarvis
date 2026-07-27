@@ -10,6 +10,27 @@ in `jarvis/api/static/app/`.
 Components marked **SPEC ONLY** have no rendering path yet, deliberately — the data behind them
 does not exist. Shipping them would violate `01-principles.md` #3.
 
+## The naming convention
+
+One convention, stated, and migrated completely at M8-4:
+
+    .block            a thing            .co-card   .entry   .ask   .meter
+    .block__element   part of that thing .co-card__name   .entry__why
+    .block--modifier  a variant of it    .btn--small      .banner--down
+
+A block name may be hyphenated (`.co-card`, `.section-head`, `.health-parts`). A class that is
+only meaningful inside another block **carries that block's prefix** — this is the rule that was
+half-applied before M8-4, when BEM elements (`.co-card__name`) sat beside flat legacy classes
+doing element work (`.facts`, `.fld`, `.why`, `.seg`, `.part`). Bare element selectors scoped to
+a block (`.empty p`, `.health-parts__item b`) are permitted for text-level children that have no
+variants; introducing a variant is the signal to give it a class.
+
+The migration closed at M8-4: `.facts`→`.ask__facts`, `.fact`→`.ask__fact`,
+`.waited`→`.ask__waited`, `.fld`→`.outgoing__field`, `.seg`→`.meter__seg`,
+`.part`/`.parts`→`.health-parts__item`/`.health-parts`, and `.why`→`.entry__why` /
+`.outgoing__why` — one flat class had been doing two blocks' work, which is why the doc-vs-code
+mismatch below could exist at all.
+
 ---
 
 ## Foundations
@@ -138,7 +159,14 @@ duplicates a label and spends colour for nothing.
 ### Activity feed entry — `.entry`
 
 **Anatomy.** hairline rule → `<time>` (relative, `--font-data`, muted) → what (body) →
-why (`.entry__why`, secondary).
+why (`.entry__why`, secondary). An entry carrying a trailing control uses `.entry__row`
+(flex, baseline) with `.entry__act` pushed right.
+
+`.entry__why` was documented here from M8-2 while the code shipped a bare `.why` — the
+doc-vs-code mismatch the UI Phase-1 gate recorded, in a system whose first rule is "extend,
+don't reinvent". Resolved at M8-4 **in the code's direction of travel but at the doc's name**:
+`.why` was also in use inside `.outgoing`, so the flat class was serving two blocks and neither
+could own it.
 
 **States.** normal · stuck (`.stuck` — left rule in `--status-risk`, washed background) ·
 empty ("Nothing has happened yet.").
@@ -220,9 +248,10 @@ Escape, on scrim click, and on its Close button. Scrolls internally.
 **States.** closed · open · loading a lazy section (audit detail is fetched only when its
 `<details>` is opened).
 
-**Known gap (M8-F23):** focus is not yet trapped inside the open sheet, and focus does not
-return to the invoking control on close. Recorded, not fixed here — it belongs with the shell's
-focus management (M8-4). See `09-accessibility.md`.
+**Focus (M8-F23, closed at M8-4).** Focus enters the sheet on open, Tab is contained while it is
+open, and focus returns to the invoking control on close — or to the workspace when the repaint
+has since replaced that control. Shared with the overlay rail via `app/focus.js`; see
+`12-application-shell.md`.
 
 ### Disclosure — `<details>` / `.disclosure`
 
@@ -235,14 +264,43 @@ the thing being authorised.
 
 ---
 
-## Shell components — SPEC ONLY
+## Shell components — shipped at M8-4
 
-Needed by M8-4, specified here so that packet extends rather than invents.
+Full specification: `12-application-shell.md`.
 
-- **Nav rail** — vertical, fixed width, one item per workspace. Items are label-first; the
-  active item is marked by an accent left rule plus `--text-primary`, never by colour alone.
-- **Nav item badge** — a count pill reusing `.section-head__count`. Only ever shows a count that
-  needs the operator (pending approvals); never a total.
+### Nav item — `.nav-item`
+
+**Anatomy.** Label only, no icon (`07-iconography.md`). Optional `.nav-item__count`.
+
+**States.** rest (`--text-secondary`) · hover (surface lifts) · active `.nav-item--on` (accent
+left rule **plus** `--text-primary` **plus** `aria-current="page"` — three channels, never
+colour alone) · focus-visible (the system ring).
+
+**Rules.** The transparent left border is present at rest, so becoming active moves no text. An
+item exists only if its workspace exists — see `12-application-shell.md`, "a nav item is a
+promise that a destination exists".
+
+### Nav item badge — `.nav-item__count`
+
+Only ever a count that **needs the operator** (pending approvals); never a total. Zero removes
+the badge rather than rendering `0`.
+
+### Top bar — `.topbar`
+
+**Anatomy.** Menu control (overlay widths only) → workspace title (`<h1>`, display face) →
+status word → notification control → New company.
+
+**Rules.** The status word is always present and always paired with the banner beneath it; the
+word carries the state and the colour only emphasises it.
+
+### Notification center — `.note-center`
+
+A disclosure in the frame, not a workspace. The count on its control is always visible, so the
+existence of an update is never hidden — only the reading of it is deferred to one click. Empty
+state is `.calm`: no notifications is a good emptiness.
+
+### Still SPEC ONLY
+
 - **Persona chip** — see `11-persona-components.md`. **No rendering path until persona data
   exists.**
 - **Trend indicator** — direction arrow plus delta, in `--font-data`. Requires a time series the

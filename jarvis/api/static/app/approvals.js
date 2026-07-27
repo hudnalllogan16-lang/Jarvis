@@ -10,11 +10,11 @@ import { refresh } from './refresh.js';
 
 export function askCard(a) {
   const facts = Object.entries(a.detail)
-    .map(([k, v]) => `<div class="fact"><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`)
+    .map(([k, v]) => `<div class="ask__fact"><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`)
     .join('');
   return `<article class="ask">
     <h2>${esc(a.ask)}</h2>
-    <dl class="facts">${facts}</dl>
+    <dl class="ask__facts">${facts}</dl>
     ${outgoing(a)}
     <div class="acts">
       <button class="btn btn--primary" data-act="decide" data-id="${esc(a.id)}"
@@ -23,7 +23,7 @@ export function askCard(a) {
         data-verb="deny">Say no</button>
       <button class="btn btn--small" data-act="open-co"
         data-id="${esc(a.company_id)}">Why?</button>
-      <span class="waited">waiting ${esc(ago(a.waiting_since))}</span>
+      <span class="ask__waited">waiting ${esc(ago(a.waiting_since))}</span>
     </div></article>`;
 }
 
@@ -46,12 +46,13 @@ function outgoing(a) {
 >${esc(f.value)}</textarea>`
           : `<input id="f-${at}" data-key="${esc(f.key)}" data-was="${esc(f.value)}"
              value="${esc(f.value)}">`;
-      return `<div class="fld"><label for="f-${at}">${esc(f.label)}</label>${control}</div>`;
+      return `<div class="outgoing__field">
+        <label for="f-${at}">${esc(f.label)}</label>${control}</div>`;
     })
     .join('');
   return `<details class="outgoing" open id="out-${esc(a.id)}">
     <summary>What will go out</summary>${rows}
-    <p class="why">${
+    <p class="outgoing__why">${
       editable
         ? 'Change it here before you say yes. If you change it, Jarvis keeps asking you about this one.'
         : 'This is exactly what gets sent.'
@@ -78,7 +79,11 @@ function corrections(id) {
 // The 15-second repaint must not delete what someone is part-way through typing
 // into a request they are about to authorise.
 export function editing() {
-  const fields = [...document.querySelectorAll('#asks [data-key]')];
+  // Scoped to the region rather than to an id: since M8-4 the approvals region
+  // is declared by two workspaces (the Command Center and Approvals) and only
+  // the active one is ever filled, so the selector must name the region, not a
+  // single element.
+  const fields = [...document.querySelectorAll('[data-region="asks"] [data-key]')];
   return (
     fields.some((f) => f.value !== f.dataset.was) ||
     fields.includes(document.activeElement)

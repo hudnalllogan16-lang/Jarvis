@@ -50,9 +50,18 @@
 
   /* ── Typography (theme-independent) ─────────────────────────────────────
      Three families, three jobs — docs/design/03-typography.md.
-     Fallbacks are part of the design: the webfonts load from a third party
-     (finding M8-F21) and must degrade gracefully, not brokenly. */
-  --font-display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+
+     Finding M8-F21 (the third-party CDN) is closed by DELETION, not by
+     vendoring: a locally-run platform must not ask Google for its own chrome,
+     and until the licensed files are actually vendored into
+     `jarvis/api/static/fonts/` the honest state is "no webfonts", not
+     "@font-face pointing at files that 404". The stacks below are therefore
+     what actually renders today, and the display stack names a distinct
+     platform face first so the display/body distinction survives the loss of
+     Bricolage Grotesque rather than collapsing to one family.
+     tests/test_design_system.py pins the no-third-party-request property. */
+  --font-display: "Bricolage Grotesque", "Segoe UI Variable Display",
+                  "Segoe UI Semibold", Optima, Avenir, system-ui, sans-serif;
   --font-body:    "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
   --font-data:    "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
 
@@ -108,15 +117,40 @@
   --radius-pill:  999px;
 
   /* ── Layout (docs/design/05-layout.md) ─────────────────────────────────
-     1080 = three 292px cards + two 12px gaps + gutters. Not arbitrary. */
+     1080 = three 292px cards + two 12px gaps + gutters. Not arbitrary.
+
+     --layout-max is the WORKSPACE measure, not the viewport measure: the
+     shell (M8-4) puts a rail beside it, so the window the three-up card grid
+     needs is --layout-rail + --layout-max + gutters. The card arithmetic is
+     unchanged, which is the whole reason this token was reserved here. */
   --layout-max:      1080px;
   --layout-card-min: 292px;
   --layout-tile-min: 180px;
+  --layout-fact-min: 190px;
   --layout-sheet:    640px;
+
+  /* The nav rail. 216px fits the longest shipped label ("Command Center") at
+     the body size with its active rule and gutters, without the wrapping that
+     would make a fixed rail ragged. Reserved by docs/design/05-layout.md at
+     M8-2 and given a value here. */
+  --layout-rail: 216px;
+
   --bp-sm: 640px;
   --bp-md: 900px;
   --bp-lg: 1080px;
-  --z-panel: 10;
+
+  /* The rail becomes an overlay below the width at which rail + workspace
+     both fit: 216 + 1080 is more window than most laptops have, so the
+     docked rail arrives at --bp-shell rather than at --bp-lg. Below it the
+     workspace keeps the full viewport and the rail slides over. */
+  --bp-shell: 1180px;
+
+  /* Stacking. --z-panel was the system's only context; the shell adds two
+     that must sit above workspace content and below the modal, because a
+     dialog opened FROM the rail has to cover the rail that opened it. */
+  --z-rail:    20;
+  --z-topbar:  15;
+  --z-panel:   30;
 
   /* ── Motion (docs/design/08-motion.md) ─────────────────────────────────
      Asymmetric easing: things enter decelerating, leave accelerating. */
