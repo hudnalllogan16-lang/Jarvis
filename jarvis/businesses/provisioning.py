@@ -17,11 +17,11 @@ from __future__ import annotations
 from collections.abc import Sequence
 from decimal import Decimal
 
-from jarvis.businesses.definition import BusinessTypeDefinition
+from jarvis.businesses.definition import BusinessTypeDefinition, compute_digest
 from jarvis.domain.contract import BudgetPolicy, BusinessContract, WakeConditions
 from jarvis.domain.lifecycle import LifecycleState
 from jarvis.events.bus import Event, EventBus
-from jarvis.events.types import BUSINESS_ACTIVATED
+from jarvis.events.types import BUSINESS_ACTIVATED, CAPABILITY_RESULT, KPI_THRESHOLD_BREACHED
 from jarvis.kernel.errors import ConfigurationError
 from jarvis.kernel.ids import (
     BusinessId,
@@ -62,13 +62,23 @@ class ProvisioningService:
         self._default_wake_ceiling_usd = default_wake_ceiling_usd
 
     async def install(self, definition: BusinessTypeDefinition) -> None:
-        """Install a business type, refusing incomplete ones.
+        """Install a business type, refusing an internally inconsistent one.
 
         Raises:
             ConfigurationError: If any permitted capability lacks a prompt
-                template. Refused at install time rather than at first dispatch:
-                the same defect surfaces either way, but here it reaches a
-                developer instead of an operator watching a company do nothing.
+                template; if a `kpi_mappings` key names no
+                `default_kpi_targets` key (D-027.2 — a mapping with no target
+                writes an observation nothing reads); if `event_triggers`
+                subscribes to `capability.result_returned` (M6-F10 — every
+                result is awaited inside the cycle that requested it under
+                D-001, so subscribing is a self-sustaining wake loop bounded
+                only by `max_cycles_per_day`); or if a type declaring
+                `kpi_mappings` also subscribes to `KPI_THRESHOLD_BREACHED`
+                (M7-F35 — the type would re-wake itself from its own
+                measurement). Every one of these is refused here rather than
+                at first dispatch or first cycle: the same defect surfaces
+                either way, but here it reaches a developer instead of an
+                operator watching a company do nothing or loop unexpectedly.
         """
         missing = definition.missing_templates()
         if missing:
@@ -76,6 +86,33 @@ class ProvisioningService:
                 f"business type {definition.name} permits capabilities with no prompt "
                 f"template: {list(missing)} (spec §4)"
             )
+
+        target_keys = {target.key for target in definition.default_kpi_targets}
+        unmatched_mappings = sorted(
+            mapping.key for mapping in definition.kpi_mappings if mapping.key not in target_keys
+        )
+        if unmatched_mappings:
+            raise ConfigurationError(
+                f"business type {definition.name} declares kpi_mappings for "
+                f"{unmatched_mappings}, which name no default_kpi_targets key: an "
+                "observation with no target is unmeasurable (D-027.2)"
+            )
+
+        if CAPABILITY_RESULT in definition.event_triggers:
+            raise ConfigurationError(
+                f"business type {definition.name} subscribes to {CAPABILITY_RESULT!r}: "
+                "every capability result is awaited inside the cycle that requested it "
+                "(D-001), so this is a self-sustaining wake loop bounded only by "
+                "max_cycles_per_day (M6-F10)"
+            )
+
+        if definition.kpi_mappings and KPI_THRESHOLD_BREACHED in definition.event_triggers:
+            raise ConfigurationError(
+                f"business type {definition.name} declares kpi_mappings and subscribes to "
+                f"{KPI_THRESHOLD_BREACHED!r}: it would re-wake itself from its own "
+                "measurement (M7-F35)"
+            )
+
         await self._registry.install_business_type(
             name=BusinessTypeName(definition.name),
             version=definition.version,
@@ -84,6 +121,7 @@ class ProvisioningService:
                 "description": definition.description,
                 "prompt_templates": definition.prompt_templates,
                 "definition": definition.model_dump(mode="json"),
+                "definition_digest": compute_digest(definition),
             },
         )
         logger.info("business type installed", extra={"context": {"name": definition.name}})

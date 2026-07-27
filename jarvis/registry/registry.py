@@ -13,6 +13,7 @@ any circumstance, including bugs or malformed requests" satisfiable.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import select
@@ -82,6 +83,11 @@ class BusinessRegistry:
             display_name: Operator-facing "company template" name (D-007).
             metadata: Plugin metadata.
 
+        An upgrade (an existing row under a new version) also refreshes
+        `installed_at` to now — the column default only fires on the first
+        insert, so without this an upgraded row would report its original
+        install time forever (M7-F48).
+
         Raises:
             DuplicateBusinessError: If the same name and version is already
                 installed. Reinstalling an identical version is a caller bug,
@@ -106,6 +112,11 @@ class BusinessRegistry:
             existing.version = version
             existing.display_name = display_name
             existing.plugin_metadata = metadata or {}
+            # `installed_at`'s column default only fires on INSERT, so an
+            # upgrade left it reading the original install time forever —
+            # an operator (or a developer reading the row) had no way to tell
+            # a type had ever changed underneath a running platform (M7-F48).
+            existing.installed_at = datetime.now(UTC)
         await self._session.flush()
         await self._audit.record(
             event_type="business_type.installed",
