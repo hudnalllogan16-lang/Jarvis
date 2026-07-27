@@ -1518,3 +1518,27 @@ Owner approved the M8 plan (docs/reports/M8-PLAN.md) 2026-07-27 with amendments,
    Premium UI Concept is the north star for craftsmanship, not a pixel spec.
 5. **Engineering discipline unchanged** — all D-026 practices, reviewer independence,
    escalation discipline, and governance carry forward at full strength.
+
+## M8-F1 … M8-F8 — the framework design round (M8-1, Lane A)
+
+Design merged: docs/design/PLUGIN-FRAMEWORK.md (614 lines) — injected catalog, three
+refresh bands (live / consented / never), packaging unchanged (D-014 stands), the closed
+type-parameter surface enumerated. D-029…D-032 drafts await Manager review at wave-1
+packet-cutting; both escalations correctly frozen for v1 (permission/autonomy refresh = §10
+widening, security-engineer's call; A-003 graduation-reset implementation = its own decision).
+
+- **M8-F8 (open, ledger miss):** A-003's major-version graduation reset is documented in four
+  places, schema-backed (`plugin_major_version` column), and has ZERO readers/writers — the
+  M7-F21 shape again, and again absent from the deferred-completion ledger. Ledger row to be
+  added; implementation belongs with the refresh mechanism packet.
+- **M8-F1 (open):** `ensure_builtin_types` catches `RegistryError` but `install()` raises
+  sibling `ConfigurationError` — one bad built-in aborts the loop; containment intent
+  unachieved. Wave-1 catalog packet.
+- **M8-F3 (open):** live affiliate v1.0.1 definition JSON predates D-027 (no kpi_mappings
+  key) — M6-F22's drift, now concrete; the refresh mechanism's second live subject.
+- **M8-F7 (routed cross-lane):** planner reads kpi_targets from ManagerState seeded at start
+  — stale up to 100 cycles under refresh; folded into M8-3's post-wake CycleContext work
+  mid-flight (warm relay).
+- M8-F2 silent install skips; M8-F4 (M10's real dependency is KpiSource membership, not
+  packaging); M8-F5 (prose-in-Python future trigger); M8-F6 (Band B target rule expires with
+  per-instance editing). All scheduled in the design's Part 9 packet cut.
