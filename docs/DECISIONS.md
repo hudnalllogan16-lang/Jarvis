@@ -1832,3 +1832,21 @@ capability-result semantics.
 - **Audit Finding 3:** "Not now" writes a Decision Log row but suppresses nothing — an inert
   control on a shipping surface (design 4.3''s rejected loop), pinned by test, routed to the
   product verdict for the REVISE round alongside M8-F102''s storage.
+
+## M8 closure — both gates cleared
+
+M8-4 audit: **MERGE** (Band-C guard four-layered and real; discipline "real, not asserted";
+recording commit 4657733 closed its Finding 2). M8-5 product: **SHIP WITH FOLLOW-UPS** —
+the shell holds, both themes ≥5.04 contrast everywhere measured, fonts in real use, §12.5
+catching live prose. Milestone report: docs/reports/M8.md.
+
+**M9 surface backlog** (product follow-ups 1–8 + audit Finding 3, none gating): teaching
+empty state for the Approvals route; install-failure surfacing in newco.js; tile-vs-card
+severity tone mismatch (watch escalating to risk-red); healthy-labelled companies whose
+sentences say nothing was achieved (not-yet-measured maybe shouldn''t score attainment);
+"Working — details inside." reading as in-progress; up-to-date vs uncomputable both silent;
+freshness value/unit copy; in-app theme toggle (Settings); stale tokens.css M8-F21 comment;
+the inert "Not now" + decline persistence (M8-F102, data-engineer).
+
+**Sole remaining tag-gate:** M8-F162 (namespace purge) — paused by owner mid-packet; three
+options presented; no worker starts until resolved.
