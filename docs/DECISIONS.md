@@ -1797,3 +1797,38 @@ target derivation for create AND refresh — the diff side was the subtle half).
 - **M8-F164 (note):** apply consents to "whatever is pending now", digest-guarded inside
   apply_refresh; a plan_key-bound consent is a future surface hardening. **M8-F165:**
   cosmetic default materialization. **M8-F102** decline persistence remains deferred (M9).
+
+---
+
+## D-036 — the D-027 amendments as decided mechanism (audit Finding 2 recording commit)
+
+Ratifies M8-5''s implemented rulings as the record CLAUDE.md requires: (1) KpiMapping carries
+an optional capability filter (data, D-014-safe) — a metric counts what its capability
+produced, not everything the cycle ran; (2) CONFIGURED_KPI_TARGET_COUNT''s target derives
+from the type''s own target count once, at provisioning AND refresh (one derivation —
+M8-F160''s fix; the in-code cite "M8-F153" refers to this same fact, recorded here so the
+cross-reference resolves); (3) KpiSource carries a platform-owned scope — CYCLE_RESULT
+sources skip (not zero) resultless cycles; OBSERVATION sources record on any completed wake,
+including NOTHING_TO_DO behind PATCH_NOTHING_TO_DO_KPIS (D-033-proven with a scripted
+boundary pair, since no fixture reaches that branch); (4) M7-F60 (result-usefulness vs
+invocation-success) is formally deferred to M9/M10 where Trading Analysis shapes
+capability-result semantics.
+
+## Recording corrections (audit Finding 2, continued)
+
+- **M8-F115 is CLOSED** (M8-11): api reaches refresh through kernel.build_refresh — the
+  earlier "(open, wave 3)" line is superseded.
+- **M8-11 round (M8-F140–F149):** no findings opened — the wiring, font hookup (M8-F21
+  closed, document.fonts proof), and installer guards (M8-F110/F111 closed) landed without
+  surprises; the duplicate Part-6 sentence table in api/pending_update.py is recorded here
+  as a consolidation candidate, not a defect.
+- **M8-5 round (M8-F150–F153):** F150 platform-vs-workflow territory tension for KPI-adjacent
+  workflow edits (reconcile in the M9 DELEGATION amendment); F151 fixed in-lane; F152
+  capability filter is silently inert on non-result sources (install-time validation
+  candidate); F153 = the dual-derivation risk, closed by M8-6''s Part 0.
+- **M8-F105/F107/F109** from the M8-8 report are hereby in the record: two write paths with
+  the Band-C guard as the difference; target_value''s lossless argument expires with
+  per-instance editing; pending state is computed, never stored — by design.
+- **Audit Finding 3:** "Not now" writes a Decision Log row but suppresses nothing — an inert
+  control on a shipping surface (design 4.3''s rejected loop), pinned by test, routed to the
+  product verdict for the REVISE round alongside M8-F102''s storage.
