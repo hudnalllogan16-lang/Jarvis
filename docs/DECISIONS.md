@@ -1850,3 +1850,36 @@ the inert "Not now" + decline persistence (M8-F102, data-engineer).
 
 **Sole remaining tag-gate:** M8-F162 (namespace purge) — paused by owner mid-packet; three
 options presented; no worker starts until resolved.
+
+---
+
+## Owner authorization on record — M8-F162 cleanup and the lane-namespace fix
+
+Chronology, recorded verbatim in intent so the M8-F120 verify-first norm can be satisfied
+from git alone:
+
+1. The owner first chose Option 1 (dry-run audit, "After I review the audit, I''ll give
+   explicit approval before any cleanup occurs").
+2. In a SUBSEQUENT message, before the audit completed, the owner superseded that gate with
+   a standing delegation: "Approved. Proceed with the orphaned Temporal workflow cleanup
+   under delegated authority. You may terminate only workflows that are positively
+   identified as orphaned test artifacts. Before cleanup, generate and save a complete audit
+   of every workflow to be removed, including why it qualified. If there is any ambiguity,
+   do not terminate it — leave it in place and report it separately. After cleanup, tag and
+   push the M8 baseline." The same message delegates operational/implementation decisions
+   generally — including infrastructure maintenance, test cleanup, and bug fixes — with
+   stops reserved for vision/architecture/security-model/integrations/user-facing changes.
+3. The dry-run audit (lane/m8-12 commit ae124ab, docs/reports/M8-F162-DRYRUN.md) satisfies
+   the owner''s conditions, verified by the Manager: 475 orphans positively identified by
+   absence from the live business_instances table (3 rows total, all protected, exact ids
+   quoted), zero ambiguous cases flagged, non-BusinessManager types absent, script
+   protection-filter-first with --execute required.
+
+**Authorized on that basis, by the Manager under the owner''s recorded delegation:** execute
+the audit''s §5 script; append the execution outcome to the audit report; and fix the
+routing defect the audit found (JARVIS_TEMPORAL__NAMESPACE double-underscore form in
+scripts/lane_env.py, .env.example, DELEGATION.md''s line, plus a round-trip guard) — an
+infrastructure-maintenance item squarely inside the delegation. Ambiguity rule stands: any
+id that errors is listed and left, never blind-retried. The worker''s refusal to act on an
+unverifiable relay (its report of 2026-07-27) was CORRECT under M8-F120 and is part of why
+this entry exists.
