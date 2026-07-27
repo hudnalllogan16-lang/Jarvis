@@ -1641,3 +1641,16 @@ legacy). All invisible to the operator; all inherited first by the Shell.
    process death.
 4. **Credential refusals (M6-F42):** audited via the D-025 independent-commit path from the
    pool side, closing the last unaudited §10 refusal.
+
+## M8-F60 … M8-F62 — catalog and drift round (M8-1b, wave 1 Lane A)
+
+D-031 implemented per the design: injected catalog (jarvis/businesses/catalog.py), JarvisError
+containment with audited skips, the three validations, digest-based drift detection
+(detection only), installed_at on upgrade (M7-F48 closed). Worker latitude ratified: digest
+stored inside plugin_metadata (no schema change); plain audit-event/field naming. Tests 784.
+
+- **M8-F60:** the live affiliate drift case confirmed read-only — the detector will flag it
+  on first post-merge sweep; packet C's refresh is the fix path.
+- **M8-F61 (open):** not_ready_count has no UI consumer — packet D wires the operator view.
+- **M8-F62 (note):** SQLite tz-preservation quirk on DateTime(timezone=True) — Postgres
+  unaffected; note for future timestamp tests.
