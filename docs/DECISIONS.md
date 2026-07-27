@@ -1695,3 +1695,22 @@ visible to the health count — a band may move; honest), M8-F92 (in practice th
 not terminality, does the reconcile work — D-022 expectation inverted, noted in its record),
 M8-F93 (credential audit lives at the sole caller), M8-F94 (M8-F45 unchanged, pending owner).
 Park operator copy owed to the product reviewer with the next surface pass.
+
+---
+
+## D-035 — pause is absolute; dropped wake reasons are surfaced, never silently lost
+**Fills:** M8-F45/M8-F94 (D-008/D-024 interaction the spec leaves open)
+
+A paused business's wake reasons are dropped, not queued — "Paused by you" means nothing
+happens, full stop. But a dropped decided-approval reason generates an operator notification
+("[Company] has an answered approval waiting — resume it to proceed") and an audit record.
+The approval row persists unchanged, so resume + next wake acts on durable state (D-006
+reload) and nothing is lost. **Rejected:** preserve-and-execute-at-resume (surprises an
+operator who paused precisely to stop things); silent drop (today's behaviour — loses
+information). Owner reviewed the options at the M8 wave-1 report and directed M8 completion;
+decided within D-008/D-024 authority, conservative option.
+
+Also decided for wave 2 (mechanism within existing decisions): **M8-F87** — continuation
+resets the cycle ordinal at continue-as-new (D-005 state shape); **M8-F88** — dispatch gains
+the cancellation handler `_ask_model` already has (D-022). Retrospective adopted as M9
+operating model (owner directive): DELEGATION amendment AFTER m8-baseline, not during M8.
