@@ -1775,3 +1775,25 @@ missing "woken"/"business" (M7-F12 + M8-F103 closed).
   legitimate but never self-authenticating.
 - **M8-F119 closed** (copy applied during resolution). Grid-level pending-update indicator:
   deferred as a product decision for the workspace phase.
+
+## M8-F160 … M8-F165 — the live migration (M8-6, wave 3b)
+
+M8 live-proven at 975 tests, $0 spend: Summit''s negative control held (409 on empty plan;
+the affiliate stored-vs-source drift correctly did NOT leak into a contract diff — M8-F163);
+Portfolio Watch applied (attainment 45 → 91, both M8-5 corrections riding one refresh —
+M8-F161 supersedes the design''s pre-M8-5 78 prediction; health 82 → 93, recomputed on read,
+no wake needed); Trailhead applied (capability.result_returned gone from stored wake
+conditions — M6-F10 healed, preventive; dispatch_events re-reads per sweep, no restart).
+Band C byte-identical everywhere incl. both operator-chosen ceilings; the one graduation
+counter untouched; D-030 live (decision rows carry NULL action_type). M8-F160 fixed (one
+target derivation for create AND refresh — the diff side was the subtle half).
+
+- **M8-F162 (URGENT ops, blocking any future worker start):** ~445 orphaned test
+  BusinessManager workflows on the live `default` namespace beside the three real Managers —
+  a worker start would execute them all against the live DB and the real key. Packeted
+  (M8-12): surgical terminate of everything except the three protected bm-biz_ ids + route
+  tests off `default` permanently (lane_env exists for exactly this). Until it merges, no
+  packet may start a Temporal worker.
+- **M8-F164 (note):** apply consents to "whatever is pending now", digest-guarded inside
+  apply_refresh; a plan_key-bound consent is a future surface hardening. **M8-F165:**
+  cosmetic default materialization. **M8-F102** decline persistence remains deferred (M9).
