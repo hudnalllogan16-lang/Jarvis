@@ -83,6 +83,25 @@ function goalsSection(goals) {
     .join('');
 }
 
+// A pending template update (design PLUGIN-FRAMEWORK.md Part 4/6, D-030).
+// Every sentence here is server-rendered from stored values (D-011) — this
+// function only escapes and lays them out. Deliberately not `.ask`-shaped:
+// an accent rule, never the risk-red an approval uses, because this is the
+// platform proposing a change, not a company asking for money.
+function pendingUpdateCard(id, u) {
+  if (!u) return '';
+  const changes = (u.changes || []).map((c) => `<li>${esc(c)}</li>`).join('');
+  return `<div class="pending-update">
+    <p class="pending-update__headline">${esc(u.headline)}</p>
+    <p class="pending-update__intro">${esc(u.intro)}</p>
+    <ul class="pending-update__changes">${changes}</ul>
+    <div class="acts acts--plain">
+      <button class="btn btn--primary" data-act="apply-update"
+        data-id="${esc(id)}">Review and apply</button>
+      <button class="btn" data-act="dismiss-update" data-id="${esc(id)}">Not now</button>
+    </div></div>`;
+}
+
 export async function openCo(id) {
   const c = await get(`/api/companies/${id}`);
   const stuck = (c.stuck || [])
@@ -122,6 +141,7 @@ export async function openCo(id) {
     <h2 id="sheetTitle">${esc(c.name)}</h2>
     <p class="kind">${esc(c.kind)}</p>
     <p class="kind-desc">${esc(c.kind_description)}</p>
+    ${pendingUpdateCard(id, c.pending_update)}
     <p class="reason reason--tight">${esc(c.health_reason)}
        &middot; health ${esc(c.health)}</p>
     <div class="health-parts">${parts}</div>
@@ -172,6 +192,25 @@ export function registerCompanyActions() {
 
   action('revoke', async ({ id, grant }) => {
     const res = await post(`/api/companies/${id}/revoke/${grant}`);
+    if (!res.ok) {
+      flash(res.message);
+      return;
+    }
+    openCo(id);
+  });
+
+  // Consent to a pending template update — never the approvals path (D-030).
+  action('apply-update', async ({ id }) => {
+    const res = await post(`/api/companies/${id}/pending-update/apply`);
+    if (!res.ok) {
+      flash(res.message);
+      return;
+    }
+    openCo(id);
+  });
+
+  action('dismiss-update', async ({ id }) => {
+    const res = await post(`/api/companies/${id}/pending-update/dismiss`);
     if (!res.ok) {
       flash(res.message);
       return;

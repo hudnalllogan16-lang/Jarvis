@@ -90,17 +90,21 @@ doc = pathlib.Path("docs/DEPENDENCIES.md").read_text()
 undocumented = [p for p in MILESTONE if f"`{p}`" not in doc]
 assert not undocumented, f"packages missing from the layering table: {undocumented}"
 
-FORBIDDEN = ["workflow", "dag", "agent", "worker", "capability", "prompt", "token",
-             "wake cycle", "temporal", "event bus", "orchestration",
-             "credential scope", "retry", "dead-letter", "dead letter"]
-# Which files carry operator-facing copy is defined ONCE, in
-# tests/surface_sources.py, and imported by this gate and by the two test
-# modules asserting the same property. Before M8-2 each re-derived it with its
-# own regex over a single inline <script>; after the decomposition that regex
-# would have matched nothing and this gate would have passed VACUOUSLY.
-# surface_sources asserts its inputs are non-empty, so an emptied, renamed or
-# moved module set raises here instead of silently disabling the check.
+# Which files carry operator-facing copy — and the forbidden-term list itself
+# — are defined ONCE, in tests/surface_sources.py, and imported by this gate
+# and by the test modules asserting the same property. Before M8-2 each
+# consumer re-derived the file list with its own regex over a single inline
+# <script>; after the decomposition that regex would have matched nothing and
+# this gate would have passed VACUOUSLY. surface_sources asserts its inputs
+# are non-empty, so an emptied, renamed or moved module set raises here
+# instead of silently disabling the check. The term list itself was a second,
+# separately-drifting copy until design PLUGIN-FRAMEWORK.md Part 6's M7-F12
+# note (fifteen terms here vs. the test module's seventeen — this gate was
+# missing "woken" and "business" and would have PASSED a violation the test
+# below still failed on): both now import tests.surface_sources.FORBIDDEN.
 import surface_sources
+
+FORBIDDEN = surface_sources.FORBIDDEN
 
 modules = surface_sources.script_paths()
 assert len(modules) >= 2, f"S12.5 gate: expected the decomposed module set, found {modules}"

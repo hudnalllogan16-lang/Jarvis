@@ -26,36 +26,17 @@ from jarvis.approvals.rendering import (
 from jarvis.domain.lifecycle import OPERATOR_LABELS as LIFECYCLE_LABELS
 from jarvis.kernel.ids import BusinessId
 from tests.surface_sources import (
+    FORBIDDEN,
     MARKUP,
     script_literals,
     surface_text,
     visible_text,
 )
 
-FORBIDDEN = [
-    "workflow",
-    "dag",
-    "agent",
-    "worker",
-    "capability",
-    "prompt",
-    "token",
-    "wake cycle",
-    "woken",
-    "temporal",
-    "event bus",
-    "orchestration",
-    "credential scope",
-    "retry",
-    "dead-letter",
-    "dead letter",
-    "business",
-]
-"""§12.5's own list, plus two morphological gaps the runtime guard
-(`contains_technical_language`) also had to close (M6 product re-review,
-runtime term coverage): "woken" is a form of "wake cycle" a phrase check
-never catches, and "business" is D-007's own Business -> Company term, never
-previously listed at all."""
+# FORBIDDEN moved to tests/surface_sources.py (design PLUGIN-FRAMEWORK.md
+# Part 6's M7-F12 note): scripts/gates.sh's structural gate carried its own
+# stale copy of this list, so a term this test forbade could still pass the
+# gate. Both now import the one list.
 
 
 def test_dashboard_exists() -> None:

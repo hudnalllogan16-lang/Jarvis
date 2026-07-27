@@ -159,17 +159,17 @@ DROPPED_WAKE_COPY: dict[str, DroppedWakeCopy] = {
     "capability.result_returned": DroppedWakeCopy(
         title="{name} has a finished piece of work waiting",
         body=(
-            "Work this company had already started finished while it was "
-            "paused, so nobody has looked at it. Start the company again when "
-            "you want it picked up."
+            "This company finished a piece of work it had already started, "
+            "while it was paused, so nobody has looked at it yet. Start the "
+            "company again when you want it picked up."
         ),
     ),
     "kpi.threshold_breached": DroppedWakeCopy(
         title="{name} passed a level you set while it was paused",
         body=(
-            "One of the numbers you asked to be watched moved past the level "
-            "you set, and this company was paused, so nothing was done about "
-            "it. Start it again when you want it looked at."
+            "One of the numbers you asked Jarvis to watch passed the level "
+            "you set while this company was paused, so nothing was done "
+            "about it. Start the company again when you want it looked at."
         ),
     ),
 }
@@ -198,8 +198,19 @@ so a bus event added later degrades to a vaguer sentence instead of leaking one.
 
 Authored here rather than beside the branch in the workflow for the same reason
 the park's records are: the sentence names the company, and the display name is
-a contract read. The words themselves are the copy pass's to settle (M8-9 owns
-the wording; these are the keys and the register)."""
+a contract read. The words themselves are the copy pass's to settle — M8-9's
+review tightened `capability.result_returned` (the original's "Work ... had
+already started finished" read as a garden-path sentence) and
+`kpi.threshold_breached` (matched its "Start the company again" phrasing to
+the other three entries, which had drifted to a bare "Start it again"); the
+"approval" entry and the default were confirmed as written, no change.
+
+D-035's own resolution ratified that `WAITING_ON_RESUME` is the operator
+category (`NotificationKind`, `jarvis/notifications/service.py`) — a value
+this file's `record_dropped_wake` activity below writes to on every dropped
+reason, deduplicated per company (see `notified` there), distinct from
+`PAUSED` (the seven-day sweep's "answer this") for the reason recorded there:
+sharing a kind would let the sweep's own unread notice suppress this one."""
 
 DROPPED_WAKE_EVENT = "wake.dropped_while_paused"
 """The audit entry D-035 requires beside the notification.
