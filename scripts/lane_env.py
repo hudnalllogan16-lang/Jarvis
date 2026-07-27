@@ -239,7 +239,7 @@ def _env_block(admin_url: str, lane_id: str) -> str:
             f"# Lane {lane_id} — paste into this worktree's .env, replacing the matching keys",
             f"JARVIS_DATABASE_URL={lane_url}",
             f"JARVIS_TEST_DATABASE_URL={lane_url}",
-            f"JARVIS_TEMPORAL_NAMESPACE={lane_namespace(lane_id)}",
+            f"JARVIS_TEMPORAL__NAMESPACE={lane_namespace(lane_id)}",
             f"JARVIS_API_PORT={lane_port(lane_id)}",
         ]
     )
