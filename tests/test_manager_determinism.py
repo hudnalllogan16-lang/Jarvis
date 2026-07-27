@@ -130,6 +130,23 @@ def test_the_cycle_id_is_read_defensively_from_the_plan_result() -> None:
     assert 'plan_payload.get("cycle_id")' in SOURCE
 
 
+def _gates_on_measures_kpis(test: ast.expr) -> bool:
+    """Whether an `if` test requires `ctx.measures_kpis` to be true.
+
+    Accepts a bare `if ctx.measures_kpis:` (the original dispatch-path gate,
+    D-027.3) and `if ctx.measures_kpis and <further condition>:` (M7-F32's
+    NOTHING_TO_DO gate, which stacks the D-033 version check on top) — both
+    still require the type to declare mappings before the activity is
+    scheduled; the second merely adds a further requirement rather than
+    relaxing this one.
+    """
+    if isinstance(test, ast.Attribute) and test.attr == "measures_kpis":
+        return True
+    if isinstance(test, ast.BoolOp) and isinstance(test.op, ast.And):
+        return any(_gates_on_measures_kpis(value) for value in test.values)
+    return False
+
+
 def test_kpi_measurement_is_gated_on_the_cycle_context() -> None:
     """D-027.3 plus spec §11, asserted where the failure would be invisible.
 
@@ -142,17 +159,22 @@ def test_kpi_measurement_is_gated_on_the_cycle_context() -> None:
     Ungating this would pass every functional test in the suite and break
     recovery of every history captured to date, which is exactly the class of
     defect D-004 exists to keep out of workflow code.
+
+    M8-5 (M7-F32) adds a second call site — a NOTHING_TO_DO cycle now measures
+    itself too, behind its own D-033 patch — so "exactly one gated call"
+    generalises to "every call is gated on this fact, and there is no third,
+    ungated one," proven by counting both the guarded `if` blocks and every
+    textual occurrence of the activity name.
     """
     guarded = [
         node
         for node in ast.walk(TREE)
         if isinstance(node, ast.If)
-        and isinstance(node.test, ast.Attribute)
-        and node.test.attr == "measures_kpis"
+        and _gates_on_measures_kpis(node.test)
         and "record_cycle_kpis" in ast.dump(node)
     ]
-    assert len(guarded) == 1, "record_cycle_kpis must be scheduled only when the type maps KPIs"
-    assert ast.dump(TREE).count("'record_cycle_kpis'") == 1, "no second, ungated call"
+    assert len(guarded) == 2, "record_cycle_kpis must be scheduled only when the type maps KPIs"
+    assert ast.dump(TREE).count("'record_cycle_kpis'") == 2, "no third, ungated call"
 
 
 def test_the_cycle_loads_its_context_after_the_wake() -> None:

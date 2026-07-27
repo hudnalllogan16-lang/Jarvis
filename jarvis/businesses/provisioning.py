@@ -24,6 +24,7 @@ from jarvis.businesses.definition import (
 )
 from jarvis.businesses.refresh import refreshed_contract
 from jarvis.domain.contract import BudgetPolicy, BusinessContract, WakeConditions
+from jarvis.domain.kpi import provisioned_kpi_targets
 from jarvis.domain.lifecycle import LifecycleState
 from jarvis.events.bus import Event, EventBus
 from jarvis.events.types import BUSINESS_ACTIVATED, CAPABILITY_RESULT, KPI_THRESHOLD_BREACHED
@@ -228,7 +229,14 @@ class ProvisioningService:
             ),
             capability_permissions=definition.capability_permissions,
             autonomy_policies=definition.autonomy_policies,
-            kpi_targets=definition.default_kpi_targets,
+            # M7-F49: `CONFIGURED_KPI_TARGET_COUNT`'s target is derived from
+            # this type's own target count here, once, rather than trusting a
+            # type author's hand-picked number to stay in sync with it — the
+            # provisioning-time half of the D-027 amendment pass. A type that
+            # maps no key to that source is unaffected (D-027.3's silence).
+            kpi_targets=provisioned_kpi_targets(
+                definition.default_kpi_targets, definition.kpi_mappings
+            ),
             compliance_requirements=definition.compliance_requirements,
         )
         await self._registry.register_instance(contract)

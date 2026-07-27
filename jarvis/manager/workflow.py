@@ -136,6 +136,32 @@ appears only on the new path and that the old path is still the silent drop
 D-035 describes as today's behaviour.
 """
 
+PATCH_NOTHING_TO_DO_KPIS = "nothing-to-do-cycle-kpis"
+"""Versioning id for M7-F32 (the D-027 amendment pass, M8-5): a NOTHING_TO_DO
+cycle measures itself too, for a type whose mappings include an
+observation-scoped source.
+
+Before this, `record_cycle_kpis` was scheduled only on the branch that
+dispatched something, so a cycle that planned and found nothing to do left
+`data_freshness_hours` and `metrics_tracked` unread even though both are
+facts the platform can state independent of this cycle's own results
+(`KpiSource.scope`, `jarvis.domain.kpi`) — freshness in particular stops being
+re-observed exactly when a company goes idle, which is when staleness starts
+to matter. The branch this guards is one a *running* execution reaches every
+time planning decides there is nothing to dispatch, so the new command ships
+behind this id rather than bare, for the same reason `PATCH_POST_WAKE_CONTEXT`
+does: a Manager parked on its wake timer when this shipped is a running
+history, and one more command on a path it can still take fails it on
+recovery.
+
+Neither committed fixture ever takes the NOTHING_TO_DO branch at all — both
+dispatch every cycle they recorded — so, like `PATCH_PAUSED_WAKE_NOTICE`, this
+patch has no fixture to diverge on and is proven by the scripted pair in
+`tests/test_workflow_versioning.py` instead: the same wake loop driven with
+the version decision open and closed, over a script whose plan proposes
+nothing to dispatch.
+"""
+
 CEILING_REFUSAL_TYPES = frozenset({"BudgetExceededError", "CircuitBreakerOpenError"})
 """Failure types that mean *a ceiling refused the work*, not that the work failed
 (D-003). Matched by name because a workflow sees a serialised failure, never the
@@ -662,6 +688,22 @@ class BusinessManagerWorkflow:
                 outcome=CycleOutcome.NOTHING_TO_DO,
                 summary=plan.rationale or "Nothing needed doing.",
             )
+            # M7-F32: this cycle dispatched nothing, but an observation-scoped
+            # mapping (freshness, the contract's own target count) reads a
+            # fact that exists independent of that — `record_cycle_kpis`
+            # itself is what tells a cycle-result-scoped one (reports
+            # delivered) apart and leaves it unmeasured (`KpiSource.scope`).
+            # Behind a patch because a Manager parked on its wake timer can
+            # still take this branch (D-033) — no captured fixture ever does,
+            # so this is proven in `tests/test_workflow_versioning.py` rather
+            # than by replay.
+            if ctx.measures_kpis and workflow.patched(PATCH_NOTHING_TO_DO_KPIS):
+                await workflow.execute_activity(
+                    "record_cycle_kpis",
+                    CycleKpiRequest(business_id=state.business_id, cycle_id=cycle_id or None),
+                    start_to_close_timeout=ACTIVITY_TIMEOUT,
+                    retry_policy=STANDARD_RETRY,
+                )
             await self._record(state, self._last_cycle, cycle_id=cycle_id)
             return state.with_cycle_recorded(day_ordinal=day)
 

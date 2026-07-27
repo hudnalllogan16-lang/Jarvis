@@ -68,6 +68,7 @@ from jarvis.manager.activities import DERIVED_CYCLE_KEY, all_manager_activities
 from jarvis.manager.state import CycleOutcome, KpiTargetState, ManagerState, TacticalPlan
 from jarvis.manager.types import CycleContext, PlanRequest
 from jarvis.manager.workflow import (
+    PATCH_NOTHING_TO_DO_KPIS,
     PATCH_PAUSED_WAKE_NOTICE,
     PATCH_POST_WAKE_CONTEXT,
     BusinessManagerWorkflow,
@@ -504,11 +505,17 @@ class _Boundary:
     Running out ends the run: the script has nothing left to say.
     """
 
-    def __init__(self, contexts: list[CycleContext], *, patched: bool) -> None:
+    def __init__(
+        self, contexts: list[CycleContext], *, patched: bool, dispatch: bool = True
+    ) -> None:
         self.calls: list[tuple[str, Any]] = []
         self.patched_ids: list[str] = []
         self._contexts = list(contexts)
         self._patched = patched
+        self._dispatch = dispatch
+        """Whether the scripted plan proposes anything (M7-F32). False takes the
+        NOTHING_TO_DO branch instead of the ordinary dispatch one — the only way
+        to drive that branch, since no captured history ever takes it either."""
 
     async def execute_activity(self, name: str, arg: object = None, **kwargs: object) -> Any:
         assert "start_to_close_timeout" in kwargs, "spec §9: every call is bounded"
@@ -518,6 +525,12 @@ class _Boundary:
                 raise _ParkedError("the script ran out of contexts")
             return self._contexts.pop(0).model_dump(mode="json")
         if name == "plan_cycle":
+            if not self._dispatch:
+                return {
+                    "cycle_id": CYCLE_ID,
+                    "plan": TacticalPlan(rationale="Nothing needed doing.").model_dump(mode="json"),
+                    "requests": [],
+                }
             request = ScopedRequest(
                 invocation_id=InvocationId("inv_versioning"),
                 declared_business_id=BIZ,
@@ -591,6 +604,7 @@ async def _drive(
     patched: bool,
     state: ManagerState | None = None,
     signals: list[str] | None = None,
+    dispatch: bool = True,
 ) -> tuple[_Boundary, BusinessManagerWorkflow]:
     """Run the wake loop against a script until the script runs out.
 
@@ -599,8 +613,11 @@ async def _drive(
     only way a paused company's Manager gets one at all, since the scheduler
     signals ACTIVE companies (`dispatch_events`) and a pause can land after the
     claim.
+
+    `dispatch=False` scripts a plan that proposes nothing, driving the
+    NOTHING_TO_DO branch (M7-F32) instead of the ordinary one.
     """
-    boundary = _Boundary(contexts, patched=patched)
+    boundary = _Boundary(contexts, patched=patched, dispatch=dispatch)
     manager = BusinessManagerWorkflow()
     for reason in signals or []:
         manager.wake(reason)
@@ -862,3 +879,54 @@ async def test_a_business_paused_during_the_wait_does_not_plan_a_round() -> None
         "the wake read, the reload that saw the pause, and the loop parking"
     )
     assert "plan_cycle" not in boundary.scheduled()
+
+
+# ── M8-5: D-027 amendment pass, M7-F32's gate ───────────────────────────────
+
+
+async def test_a_nothing_to_do_cycle_measures_itself_when_the_type_declares_mappings() -> None:
+    """M7-F32's fix, stated as the behaviour it was reported as.
+
+    A plan that proposes nothing still runs `record_cycle_kpis` for a type
+    that measures itself, between the decision the cycle just made and the
+    entry it writes to explain it — the same command a dispatching cycle
+    issues, on the one branch that used to skip it.
+
+    Two contexts, not one: `patched=True` also opens `PATCH_POST_WAKE_CONTEXT`
+    (both patches ship together on every execution started since M8-3), so the
+    loop reads context once before the wait and again after it before it
+    plans — the same shape `test_a_type_upgrade_applies_on_the_first_cycle_
+    after_it` scripts. Only the second (post-wake) read is what planning
+    reasons from.
+    """
+    boundary, _ = await _drive([_ctx(), _ctx(measures_kpis=True)], patched=True, dispatch=False)
+    assert PATCH_NOTHING_TO_DO_KPIS in boundary.patched_ids
+    first_cycle = boundary.first_cycle()
+    assert "record_cycle_kpis" in first_cycle
+    assert first_cycle.index("plan_cycle") < first_cycle.index("record_cycle_kpis")
+    assert first_cycle.index("record_cycle_kpis") < first_cycle.index("record_cycle_decision")
+
+
+async def test_on_the_old_path_a_nothing_to_do_cycle_measures_nothing() -> None:
+    """The defect itself, pinned: what every history captured before this ships
+    replays. Kept rather than deleted with the defect, for the same reason the
+    other patches' negative branches are: it is the only thing that
+    distinguishes a version gate that preserves old behaviour from one that
+    quietly does nothing, and no captured history reaches this branch to make
+    that distinction for itself.
+    """
+    boundary, _ = await _drive([_ctx(measures_kpis=True)], patched=False, dispatch=False)
+    assert "record_cycle_kpis" not in boundary.first_cycle()
+
+
+async def test_a_nothing_to_do_cycle_for_an_unmapped_type_still_measures_nothing() -> None:
+    """Negative control: the gate opening is not the same question as D-027.3's.
+
+    `measures_kpis=False` is what a type declaring no `kpi_mappings` looks
+    like from the workflow's side (`CycleContext`, D-027.3). Opening
+    `PATCH_NOTHING_TO_DO_KPIS` must not measure a type that was never asking
+    to be measured at all — the two gates answer different questions and a
+    fix to one must not quietly answer the other.
+    """
+    boundary, _ = await _drive([_ctx(), _ctx(measures_kpis=False)], patched=True, dispatch=False)
+    assert "record_cycle_kpis" not in boundary.first_cycle()
