@@ -242,12 +242,55 @@ def test_the_park_notification_body_adds_to_its_title() -> None:
     assert MANAGER_PARKED_BODY.endswith(".")
 
 
-# D-035's notification copy tests were drafted here against
-# PAUSED_ANSWERED_APPROVAL_TITLE/_BODY (this packet's own draft). Withdrawn
-# with the draft they tested — see jarvis/manager/activities.py's note.
-# `main`'s real DROPPED_WAKE_COPY/DROPPED_WAKE_DEFAULT is not importable
-# from this lane (it postdates this branch's parent commit), so the
-# equivalent guard runs where the real code is, not here.
+def _dropped_wake_copy() -> list[tuple[str, str, str]]:
+    """Every (kind, title, body) D-035's notice can produce, including the default."""
+    from jarvis.manager.activities import DROPPED_WAKE_COPY, DROPPED_WAKE_DEFAULT
+
+    entries = [(kind, copy.title, copy.body) for kind, copy in DROPPED_WAKE_COPY.items()]
+    entries.append(("<unmapped>", DROPPED_WAKE_DEFAULT.title, DROPPED_WAKE_DEFAULT.body))
+    return entries
+
+
+@pytest.mark.parametrize(("kind", "title", "body"), _dropped_wake_copy())
+def test_the_dropped_wake_notices_are_written_for_the_operator(
+    kind: str, title: str, body: str
+) -> None:
+    """§12.5 for D-035's notice, across every kind of thing a pause can drop.
+
+    Parametrized over the table rather than spot-checked, because the failure
+    mode is a row added later in the wrong register — the internal event name is
+    right there in the key, and copying it into the sentence is the easiest
+    mistake this table can make.
+    """
+    rendered_title = title.format(name="Affiliate Co")
+    assert not contains_technical_language(rendered_title), kind
+    assert not contains_technical_language(body), kind
+    assert rendered_title[0].isupper()
+    assert body.endswith(".")
+    assert rendered_title not in body, "a body that restates its title says nothing new"
+
+
+def test_no_dropped_wake_notice_names_the_event_that_caused_it() -> None:
+    """The specific leak the fallback exists to prevent (§12.5).
+
+    Most rows are keyed by an internal bus event name
+    (`capability.result_returned`), and an operator never sees one of those — so
+    no such row may echo its own key, and an unmapped kind reaches
+    `DROPPED_WAKE_DEFAULT` rather than being formatted into a sentence of its
+    own.
+
+    Checked on the dotted keys only. `approval` is the one key that is also an
+    ordinary operator word — the queue an owner reads is called Approvals — so
+    the copy naming it is correct rather than a leak. The dot is what marks a
+    key as internal, which is also why a future kind should keep using one.
+    """
+    from jarvis.manager.activities import DROPPED_WAKE_COPY
+
+    internal = {kind: copy for kind, copy in DROPPED_WAKE_COPY.items() if "." in kind}
+    assert internal, "a table of no internal keys would make this vacuous"
+    for kind, copy in internal.items():
+        assert kind not in copy.title, kind
+        assert kind not in copy.body, kind
 
 
 def test_the_detector_actually_detects() -> None:

@@ -21,7 +21,7 @@ from jarvis.kernel.container import PlatformKernel
 from jarvis.kernel.ids import BusinessId
 from jarvis.kernel.logging import get_logger
 from jarvis.kernel.runtime import business_workflow_id
-from jarvis.manager.state import KpiTargetState, ManagerState
+from jarvis.manager.state import ManagerState
 
 logger = get_logger(__name__)
 
@@ -63,18 +63,24 @@ class ManagerLifecycle:
 
             for row in await svc.registry.list_instances(state=LifecycleState.ACTIVE):
                 business_id = BusinessId(row.business_id)
-                contract = await svc.registry.get_contract(business_id)
-                state = ManagerState(
-                    business_id=business_id,
-                    kpi_targets=tuple(
-                        KpiTargetState(
-                            key=target.key,
-                            target_value=target.target_value,
-                            operator_label=target.operator_label,
-                        )
-                        for target in contract.kpi_targets
-                    ),
-                )
+                # Started with no seeded targets (M8-F46). Until M8-3 the
+                # contract's targets were copied in here and then carried in
+                # workflow state for up to a hundred cycles, which is what made
+                # the planner work to figures a refresh had already moved
+                # (M8-F7). They now ride the post-wake context snapshot, so the
+                # cycle reads them per cycle from the contract — the authority —
+                # and a second copy in durable state would only be able to
+                # disagree with it (D-005's own reasoning about decision
+                # history, applied to targets).
+                #
+                # `ManagerState.kpi_targets` itself stays, and stays read by the
+                # workflow, for exactly one reason: histories captured before
+                # M8-3 recorded a context with no targets in it and must replay
+                # against what they planned against (spec §11, D-033). Removing
+                # the field is gated on M8-F48 — no pre-M8-3 execution remaining
+                # queryable — and is a workflow-versioning change, not this
+                # packet's.
+                state = ManagerState(business_id=business_id)
                 if await self._start(client, business_id, state):
                     started += 1
         return started

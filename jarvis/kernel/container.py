@@ -295,6 +295,23 @@ class PlatformKernel:
             default_wake_ceiling_usd=self._settings.budget.default_wake_cycle_ceiling_usd,
         )
 
+    def build_refresh(self, services: KernelServices) -> Any:
+        """Return the contract-refresh service (D-029/D-030), session-scoped.
+
+        Constructed here for the same reason `build_provisioning` is: the API
+        (M3) must not import the businesses package (M5), and the Kernel is the
+        composition root that may. The return type is `Any` for that reason —
+        naming `ContractRefreshService` in an annotation the API can read would
+        put an M5 symbol on an M3 import path.
+
+        The plan and result models the caller actually handles live in
+        `jarvis/domain/refresh.py` (M1), so the operator surface can be typed
+        against them without reaching forward.
+        """
+        from jarvis.businesses.refresh import ContractRefreshService
+
+        return ContractRefreshService(services.registry, services.decisions)
+
     def build_approvals(self, services: KernelServices) -> ApprovalService:
         """Return the approval service bound to ``services``' session (spec §8)."""
         return ApprovalService(

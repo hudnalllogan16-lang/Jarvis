@@ -20,7 +20,20 @@ live ledger holds the evidence — three RESERVED→RELEASED rows across three
 attempts of one cycle (M7-F25). D-034.2 derives the key in the workflow instead,
 from facts that replay identically, and sends it *in*.
 
-Both halves are proved the same way: the defect is kept as an executable test
+**M8-F87 — the continuation that continued every time.** `cycles_completed` was
+handed to the next generation intact, so generation two met
+`CYCLES_BEFORE_CONTINUATION` on its first cycle and every cycle after that: the
+bound D-005 exists to enforce held for a Manager's first hundred cycles and for
+nothing afterwards. Also around a cycle rather than inside one, which is why it
+sits here.
+
+**D-035 — what a pause drops.** A paused company's wake reasons are dropped
+rather than queued, and the drop is now reported. The workflow half is in
+`test_workflow_versioning.py`, because the change is version-gated; the records
+it produces are here, beside the park's, for the same reason the park's are —
+they need a company with a name.
+
+All of it is proved the same way: the defect is kept as an executable test
 beside its fix, because a fix whose defect nobody can still reproduce is a fix
 nobody can check.
 """
@@ -49,18 +62,23 @@ from jarvis.kernel.ids import BusinessId
 from jarvis.llm.base import CompletionResponse, Usage
 from jarvis.manager import workflow as workflow_module
 from jarvis.manager.activities import (
+    DROPPED_WAKE_COPY,
+    DROPPED_WAKE_DEFAULT,
+    DROPPED_WAKE_EVENT,
     MANAGER_PARKED_SUMMARY,
     ManagerActivities,
 )
-from jarvis.manager.state import ManagerState
+from jarvis.manager.state import ManagerState, TacticalPlan
 from jarvis.manager.types import CycleContext, PlanRequest
 from jarvis.manager.workflow import (
+    CYCLES_BEFORE_CONTINUATION,
     DEGRADED_RETRY_INTERVAL,
     BusinessManagerWorkflow,
     _cycle_key,
 )
 from jarvis.notifications.service import NotificationKind, NotificationService
 from jarvis.persistence.models import (
+    AuditLogRow,
     Base,
     BudgetLedgerRow,
     DecisionLogRow,
@@ -113,6 +131,10 @@ class _ScriptEndedError(Exception):
     """The scripted Manager reached a point the script has nothing to say about."""
 
 
+class _ContinuedError(_ScriptEndedError):
+    """The scripted Manager continued as new, which ends this execution."""
+
+
 class _Loop:
     """Scripted activity boundary for the wake loop, including its failures.
 
@@ -136,6 +158,9 @@ class _Loop:
         self.signal_on_wait: str | None = None
         """A wake reason delivered during the *first* wait, the way a scheduler
         signalling a parked Manager delivers one."""
+
+        self.continued: list[ManagerState] = []
+        """The states handed to the next generation at `continue_as_new`."""
 
         self._loads = list(loads)
         self._park_failures = park_failures
@@ -171,6 +196,9 @@ class _Loop:
     ) -> None:
         self.waits.append(timeout)
         self.predicates.append(predicate)
+        if predicate():
+            # The real one returns at once when its condition already holds.
+            return
         if self.signal_on_wait is not None and self.manager is not None:
             self.manager.wake(self.signal_on_wait)
             self.signal_on_wait = None
@@ -180,6 +208,18 @@ class _Loop:
 
     def patched(self, patch_id: str) -> bool:
         return True
+
+    def continue_as_new(self, state: ManagerState) -> None:
+        """Record what the next generation starts from, and end this one.
+
+        The real call raises rather than returning — the execution is over — so
+        the stub does too. That is not a detail: a stub that returned would let
+        the loop run on past a continuation it had already taken, and the count
+        this file is about would keep climbing in a history that no longer
+        exists.
+        """
+        self.continued.append(state)
+        raise _ContinuedError("this generation ended at continue_as_new")
 
     def info(self) -> Any:
         return SimpleNamespace(run_id=RUN_ID)
@@ -196,6 +236,7 @@ async def _drive(
     *,
     park_failures: int = 0,
     signal_on_wait: str | None = None,
+    signals: list[str] | None = None,
     state: ManagerState | None = None,
 ) -> tuple[_Loop, BusinessManagerWorkflow]:
     """Run the wake loop against a script until the script runs out.
@@ -203,10 +244,16 @@ async def _drive(
     The run always ends on one read past the script — the loop asks for a
     context the script has no answer for — so a script of *n* reads produces
     *n + 1* `load_cycle_context` calls. Stated here because the counts below
-    depend on it.
+    depend on it. A run that continues as new ends there instead.
+
+    `signals` are queued before the run begins; `signal_on_wait` delivers one
+    during the first wait. Two different moments, and the difference is the
+    whole of what `_park`'s "a *new* signal" comparison is about.
     """
     loop = _Loop(loads, park_failures=park_failures)
     manager = BusinessManagerWorkflow()
+    for reason in signals or []:
+        manager.wake(reason)
     loop.manager = manager
     loop.signal_on_wait = signal_on_wait
     original = workflow_module.workflow
@@ -715,3 +762,307 @@ async def test_a_dismissed_notice_can_be_raised_again(
     async with kernel.services() as svc:
         notices = list((await svc.session.scalars(select(NotificationRow))).all())
     assert len(notices) == 2
+
+
+# ── M8-F87: the ordinal resets, so the bound binds every generation ────────
+
+
+def _running_ctx() -> CycleContext:
+    """A healthy context whose daily allowance cannot end the run first.
+
+    `max_cycles_per_day` is deliberately far above `CYCLES_BEFORE_CONTINUATION`:
+    the allowance and the continuation bound are different mechanisms, and a
+    script that hit the allowance at 48 would never reach the one under test.
+    """
+    return _ctx(max_cycles_per_day=CYCLES_BEFORE_CONTINUATION * 10)
+
+
+def _generation(cycles: int) -> list[CycleContext | BaseException]:
+    """Enough context reads for ``cycles`` complete rounds, and then some.
+
+    Two reads per round on the post-M8-3 path — the wake's and the cycle's — so
+    a generation of *n* rounds consumes 2n, and the spares are what let a test
+    that expects no continuation run past the point one would have happened.
+    """
+    return [_running_ctx() for _ in range(cycles * 2 + 4)]
+
+
+async def test_a_manager_continues_as_new_at_the_bound() -> None:
+    """D-005's mechanism, which nothing had ever driven to its threshold.
+
+    The loop had no behavioural test that reached a continuation at all — which
+    is how M8-F87 survived two milestones in code that is read closely. Every
+    `continue_as_new` assertion in the suite was a source-level one
+    (`test_continuation_is_bounded`), and a source check cannot see what the
+    state handed over looks like.
+    """
+    loop, _ = await _drive(_generation(CYCLES_BEFORE_CONTINUATION))
+
+    assert len(loop.continued) == 1
+    assert loop.scheduled().count("plan_cycle") == CYCLES_BEFORE_CONTINUATION
+
+
+async def test_the_generation_it_starts_holds_no_cycles_of_its_own() -> None:
+    """M8-F87's fix, stated as the state the next execution begins from.
+
+    The ordinal counts what *this* history holds, and the next history is empty.
+    Handing the count over intact is the defect: generation two's first cycle
+    took it to 101, met the threshold, and continued as new again.
+    """
+    loop, _ = await _drive(_generation(CYCLES_BEFORE_CONTINUATION))
+
+    assert loop.continued[0].cycles_completed == 0
+
+
+async def test_the_second_generation_gets_a_whole_hundred_cycles_too() -> None:
+    """The property in full, driven rather than inferred from one field.
+
+    Generation two starts from exactly what generation one handed over and runs
+    its own hundred rounds before continuing. Asserting on the handed-over state
+    alone would leave the claim a step short: what matters is that the bound
+    binds again, not that a field reads zero.
+    """
+    first, _ = await _drive(_generation(CYCLES_BEFORE_CONTINUATION))
+    second, _ = await _drive(_generation(CYCLES_BEFORE_CONTINUATION), state=first.continued[0])
+
+    assert second.scheduled().count("plan_cycle") == CYCLES_BEFORE_CONTINUATION
+    assert len(second.continued) == 1
+
+
+async def test_without_the_reset_the_next_generation_continues_every_cycle() -> None:
+    """M8-F87 itself, kept executable beside its fix.
+
+    The state generation one used to hand over, driven as generation two: one
+    cycle, then a continuation, and the same again for as long as the company
+    exists. `CYCLES_BEFORE_CONTINUATION` would be a bound that fires once in a
+    Manager's life and never afterwards.
+
+    Kept rather than deleted with the defect, because it is the only thing that
+    distinguishes a reset that restores the bound from a field nobody reads.
+    """
+    unreset = ManagerState(business_id=BIZ, cycles_completed=CYCLES_BEFORE_CONTINUATION)
+
+    loop, _ = await _drive(_generation(CYCLES_BEFORE_CONTINUATION), state=unreset)
+
+    assert loop.scheduled().count("plan_cycle") == 1, "one cycle bought a whole continuation"
+    assert len(loop.continued) == 1
+
+
+async def test_the_daily_allowance_survives_the_continuation() -> None:
+    """The half a careless reset would break, and nothing else would catch.
+
+    `cycles_today` and `day_ordinal` bound how often a *company* reasons (D-021),
+    not how much history one execution holds. Clearing them alongside the ordinal
+    would hand every Manager a fresh day's allowance every hundred cycles — the
+    rate limit quietly removing itself, and passing every other test here.
+    """
+    loop, _ = await _drive(_generation(CYCLES_BEFORE_CONTINUATION))
+
+    handed_over = loop.continued[0]
+    assert handed_over.cycles_today == CYCLES_BEFORE_CONTINUATION
+    assert handed_over.day_ordinal == TODAY
+
+
+def test_the_working_set_crosses_the_continuation_intact() -> None:
+    """D-005's other fields, asserted on the state shape itself.
+
+    A pending approval that spans a continuation is a roundtrip in flight
+    (D-006), and the plan and targets are the working set §2.1 says the Manager
+    owns. `continued` touches one field; this is what "one" means.
+    """
+    before = ManagerState(
+        business_id=BIZ,
+        plan=TacticalPlan(rationale="Carry on."),
+        cycles_completed=CYCLES_BEFORE_CONTINUATION,
+        cycles_today=7,
+        day_ordinal=TODAY,
+        pending_approval_id="apr_inflight",
+    )
+
+    after = before.continued()
+
+    assert after.cycles_completed == 0
+    assert after == before.model_copy(update={"cycles_completed": 0})
+
+
+def test_the_reset_ordinal_cannot_collide_across_generations() -> None:
+    """Why resetting the ordinal is safe at all (D-034.2), checked not assumed.
+
+    The cycle key is the budget scope key and the ordinal is half of it. Reset it
+    and generation two's cycle 0 carries the same ordinal as generation one's —
+    which would be two cycles sharing one ceiling if the ordinal were the whole
+    key. It is not: `continue_as_new` assigns a new run id and the key namespaces
+    by it. That is the property the reset leans on, so it is asserted here rather
+    than left as a sentence in a docstring.
+    """
+    other_run = "11e3a4ab-097d-4f33-aef4-0ef25ed82895"
+    original = workflow_module.workflow
+    try:
+        workflow_module.workflow = SimpleNamespace(  # type: ignore[assignment]
+            info=lambda: SimpleNamespace(run_id=RUN_ID)
+        )
+        first_generation = _cycle_key(0)
+        workflow_module.workflow = SimpleNamespace(  # type: ignore[assignment]
+            info=lambda: SimpleNamespace(run_id=other_run)
+        )
+        second_generation = _cycle_key(0)
+    finally:
+        workflow_module.workflow = original  # type: ignore[assignment]
+
+    assert first_generation != second_generation
+    assert first_generation.endswith("_0")
+    assert second_generation.endswith("_0")
+
+
+# ── D-035's records, written where the company still has a name ────────────
+
+
+async def _audited_drops(kernel: PlatformKernel) -> list[AuditLogRow]:
+    async with kernel.services() as svc:
+        return list(
+            (
+                await svc.session.scalars(
+                    select(AuditLogRow).where(AuditLogRow.event_type == DROPPED_WAKE_EVENT)
+                )
+            ).all()
+        )
+
+
+async def _notices(kernel: PlatformKernel) -> list[NotificationRow]:
+    async with kernel.services() as svc:
+        return list((await svc.session.scalars(select(NotificationRow))).all())
+
+
+async def test_a_dropped_reason_reaches_the_operator_twice(
+    kernel: PlatformKernel, company: BusinessId
+) -> None:
+    """D-035: an operator notification and an audit record, per dropped reason.
+
+    Both, because they answer different questions. The audit entry is the
+    forensic account of what a pause swallowed, with the kind and the ref it
+    carried (§11); the notification is what reaches the operator without their
+    looking, and it is what turns "I answered that and nothing happened" into a
+    sentence they can act on.
+    """
+    await as_business(
+        company,
+        ManagerActivities(kernel).record_dropped_wake,
+        {"business_id": company, "reason_kind": "approval", "reason_ref": "apr_9"},
+    )
+
+    audited = await _audited_drops(kernel)
+    notices = await _notices(kernel)
+
+    assert len(audited) == 1
+    assert audited[0].payload["reason_kind"] == "approval"
+    assert audited[0].payload["reason_ref"] == "apr_9"
+    assert [n.kind for n in notices] == [NotificationKind.WAITING_ON_RESUME.value]
+    assert notices[0].title == DROPPED_WAKE_COPY["approval"].title.format(name="Summit Trail Gear")
+    assert notices[0].link_ref == "apr_9", "the answer the operator gave is still there to open"
+
+
+async def test_the_notice_says_which_kind_of_thing_is_waiting(
+    kernel: PlatformKernel, company: BusinessId
+) -> None:
+    """The owner's breadth, at the surface.
+
+    An answered request and a finished piece of work are different situations
+    and lead an operator to different decisions. One sentence covering both
+    would be the vague copy §12.5 exists to prevent, so the kind selects the
+    words and the kind is a platform fact, never prose (D-011's posture).
+    """
+    await as_business(
+        company,
+        ManagerActivities(kernel).record_dropped_wake,
+        {
+            "business_id": company,
+            "reason_kind": "capability.result_returned",
+            "reason_ref": "",
+        },
+    )
+
+    expected = DROPPED_WAKE_COPY["capability.result_returned"]
+    notices = await _notices(kernel)
+    assert notices[0].title == expected.title.format(name="Summit Trail Gear")
+    assert notices[0].body == expected.body
+    assert notices[0].link_ref is None, "an event is not a row an operator can open"
+
+
+async def test_a_kind_nobody_has_words_for_still_says_something_true(
+    kernel: PlatformKernel, company: BusinessId
+) -> None:
+    """The fallback, which is a §12.5 guard rather than a convenience.
+
+    A bus event added later would otherwise reach the operator's queue under its
+    own internal name. The default sentence says the true thing without naming
+    the mechanism, so an unmapped kind degrades to vaguer copy instead of
+    leaking the register §12.5 forbids.
+    """
+    await as_business(
+        company,
+        ManagerActivities(kernel).record_dropped_wake,
+        {"business_id": company, "reason_kind": "something.new", "reason_ref": ""},
+    )
+
+    notices = await _notices(kernel)
+    assert notices[0].title == DROPPED_WAKE_DEFAULT.title.format(name="Summit Trail Gear")
+    assert "something.new" not in notices[0].title + notices[0].body
+
+
+async def test_a_paused_company_does_not_fill_the_queue(
+    kernel: PlatformKernel, company: BusinessId
+) -> None:
+    """§12.5's "no permanent accumulation", against a company that stays paused.
+
+    A pause can drop reasons for as long as it lasts, and the operator's action
+    is the same for all of them — start the company again. One unanswered notice
+    says that; ninety of them are the accumulation §12.5 forbids. The audit log
+    is where the count lives, which is why it is asserted in the same breath.
+    """
+    activities = ManagerActivities(kernel)
+    for ref in ("apr_1", "apr_2", "apr_3"):
+        await as_business(
+            company,
+            activities.record_dropped_wake,
+            {"business_id": company, "reason_kind": "approval", "reason_ref": ref},
+        )
+
+    assert len(await _notices(kernel)) == 1, "one unanswered notice per company"
+    assert len(await _audited_drops(kernel)) == 3, "the record keeps every one of them"
+
+
+async def test_it_does_not_share_a_kind_with_the_notice_that_paused_it(
+    kernel: PlatformKernel, company: BusinessId
+) -> None:
+    """The trap this kind exists to avoid, made executable.
+
+    The seven-day sweep pauses a company with an unanswered request and raises a
+    `PAUSED` notice saying so. The operator answers. The answer is dropped
+    because the company is paused — and if this notice shared that kind, the
+    still-unread first one would suppress it under the same deduplication. The
+    operator would be told to answer, would answer, and would never learn that
+    answering did nothing until they start the company again: exactly the loss
+    D-035 closes.
+    """
+    async with kernel.services() as svc:
+        await NotificationService(svc.session).notify(
+            notification_id="ntf_paused",
+            kind=NotificationKind.PAUSED,
+            title="Summit Trail Gear is paused",
+            body="A request went unanswered for a week.",
+            business_id=company,
+        )
+
+    await as_business(
+        company,
+        ManagerActivities(kernel).record_dropped_wake,
+        {"business_id": company, "reason_kind": "approval", "reason_ref": "apr_9"},
+    )
+
+    async with kernel.services() as svc:
+        unread = await NotificationService(svc.session).unread()
+
+    assert {row.kind for row in unread} == {
+        NotificationKind.PAUSED.value,
+        NotificationKind.WAITING_ON_RESUME.value,
+    }

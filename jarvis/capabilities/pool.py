@@ -271,60 +271,105 @@ class CapabilityPool:
         reservation: Reservation,
         memory_context: str,
     ) -> CapabilityResult:
-        """Attempt execution up to the request's bounded retry count (spec §9)."""
+        """Attempt execution up to the request's bounded retry count (spec §9).
+
+        **A dispatch that is cancelled releases its hold (M8-F88, D-022 point 3).**
+        `_ask_model` has had this handler since D-022 shipped and this path did
+        not, so the two halves of a cycle's spend behaved differently under the
+        same event: a worker shutting down, a Manager being terminated, or the
+        `asyncio.gather` in `_dispatch_all` propagating a sibling's failure all
+        raise `CancelledError` here — a `BaseException`, so nothing in the retry
+        loop's own `except` sees it — and the reservation stayed RESERVED. It
+        counts against the cycle, the company and the platform ceiling for spend
+        that never happened (`_COUNTING_STATES`), and nothing but D-034.3's age
+        backstop would ever have found it. M8-F92 recorded that the backstop, not
+        terminality, was doing the reconcile's work in practice; a cancelled
+        dispatch is one of the reasons why, and this is that reason removed.
+
+        `held` drops *before* each resolving call rather than after, which is the
+        conservative direction and deliberate. A cancellation landing inside
+        `settle` leaves a row whose state nobody here can know, and releasing it
+        would erase spend that really committed — the one direction D-003 rule 1
+        must never be wrong in. The reconcile sweep is what resolves that case
+        (D-034.3), which is precisely the division of labour it was added for:
+        this releases what it knows it holds, the sweep is the net for what a
+        dying process left ambiguous.
+
+        A `finally` rather than `_ask_model`'s `except BaseException: ... raise`,
+        for two reasons. It covers every abnormal exit rather than the ones an
+        `except` clause was remembered for. And this function authors no
+        refusal — it writes `capability.attempt_failed` and
+        `capability.succeeded`, which belong to the work's own transaction and
+        *should* roll back with it — so it must not appear in the M6-F38 sweep's
+        allowlist, where every entry is a deliberate raise after a deliberately
+        audited denial. Re-raising nothing keeps that list short and honest,
+        which is what makes it worth reading.
+        """
         business_id = identity.business_id
         last_error: CapabilityExecutionError | None = None
+        held = True
 
-        for attempt in range(1, request.max_attempts + 1):
-            try:
-                output, usage = await self._executor.execute(
-                    request=request,
-                    contract=contract,
-                    memory_context=memory_context,
-                )
-            except CapabilityExecutionError as exc:
-                last_error = exc
+        try:
+            for attempt in range(1, request.max_attempts + 1):
+                try:
+                    output, usage = await self._executor.execute(
+                        request=request,
+                        contract=contract,
+                        memory_context=memory_context,
+                    )
+                except CapabilityExecutionError as exc:
+                    last_error = exc
+                    await self._audit.record(
+                        event_type="capability.attempt_failed",
+                        actor=business_id,
+                        business_id=business_id,
+                        payload={
+                            "invocation_id": request.invocation_id,
+                            "attempt": attempt,
+                            "permanent": exc.permanent,
+                            "detail": exc.technical_detail,
+                        },
+                    )
+                    if exc.permanent:
+                        break
+                    if attempt < request.max_attempts:
+                        await self._sleep(BASE_BACKOFF_SECONDS * (2 ** (attempt - 1)))
+                    continue
+
+                actual = self._cost_of(usage, reservation.amount_usd)
+                held = False
+                await self._ledger.settle(reservation, actual)
+                await self._record_performed(request, contract, output)
                 await self._audit.record(
-                    event_type="capability.attempt_failed",
+                    event_type="capability.succeeded",
                     actor=business_id,
                     business_id=business_id,
-                    payload={
-                        "invocation_id": request.invocation_id,
-                        "attempt": attempt,
-                        "permanent": exc.permanent,
-                        "detail": exc.technical_detail,
-                    },
+                    payload={"invocation_id": request.invocation_id, "attempts": attempt},
+                    cost_usd=actual,
                 )
-                if exc.permanent:
-                    break
-                if attempt < request.max_attempts:
-                    await self._sleep(BASE_BACKOFF_SECONDS * (2 ** (attempt - 1)))
-                continue
+                succeeded = CapabilityResult(
+                    invocation_id=request.invocation_id,
+                    business_id=business_id,
+                    capability=request.capability,
+                    status=InvocationStatus.SUCCEEDED,
+                    output=output,
+                    usage=usage,
+                    attempts=attempt,
+                )
+                await self._announce(succeeded)
+                return succeeded
 
-            actual = self._cost_of(usage, reservation.amount_usd)
-            await self._ledger.settle(reservation, actual)
-            await self._record_performed(request, contract, output)
-            await self._audit.record(
-                event_type="capability.succeeded",
-                actor=business_id,
-                business_id=business_id,
-                payload={"invocation_id": request.invocation_id, "attempts": attempt},
-                cost_usd=actual,
-            )
-            succeeded = CapabilityResult(
-                invocation_id=request.invocation_id,
-                business_id=business_id,
-                capability=request.capability,
-                status=InvocationStatus.SUCCEEDED,
-                output=output,
-                usage=usage,
-                attempts=attempt,
-            )
-            await self._announce(succeeded)
-            return succeeded
+            # Retries exhausted, or a permanent failure short-circuited them.
+            held = False
+            await self._ledger.release(reservation)
+        finally:
+            # Reached with `held` still true only on an abnormal exit —
+            # cancellation, most often. Abandoned work bought nothing, and a
+            # hold nobody releases strangles the company by degrees
+            # (`_ask_model`'s own comment, and the same reasoning).
+            if held:
+                await self._ledger.release(reservation)
 
-        # Retries exhausted, or a permanent failure short-circuited them.
-        await self._ledger.release(reservation)
         return await self._dead_letter(
             identity=identity,
             request=request,

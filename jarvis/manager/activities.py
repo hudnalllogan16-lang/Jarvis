@@ -139,21 +139,88 @@ this activity — which can still read the contract — decides what it says.
 Same register as the rest: what it means for the company, never what failed
 inside the platform. `tests/test_operator_language.py` holds them to it."""
 
-# D-035's "answered while paused" copy was drafted here as
-# PAUSED_ANSWERED_APPROVAL_TITLE/_BODY against the packet's own description
-# ("a dropped decided-approval reason"). Mid-packet, packet M8-10 merged into
-# `main` (this lane branched before that and cannot merge it in — see the
-# M8-9 report) with the mechanism broadened, per owner ratification, to every
-# actionable dropped wake reason, not only decided approvals: `main`'s
-# `jarvis/manager/activities.py` now carries `DroppedWakeCopy`,
-# `DROPPED_WAKE_COPY` (keyed by reason kind — "approval",
-# "capability.result_returned", "kpi.threshold_breached") and
-# `DROPPED_WAKE_DEFAULT`, read by `record_dropped_wake` and written under
-# `NotificationKind.WAITING_ON_RESUME` (`jarvis/notifications/service.py`).
-# The draft above is withdrawn as superseded rather than left beside a
-# structure it no longer describes; the reviewed replacement wording for
-# `main`'s dict is in the M8-9 report for the Manager to apply directly,
-# since this worktree has no path to `main`'s file.
+
+class DroppedWakeCopy(NamedTuple):
+    """The two sentences one kind of dropped wake reason produces (D-035)."""
+
+    title: str
+    body: str
+
+
+DROPPED_WAKE_COPY: dict[str, DroppedWakeCopy] = {
+    "approval": DroppedWakeCopy(
+        title="{name} has an answered approval waiting",
+        body=(
+            "You answered a request for this company while it was paused, so "
+            "nothing has been done about it. Start the company again when you "
+            "want your answer carried out."
+        ),
+    ),
+    "capability.result_returned": DroppedWakeCopy(
+        title="{name} has a finished piece of work waiting",
+        body=(
+            "This company finished a piece of work it had already started, "
+            "while it was paused, so nobody has looked at it yet. Start the "
+            "company again when you want it picked up."
+        ),
+    ),
+    "kpi.threshold_breached": DroppedWakeCopy(
+        title="{name} passed a level you set while it was paused",
+        body=(
+            "One of the numbers you asked Jarvis to watch passed the level "
+            "you set while this company was paused, so nothing was done "
+            "about it. Start the company again when you want it looked at."
+        ),
+    ),
+}
+DROPPED_WAKE_DEFAULT = DroppedWakeCopy(
+    title="{name} has something waiting",
+    body=(
+        "Something this company was set up to respond to arrived while it was "
+        "paused, so nothing has been done about it. Start the company again "
+        "when you want it looked at."
+    ),
+)
+"""Spec §12.5 for D-035's notice, keyed by what arrived.
+
+D-035 rejected preserving a paused company's wake reasons for automatic
+execution at resume — an operator who paused a company to stop it must not be
+surprised by a burst of work when they start it — and rejected today's silent
+drop just as firmly. What is left is telling them, and telling them usefully
+means saying *which* thing is waiting: "you answered a request" and "a number
+you watch moved" are different sentences and lead to different decisions.
+
+Keyed rather than templated on the raw reason, because the raw reason is an
+internal event name (`capability.result_returned`) and §12.5 forbids that
+register reaching an operator at all. An unmapped kind falls back to
+`DROPPED_WAKE_DEFAULT`, which says the true thing without naming the mechanism —
+so a bus event added later degrades to a vaguer sentence instead of leaking one.
+
+Authored here rather than beside the branch in the workflow for the same reason
+the park's records are: the sentence names the company, and the display name is
+a contract read. The words themselves are the copy pass's to settle — M8-9's
+review tightened `capability.result_returned` (the original's "Work ... had
+already started finished" read as a garden-path sentence) and
+`kpi.threshold_breached` (matched its "Start the company again" phrasing to
+the other three entries, which had drifted to a bare "Start it again"); the
+"approval" entry and the default were confirmed as written, no change.
+
+D-035's own resolution ratified that `WAITING_ON_RESUME` is the operator
+category (`NotificationKind`, `jarvis/notifications/service.py`) — a value
+this file's `record_dropped_wake` activity below writes to on every dropped
+reason, deduplicated per company (see `notified` there), distinct from
+`PAUSED` (the seven-day sweep's "answer this") for the reason recorded there:
+sharing a kind would let the sweep's own unread notice suppress this one."""
+
+DROPPED_WAKE_EVENT = "wake.dropped_while_paused"
+"""The audit entry D-035 requires beside the notification.
+
+The notification is one per company until it is dismissed; the audit log keeps
+every occurrence, with the kind and the ref it carried. Same division as the
+park's (§11 is the forensic record, §12.5's queue is what the operator has to
+read), and the reason it matters here is that the notice deliberately does not
+accumulate — so the record of *how many* things a pause has dropped has to live
+somewhere that does."""
 
 DERIVED_CYCLE_KEY = re.compile(r"cyc_[0-9a-f]{32}_\d{1,9}")
 """The shape a workflow-derived cycle key has (D-034.2, `_cycle_key`).
@@ -981,6 +1048,92 @@ class ManagerActivities:
             )
             return {"decision_id": decision_id, "notified": str(notified).lower()}
 
+    @activity.defn(name="record_dropped_wake")
+    async def record_dropped_wake(self, payload: dict[str, str]) -> dict[str, str]:
+        """Tell the operator what a pause dropped, and record it (D-035).
+
+        The workflow decides *that* a reason was dropped and what kind it was —
+        pure string work it can do inside D-004 — and this composes the sentence,
+        because the sentence names the company and the display name is a contract
+        read. The same division `record_manager_park` makes.
+
+        **Both records, and they answer different questions.** The audit entry is
+        §11's forensic account: every dropped reason, with its kind and its ref,
+        for anyone reconstructing why a company that was answered did nothing.
+        The notification is what reaches the operator without their looking, and
+        it is deduplicated to one unanswered notice per company — a paused
+        company can accumulate dropped reasons for as long as it stays paused,
+        and ninety of them in the queue is the permanent accumulation §12.5
+        forbids. The action is the same for all of them ("start it again"), so
+        one notice is not a loss of information; the audit log is where the count
+        lives.
+
+        `WAITING_ON_RESUME` rather than `PAUSED`: the seven-day sweep's own
+        `PAUSED` notice is "answer this", and this one is what the operator needs
+        after they have answered — sharing the kind would let the first suppress
+        the second under exactly this deduplication.
+
+        The approval row itself is untouched (D-035). Nothing here queues,
+        replays or expires anything: the operator's answer is still stored, and
+        `link_ref` is what lets the surface point at it.
+
+        Returns:
+            The kind reported and whether an operator was notified — recorded, so
+            the activity's result says which of the two records this drop
+            produced.
+        """
+        identity = RuntimeIdentity.from_activity()
+        # Same reasoning as `record_cycle_decision`: no contract, credential or
+        # effect is reached, but one company's account of its day is not
+        # another's to write (§10, §11.5).
+        await self._assert_identity(identity, payload["business_id"], reached="operator notice")
+        business_id = BusinessId(payload["business_id"])
+        reason_kind = payload["reason_kind"]
+        reason_ref = payload.get("reason_ref") or None
+        copy = DROPPED_WAKE_COPY.get(reason_kind, DROPPED_WAKE_DEFAULT)
+
+        async with self._kernel.services() as svc:
+            contract = await svc.registry.get_contract(business_id)
+            await svc.audit.record(
+                event_type=DROPPED_WAKE_EVENT,
+                actor=business_id,
+                business_id=business_id,
+                workflow_id=identity.workflow_id,
+                payload={
+                    "reason_kind": reason_kind,
+                    "reason_ref": reason_ref,
+                    "reason": (
+                        "the company is paused, so this was dropped rather than "
+                        "queued or carried out (D-035)"
+                    ),
+                },
+            )
+
+            notifications = NotificationService(svc.session)
+            notified = not await notifications.has_unread(
+                business_id, kind=NotificationKind.WAITING_ON_RESUME
+            )
+            if notified:
+                await notifications.notify(
+                    notification_id=new_notification_id(),
+                    kind=NotificationKind.WAITING_ON_RESUME,
+                    title=copy.title.format(name=contract.display_name),
+                    body=copy.body,
+                    business_id=business_id,
+                    link_ref=reason_ref,
+                )
+            logger.info(
+                "a paused company dropped a wake reason",
+                extra={
+                    "context": {
+                        "business_id": business_id,
+                        "reason_kind": reason_kind,
+                        "notified": notified,
+                    }
+                },
+            )
+            return {"reason_kind": reason_kind, "notified": str(notified).lower()}
+
     @activity.defn(name="record_cycle_decision")
     async def record_cycle_decision(self, payload: dict[str, str]) -> str:
         """Write the cycle's Decision Log entry (spec §2.1, §11.5).
@@ -1612,6 +1765,7 @@ def all_manager_activities(kernel: PlatformKernel) -> list[Callable[..., object]
         instance.record_cycle_kpis,
         instance.record_cycle_decision,
         instance.record_manager_park,
+        instance.record_dropped_wake,
     ]
 
 
