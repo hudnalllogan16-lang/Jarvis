@@ -1597,3 +1597,47 @@ with a test asserting nothing emits them until persona data exists.
   failure, owned by the shell packet. **M8-F27:** 26px small buttons, same home.
 - Tile copy is placeholder-quality — operator-surface pass owed (the D-028 split working as
   designed).
+
+---
+
+## D-029 … D-032 — the plugin framework decisions (ratified from the M8-1 design)
+
+Ratified as drafted in docs/design/PLUGIN-FRAMEWORK.md Part 8 (authoritative for detail):
+**D-029** type data reaches a company through three bands — A live-by-installation, B
+snapshot-refreshed-with-operator-consent (kpi_targets, type-owned wake_conditions,
+compliance_requirements), C never (identity, budget, capability_permissions,
+autonomy_policies, graduation); the line is authority. **D-030** refresh consent happens on
+the company, never through §8's approval queue — an action_type would attach a graduation
+counter to configuration changes. **D-031** the built-in catalog is an injected sequence and
+that injection is the whole plugin extension path; validation generalizes to the three
+evidence-backed checks; same-version drift is detected, never auto-installed. **D-032** the
+type-parameter surface is closed and enumerated (design Part 1); a type field requiring the
+platform to execute type-authored logic reopens D-014 and is an escalation.
+
+## UI Phase-1 gate: PROCEED
+
+Product reviewer verified the token discipline is real (zero raw hex, zero tier-1 reaches in
+components.css), both themes complete, the tile row honest (the concept's milestone tile was
+DROPPED rather than faked — principle 3 surviving contact), and every M7 surface outcome
+intact. Three contract debts fold into M8-4: ten inline style sites off the 4px scale in the
+JS modules; 06-components.md documents `.entry__why` which exists nowhere (doc-vs-code
+mismatch in an "extend, don't reinvent" system); naming half-migrated (BEM beside flat
+legacy). All invisible to the operator; all inherited first by the Shell.
+
+## D-034 — resilience policies (resolving the deferred ledger for wave 1)
+
+1. **Context-load failure (M6-F13, M8-F44):** past retries, the Manager parks in a recorded
+   degraded state — best-effort Decision Log entry in operator language, notification
+   surfaced, waits for its next wake. It never dies and never loops hot. Same containment
+   family as M6-F9.
+2. **Cycle key on retry (M6-F17, M7-F25):** the cycle key derives deterministically in the
+   workflow (run id + cycle ordinal) — derivation, not minting, so D-004 holds — and
+   activity retries share the cycle's budget scope. Amends D-021's minting note; plan_cycle
+   keeps minting only the audit-facing id if the two must differ, but the LEDGER scope key is
+   the deterministic one.
+3. **Orphaned reservations (M6-F18):** a scheduler-owned reconcile releases-and-audits
+   RESERVED rows whose invocation reached a terminal state, with an age bound as backstop —
+   a D-022 addendum: terminality remains the principle; the reconcile is the safety net for
+   process death.
+4. **Credential refusals (M6-F42):** audited via the D-025 independent-commit path from the
+   pool side, closing the last unaudited §10 refusal.
