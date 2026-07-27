@@ -70,8 +70,41 @@ class _StubProvider:
         return None
 
 
+class _CapturingTemporalClient:
+    """A Temporal client that records `start_workflow` calls instead of
+    making them (M8-13 leak fix).
+
+    `Scheduler.sweep()` unconditionally calls `ManagerLifecycle.reconcile()`
+    (this module calls `sweep()` at every call site below), and `reconcile()`
+    calls `kernel.temporal_client()` for real unless told otherwise. This
+    file's `kernel` fixture never overrode it, so every `sweep()` call here
+    was opening a real connection to `localhost:7233` and issuing real
+    `start_workflow`s against whatever `settings.temporal.namespace` resolved
+    to — `"default"` in any environment with no lane env vars set, since
+    `_env_file=None` disables reading the repo's `.env` file but pydantic-
+    settings still reads the process environment, which is empty here.
+
+    This is the leaking test path M8-F162's audit missed (it checked
+    `test_manager_start_state.py`, `test_approval_roundtrip.py`, and others,
+    but not this file): found live 2026-07-27 by diffing the `default`
+    namespace's workflow count before/after a full `scripts/gates.sh` run —
+    11 new `RUNNING` executions, one per `sweep()` call site here. None of
+    this file's assertions depend on a real workflow having started, so the
+    fix is the same monkeypatch every other Kernel-integration test in this
+    suite already uses for the same reason
+    (`tests/test_manager_start_state.py`'s `_CapturingClient`) — a pure
+    test-file change, not a production code change.
+    """
+
+    def __init__(self) -> None:
+        self.started: list[object] = []
+
+    async def start_workflow(self, name: str, state: object, **kwargs: object) -> None:
+        self.started.append(state)
+
+
 @pytest_asyncio.fixture
-async def kernel() -> AsyncIterator[PlatformKernel]:
+async def kernel(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[PlatformKernel]:
     """A real Kernel over one shared in-memory connection.
 
     `_env_file=None`: the repository holds a real `.env`, and a test that read it
@@ -89,6 +122,14 @@ async def kernel() -> AsyncIterator[PlatformKernel]:
         engine=engine,
         provider=_StubProvider(),  # type: ignore[arg-type]
     )
+
+    client = _CapturingTemporalClient()
+
+    async def _fake_temporal_client() -> _CapturingTemporalClient:
+        return client
+
+    monkeypatch.setattr(built, "temporal_client", _fake_temporal_client)
+
     yield built
     await built.aclose()
 

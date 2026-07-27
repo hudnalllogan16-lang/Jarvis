@@ -162,8 +162,45 @@ def test_env_block_carries_all_four_lane_variables() -> None:
         "JARVIS_TEST_DATABASE_URL=postgresql+asyncpg://jarvis:jarvis@localhost:5432/jarvis_lane_t1"
         in block
     )
-    assert "JARVIS_TEMPORAL_NAMESPACE=lane-t1" in block
+    assert "JARVIS_TEMPORAL__NAMESPACE=lane-t1" in block
     assert f"JARVIS_API_PORT={lane_env.lane_port('t1')}" in block
+
+
+def test_env_block_round_trips_through_settings_lane_namespace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Guard for the M8-F162/M8-13 routing defect.
+
+    `Settings` uses `env_nested_delimiter="__"`, so `temporal.namespace` (a
+    nested field) is only ever set by `JARVIS_TEMPORAL__NAMESPACE` (double
+    underscore); `model_config` sets `extra="ignore"`, so any other spelling
+    is silently dropped — no error, no warning. `_env_block()` printed the
+    single-underscore spelling for a full milestone, so every lane that
+    pasted its `.env` block believed its Temporal traffic was isolated while
+    `settings.temporal.namespace` silently stayed `"default"`.
+
+    This test pastes `_env_block()`'s own printed lines into the process
+    environment — exactly what a lane operator does — and constructs the
+    real `Settings` class over them, asserting the namespace actually moved
+    off the default. It would have failed under the single-underscore
+    spelling (proving the defect) and passes now that `_env_block()` prints
+    the double-underscore form: the class of silent-drop bug fails loudly,
+    here, forever, rather than leaking real workflow executions onto the
+    live `default` namespace again.
+    """
+    admin_url = "postgresql+asyncpg://jarvis:jarvis@localhost:5432/jarvis"
+    block = lane_env._env_block(admin_url, "t1")
+
+    for line in block.splitlines():
+        if line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        monkeypatch.setenv(key, value)
+
+    settings = Settings(llm=LLMSettings(model="stub-model"), _env_file=None)  # type: ignore[call-arg]
+
+    assert settings.temporal.namespace == lane_env.lane_namespace("t1") == "lane-t1"
+    assert settings.temporal.namespace != "default"
 
 
 # ── Settings.api_port (packet scope item 2) ──────────────────────────────

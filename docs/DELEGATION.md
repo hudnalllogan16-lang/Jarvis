@@ -473,7 +473,7 @@ git worktree add ../Jarvis-lanes/<packet-id> -b lane/<packet-id>
 Live-verification work parameterizes the shared local stack instead of assuming exclusive
 ownership of it: a per-lane Postgres database (same server), a per-lane Temporal namespace,
 and a per-lane API port, all set via the lane's `.env` (`JARVIS_DATABASE_URL`,
-`JARVIS_TEMPORAL_NAMESPACE`, plus the API port variable). `scripts/lane_env.py` provisions and
+`JARVIS_TEMPORAL__NAMESPACE`, plus the API port variable). `scripts/lane_env.py` provisions and
 tears these down. Postgres-backed tests must be marker-gated and skip *visibly* when the stack
 is unreachable — a skip is reported, never counted as verified (D-025.2, M5-F5 discipline).
 
