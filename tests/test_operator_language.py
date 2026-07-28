@@ -335,6 +335,40 @@ def test_no_dropped_wake_notice_names_the_event_that_caused_it() -> None:
         assert kind not in copy.body, kind
 
 
+def test_the_missed_round_notice_is_written_for_the_operator() -> None:
+    """§12.5 for the notice a skipped scheduled round raises (design 4.4).
+
+    The register is the same as every other notice the Manager produces: what it
+    means for the company, never what the platform was doing. "The runtime was
+    down and the wake was not served inside its period" is the true sentence and
+    is the one an operator must never read.
+    """
+    from jarvis.manager.activities import LATE_WAKE_BODY, LATE_WAKE_TITLE
+
+    title = LATE_WAKE_TITLE.format(name="Affiliate Co")
+    assert not contains_technical_language(title)
+    assert not contains_technical_language(LATE_WAKE_BODY)
+    assert title[0].isupper()
+    assert LATE_WAKE_BODY.endswith(".")
+    assert title not in LATE_WAKE_BODY, "a body that restates its title says nothing new"
+
+
+def test_the_missed_round_notice_does_not_promise_a_catch_up() -> None:
+    """The one sentence in this copy that could be false (design 4.4).
+
+    A skipped round is not run later, deliberately and by design — a runtime
+    down thirteen hours must not restart into thirteen hours of billable rounds,
+    and a missed morning planning round is worthless by the evening. Copy
+    implying otherwise would be the platform promising work it has decided not
+    to do, which is worse than the silence this notice replaces.
+    """
+    from jarvis.manager.activities import LATE_WAKE_BODY
+
+    body = LATE_WAKE_BODY.lower()
+    for promise in ("catch up", "caught up", "make up", "run it now", "as soon as"):
+        assert promise not in body, promise
+
+
 def test_the_detector_actually_detects() -> None:
     """A guard that never fires is worse than none: it reads as coverage."""
     assert contains_technical_language("the workflow failed")

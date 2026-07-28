@@ -162,6 +162,47 @@ the version decision open and closed, over a script whose plan proposes
 nothing to dispatch.
 """
 
+PATCH_WALL_CLOCK_SCHEDULE = "wall-clock-schedule"
+"""Versioning id for design OPERATIONAL-RUNTIME.md Part 4: the Manager parks to
+a wall-clock instant, and a wake whose period has already ended is skipped and
+announced rather than run.
+
+**What changes on the live path.** Before this, `_await_wake` started a timer of
+`schedule_interval_seconds` — a number `_interval_seconds` produced by reducing
+any five-field expression to 3600 or 86400. Two defects in one (4.1): the
+interval is not the schedule (``"0 9 * * *"`` means 09:00, and ``"0 9,16 * * *"``
+became *hourly*, twelve times the intended cycles), and an interval's anchor is
+the last park, so every outage moves the schedule permanently. M10-F13 is that
+drift measured on a live execution: a daily schedule went 22:40 -> 06:14 in one
+incident. Now the timer's length is `next_fire_at_utc - workflow.now()`, so an
+outage delays one cycle and the schedule is unmoved.
+
+**One patch id, not two**, guarding both the new park computation and the
+`record_late_wake` command. They are one behavioural change; splitting them
+would let a history take the new timer and the old silence, which is a state
+neither version was designed for.
+
+Unlike `PATCH_PAUSED_WAKE_NOTICE` and `PATCH_NOTHING_TO_DO_KPIS`, whose branches
+no committed fixture ever reached, **both fixtures park on timers** — three
+`86400s` timers in the Finance history, two in the Affiliate one — so this
+patch's old path is genuinely exercised by them and "both fixtures replay
+unedited" is real evidence here rather than a vacuous pass. The scripted pair in
+`tests/test_workflow_versioning.py` ships alongside anyway, because a fixture
+cannot show what the *new* path does that the old one did not.
+
+Three RUNNING executions were parked on the old path when this was written
+(design Part 0). They replay the timer they actually started, from the interval
+their own recorded context carries, and take the new path from their next
+context load onwards. That is the whole point of D-033."""
+
+MINIMUM_PARK = timedelta(seconds=60)
+"""Floor on the park, for a cycle that overran its own next fire (4.2).
+
+An early wake is harmless — it is gated by `max_cycles_per_day` and the
+wake-cycle ceiling, both already enforcing, and the next context load recomputes
+against the calendar — whereas a negative timeout is a crash. The Manager parks
+briefly and looks again."""
+
 CEILING_REFUSAL_TYPES = frozenset({"BudgetExceededError", "CircuitBreakerOpenError"})
 """Failure types that mean *a ceiling refused the work*, not that the work failed
 (D-003). Matched by name because a workflow sees a serialised failure, never the
@@ -293,6 +334,18 @@ class BusinessManagerWorkflow:
         dropping — the pause the loop starts on, and a pause that lands while it
         waits — and both report.
 
+        **The wait is to a calendar instant, and a period admits one cycle
+        (design OPERATIONAL-RUNTIME.md Part 4, behind
+        `PATCH_WALL_CLOCK_SCHEDULE`).** The first read answers *when* the next
+        fire is, absolutely, so the park is the distance to it rather than a
+        flat interval anchored on this Manager's last park — which is what made
+        every outage move the schedule permanently (M10-F13). And a wake still
+        unserved when its own period has ended is skipped and announced rather
+        than run: thirteen hours of downtime must not become thirteen hours of
+        billable rounds, and a missed 09:00 planning round has nothing left to
+        plan by 22:00. What every round records either way is *how late its wake
+        was*, because the trend is the signal that precedes the outage.
+
         **The ordinal resets at the continuation (M8-F87).** `cycles_completed`
         counts what this execution's history holds, so the generation that
         starts with an empty history starts at zero. Carrying the count over
@@ -333,6 +386,26 @@ class BusinessManagerWorkflow:
             if not fired and not reasons:
                 continue
 
+            lateness = _wake_lateness_seconds(wake_ctx) if fired else 0
+            if fired and _skips_a_missed_wake(wake_ctx):
+                # 4.4: a schedule period admits at most one cycle. This one's
+                # period ended while the wake was unserved, so the cycle is
+                # skipped rather than replayed — a worker down thirteen hours
+                # must not restart into thirteen hours of billable backlog, and
+                # the content of a missed 09:00 planning round is worthless at
+                # 22:00. Announced, because silently draining a backlog is the
+                # recovery burst INCIDENT-M9-F118 had to reconstruct after the
+                # fact. Signalled reasons are their own trigger and still run
+                # their cycle below; what is skipped is the scheduled round.
+                await self._record_late_wake(state.business_id, lateness)
+                if not reasons:
+                    continue
+                # The round that runs below is the signal's, not the schedule's,
+                # so it carries no lateness: stamping the missed fire's figure
+                # on it would put a measurement in the record for a round that
+                # was never waiting on that fire.
+                lateness = 0
+
             ctx = wake_ctx
             if _reloads_context_after_wake():
                 reloaded = await self._load_context(state.business_id)
@@ -362,7 +435,11 @@ class BusinessManagerWorkflow:
                     continue
 
             state = await self._run_cycle(
-                state, ctx, reasons, cycle_key=_cycle_key(state.cycles_completed)
+                state,
+                ctx,
+                reasons,
+                cycle_key=_cycle_key(state.cycles_completed),
+                wake_lateness_seconds=lateness,
             )
             self._state = state
 
@@ -514,21 +591,56 @@ class BusinessManagerWorkflow:
                 )
 
     async def _await_wake(self, ctx: CycleContext) -> bool:
-        """Suspend until a scheduled interval elapses or a signal arrives.
+        """Suspend until the schedule's next fire, or until a signal arrives.
+
+        The timer's length is the *distance to a calendar instant* now, not a
+        schedule-shaped interval (`PATCH_WALL_CLOCK_SCHEDULE`). That single
+        change is what makes an outage delay one cycle instead of moving the
+        schedule for good, because the next fire is derived from the calendar
+        rather than from whenever this Manager last happened to park (M10-F13).
 
         Returns:
             True if the schedule fired, False if a signal arrived first.
         """
-        if ctx.schedule_interval_seconds is None:
+        timer = _park_delay(ctx)
+        if timer is None:
             await workflow.wait_condition(lambda: bool(self._wake_reasons))
             return False
 
-        timer = timedelta(seconds=ctx.schedule_interval_seconds)
         try:
             await workflow.wait_condition(lambda: bool(self._wake_reasons), timeout=timer)
         except TimeoutError:
             return True
         return False
+
+    async def _record_late_wake(self, business_id: str, lateness_seconds: int) -> None:
+        """Announce a scheduled round that was skipped for being too late (4.4).
+
+        The workflow decides *that* a period was missed — a comparison of two
+        recorded instants, which is pure work it can do inside D-004 — and the
+        activity composes the sentence, because the sentence names the company
+        and a display name is a contract read. The same division
+        `_record_park` and `_report_dropped_wakes` already make.
+
+        Best-effort, for the reason those two are: a notice that could not be
+        written must not take down the Manager of a company whose only problem
+        is that the platform was off when its round was due.
+
+        Args:
+            business_id: Whose scheduled round was missed.
+            lateness_seconds: How late the wake was served, which is the
+                measurement the notice and its audit record carry.
+        """
+        with suppress(ActivityError):
+            await workflow.execute_activity(
+                "record_late_wake",
+                {
+                    "business_id": business_id,
+                    "wake_lateness_seconds": str(lateness_seconds),
+                },
+                start_to_close_timeout=ACTIVITY_TIMEOUT,
+                retry_policy=STANDARD_RETRY,
+            )
 
     # ── one wake cycle ─────────────────────────────────────────────────────
 
@@ -539,6 +651,7 @@ class BusinessManagerWorkflow:
         reasons: list[str],
         *,
         cycle_key: str = "",
+        wake_lateness_seconds: int = 0,
     ) -> ManagerState:
         """Plan, dispatch, synthesize, decide — once (spec §2.1).
 
@@ -569,6 +682,12 @@ class BusinessManagerWorkflow:
                 no run to derive from — a `_run_cycle`-level test, or any future
                 caller that is not the wake loop — in which case `plan_cycle`
                 mints as D-021 originally specified.
+            wake_lateness_seconds: How late this cycle's scheduled wake was
+                served (4.4). Recorded on *every* cycle decision, not only late
+                ones: a field that appears only when something is wrong cannot
+                be trended, and "wakes have been getting later for a week" is
+                the signal that precedes an outage rather than following it.
+                Zero for a cycle woken by a signal rather than by the schedule.
         """
         day = ctx.day_ordinal
 
@@ -594,7 +713,9 @@ class BusinessManagerWorkflow:
             # Retries are safe (the effect is idempotent under A-001) but not
             # unlimited; once they are spent the cycle ends visibly rather than
             # continuing as though the action had run.
-            return await self._end_in_failure(state, ctx, cycle_key, error)
+            return await self._end_in_failure(
+                state, ctx, cycle_key, error, wake_lateness_seconds=wake_lateness_seconds
+            )
 
         if state.wake_budget_exhausted(ctx.max_cycles_per_day, day_ordinal=day):
             # §2.1's cost ceiling bounds one cycle; this bounds their frequency.
@@ -646,7 +767,9 @@ class BusinessManagerWorkflow:
             # reads and the ledger rows behind it group together for the first
             # time. An empty key means no run to derive from, which is D-021's
             # original case and keeps its behaviour.
-            return await self._end_in_failure(state, ctx, cycle_key, error)
+            return await self._end_in_failure(
+                state, ctx, cycle_key, error, wake_lateness_seconds=wake_lateness_seconds
+            )
 
         # `.get`, not `[...]`: a history captured before D-021 has no cycle id in
         # this payload, and replaying it must not raise (spec §11). Read from the
@@ -667,9 +790,19 @@ class BusinessManagerWorkflow:
         state = state.model_copy(update={"plan": plan, "pending_approval_id": None})
 
         try:
-            return await self._execute_cycle(state, ctx, cycle_id, plan, requests, sequence)
+            return await self._execute_cycle(
+                state,
+                ctx,
+                cycle_id,
+                plan,
+                requests,
+                sequence,
+                wake_lateness_seconds=wake_lateness_seconds,
+            )
         except ActivityError as error:
-            return await self._end_in_failure(state, ctx, cycle_id, error)
+            return await self._end_in_failure(
+                state, ctx, cycle_id, error, wake_lateness_seconds=wake_lateness_seconds
+            )
 
     async def _execute_cycle(
         self,
@@ -679,8 +812,16 @@ class BusinessManagerWorkflow:
         plan: TacticalPlan,
         requests: tuple[ScopedRequest, ...],
         sequence: DispatchSequence,
+        *,
+        wake_lateness_seconds: int = 0,
     ) -> ManagerState:
-        """Dispatch the plan, synthesize what came back, and record it (§2.1)."""
+        """Dispatch the plan, synthesize what came back, and record it (§2.1).
+
+        `wake_lateness_seconds` travels with the cycle rather than being read
+        again here: it is a fact about the wake this cycle answered, and asking
+        the clock a second time at the end of a round would measure how long the
+        round took instead (4.4).
+        """
         day = ctx.day_ordinal
 
         if not requests:
@@ -704,7 +845,12 @@ class BusinessManagerWorkflow:
                     start_to_close_timeout=ACTIVITY_TIMEOUT,
                     retry_policy=STANDARD_RETRY,
                 )
-            await self._record(state, self._last_cycle, cycle_id=cycle_id)
+            await self._record(
+                state,
+                self._last_cycle,
+                cycle_id=cycle_id,
+                wake_lateness_seconds=wake_lateness_seconds,
+            )
             return state.with_cycle_recorded(day_ordinal=day)
 
         results, skipped, failure = await self._dispatch_in_waves(
@@ -726,6 +872,7 @@ class BusinessManagerWorkflow:
                 dispatched=requests,
                 results=results,
                 skipped=skipped,
+                wake_lateness_seconds=wake_lateness_seconds,
             )
 
         # §2.1 requires waiting for and synthesizing *all* results before
@@ -801,7 +948,12 @@ class BusinessManagerWorkflow:
                 spend_usd=spend,
                 summary=summary,
             )
-            await self._record(state, self._last_cycle, cycle_id=cycle_id)
+            await self._record(
+                state,
+                self._last_cycle,
+                cycle_id=cycle_id,
+                wake_lateness_seconds=wake_lateness_seconds,
+            )
             return state.with_cycle_recorded(day_ordinal=day)
 
         self._last_cycle = CycleResult(
@@ -812,7 +964,12 @@ class BusinessManagerWorkflow:
             spend_usd=spend,
             summary=summary,
         )
-        await self._record(state, self._last_cycle, cycle_id=cycle_id)
+        await self._record(
+            state,
+            self._last_cycle,
+            cycle_id=cycle_id,
+            wake_lateness_seconds=wake_lateness_seconds,
+        )
         return state.with_cycle_recorded(day_ordinal=day)
 
     async def _end_in_failure(
@@ -825,6 +982,7 @@ class BusinessManagerWorkflow:
         dispatched: tuple[ScopedRequest, ...] = (),
         results: tuple[CapabilityResult, ...] = (),
         skipped: tuple[SkippedDispatch, ...] = (),
+        wake_lateness_seconds: int = 0,
     ) -> ManagerState:
         """End a cycle whose activities ran out of retries (spec §9, M6-F9).
 
@@ -856,7 +1014,13 @@ class BusinessManagerWorkflow:
         # loop instead of dying alongside it. The activity's own failure remains
         # visible in the platform's records either way.
         with suppress(ActivityError):
-            await self._record(state, self._last_cycle, cycle_id=cycle_id, rationale=rationale)
+            await self._record(
+                state,
+                self._last_cycle,
+                cycle_id=cycle_id,
+                rationale=rationale,
+                wake_lateness_seconds=wake_lateness_seconds,
+            )
         return state.with_cycle_recorded(day_ordinal=ctx.day_ordinal)
 
     async def _dispatch_in_waves(
@@ -1001,6 +1165,7 @@ class BusinessManagerWorkflow:
         *,
         cycle_id: str,
         rationale: str | None = None,
+        wake_lateness_seconds: int = 0,
     ) -> None:
         """Write this cycle's Decision Log entry (spec §2.1, §11.5).
 
@@ -1014,6 +1179,14 @@ class BusinessManagerWorkflow:
                 same cycle (D-021). Empty only when planning itself failed.
             rationale: Overrides the plan's own rationale, for a cycle that ended
                 for a reason the plan does not explain.
+            wake_lateness_seconds: How late the wake this cycle answered was
+                served (4.4). On the payload rather than in a second command,
+                because it is a property of the round being recorded and a
+                separate write would be a second thing to keep in step with the
+                entry it belongs to. A payload key is not a version boundary:
+                the workflow issues the same command, at the same call site,
+                with one more value in it (D-033's recorded-result side, the
+                same shape D-034.2's `cycle_key` rode in on).
         """
         await workflow.execute_activity(
             "record_cycle_decision",
@@ -1024,6 +1197,7 @@ class BusinessManagerWorkflow:
                 "rationale": rationale or state.plan.rationale or cycle.summary,
                 "outcome": cycle.outcome.value,
                 "spend_usd": str(cycle.spend_usd),
+                "wake_lateness_seconds": str(wake_lateness_seconds),
             },
             start_to_close_timeout=ACTIVITY_TIMEOUT,
             retry_policy=STANDARD_RETRY,
@@ -1157,6 +1331,89 @@ def _surfaces_dropped_wakes() -> bool:
     one cohort in two for no reason anybody could reconstruct later.
     """
     return workflow.patched(PATCH_PAUSED_WAKE_NOTICE)
+
+
+def _parks_on_wall_clock() -> bool:
+    """Return whether this execution parks to a calendar instant (4.5).
+
+    False for every execution that was already running when this shipped —
+    including the three Managers that were parked on `86400s` timers at the
+    time, which is the case D-033 exists for. True for everything started since.
+    See `PATCH_WALL_CLOCK_SCHEDULE`.
+
+    A named function holding the *only* `workflow.patched` call for this id,
+    which is the shape `_reloads_context_after_wake` established and what lets
+    the two decisions this gate covers — how long to park, and whether a missed
+    period is announced — stay one cohort of histories rather than two. They are
+    one behavioural change in two places; giving each its own id would split one
+    cohort for a distinction nobody could reconstruct later.
+    """
+    return workflow.patched(PATCH_WALL_CLOCK_SCHEDULE)
+
+
+def _park_delay(ctx: CycleContext) -> timedelta | None:
+    """Return how long to park, or None when only a signal can wake this.
+
+    Three answers, and which one applies is the whole of the version boundary:
+
+    - The calendar's, for any execution on the new path whose context carries
+      an instant: the distance from now to the next fire, floored at
+      `MINIMUM_PARK` for the cycle that overran its own next fire.
+    - The recorded interval's, for an execution replaying the old path — and
+      also for the one seam between the two, a history that ends between a
+      context load and the park, where the new branch meets a payload that
+      predates it. Reading "no schedule" there would turn a scheduled company
+      into an event-only one silently, which is a worse failure than parking
+      one last time on the old number.
+    - None, for a business with no schedule at all (M7-F2's opposite: an
+      event-only company), which waits on a signal and costs nothing.
+
+    Pure arithmetic over two recorded values and `workflow.now()`, which the SDK
+    replays identically — so the delay a recovery computes is the delay the
+    original run computed, which is what keeps this inside D-004.
+    """
+    if _parks_on_wall_clock() and ctx.next_fire_at_utc is not None:
+        return max(ctx.next_fire_at_utc - workflow.now(), MINIMUM_PARK)
+    if ctx.schedule_interval_seconds is None:
+        return None
+    return timedelta(seconds=ctx.schedule_interval_seconds)
+
+
+def _wake_lateness_seconds(ctx: CycleContext) -> int:
+    """Return how late this wake was served, in whole seconds (4.4).
+
+    Zero rather than None for a context that names no fire time — an execution
+    on the old path, or a business woken only by events — because the field is
+    recorded on *every* cycle so lateness can be trended, and a column that is
+    sometimes absent cannot be. Zero for an early wake too: a timer that fired a
+    moment before its instant is not negative lateness, it is on time.
+    """
+    if ctx.next_fire_at_utc is None:
+        return 0
+    return max(0, int((workflow.now() - ctx.next_fire_at_utc).total_seconds()))
+
+
+def _skips_a_missed_wake(ctx: CycleContext) -> bool:
+    """Return whether this wake arrived after its own period had ended (4.4).
+
+    The rule, as narrowly as it can be stated: *a schedule period admits at most
+    one cycle*. A wake served before its period ends runs, with its lateness
+    recorded; a wake still unserved when the next fire time passes is skipped.
+
+    Worked through the live execution Part 0 measured: the wake fired 22:40 on
+    the 27th and was served 06:14 on the 28th — still inside the daily period,
+    so it runs, stamped 7h34m late. Had the runtime been down until 23:00 on the
+    28th, the next fire would already have passed: skip, one notice, re-park.
+
+    False whenever the context carries no period end, which covers both an
+    execution replaying the old path and a business with no schedule at all.
+    There is deliberately no grace parameter: it would introduce an ENFORCING
+    value — it decides whether a billable cycle runs — to answer a question the
+    cron expression already answers exactly. The period *is* the grace window.
+    """
+    if ctx.period_ends_at_utc is None or not _parks_on_wall_clock():
+        return False
+    return workflow.now() >= ctx.period_ends_at_utc
 
 
 def _refused_by_a_ceiling(error: ActivityError) -> bool:

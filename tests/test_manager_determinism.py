@@ -222,6 +222,99 @@ def test_the_post_wake_reload_is_versioned() -> None:
     assert "workflow.patched(PATCH_POST_WAKE_CONTEXT)" in SOURCE
 
 
+def test_the_park_is_computed_from_the_context_and_never_from_a_clock_read() -> None:
+    """D-004 for P0-D's park (design 4.2), asserted where the slip would be silent.
+
+    The fire time is an *activity result* and the current instant is
+    `workflow.now()`, which the SDK replays identically. Both operands are
+    therefore facts a recovery reproduces. The tempting version of this change
+    reaches for `datetime.now(UTC)` — the forbidden-call list above already bans
+    it by name — or computes the fire time here, which would put `zoneinfo`'s
+    file-backed lookup inside the workflow sandbox. Neither would fail a
+    behavioural test; both would fail a Manager during recovery.
+    """
+    assert "ctx.next_fire_at_utc - workflow.now()" in SOURCE
+    assert "zoneinfo" not in SOURCE
+    assert "parse_cron" not in SOURCE, "the calendar is read in the activity, never here"
+
+
+def test_the_park_is_bounded_below() -> None:
+    """`MINIMUM_PARK` (4.2): a cycle that overran its own next fire.
+
+    `max(...)` rather than a conditional, because the failure it prevents is a
+    *negative* timeout — which Temporal rejects, so a round that ran long would
+    crash its Manager rather than park. One character of edit distance from a
+    `min`, and no behavioural test in the suite would notice.
+    """
+    assert "max(ctx.next_fire_at_utc - workflow.now(), MINIMUM_PARK)" in SOURCE
+
+
+def test_the_wall_clock_park_is_versioned() -> None:
+    """D-033 for the change with live executions parked on its old path.
+
+    Three Managers were parked on flat interval timers when this shipped. The
+    gate is what lets them replay the timer they actually started while every
+    execution since parks on the calendar — and, being one id rather than two,
+    what stops a history taking the new timer and the old silence.
+
+    Asserted on the source because deleting the guard is a one-line edit that
+    leaves the whole suite green except a replay whose failure nobody would read
+    as "this needed versioning".
+    """
+    assert "workflow.patched(PATCH_WALL_CLOCK_SCHEDULE)" in SOURCE
+    # That there is exactly one such call, and that its id is a declared
+    # constant rather than a literal, is `tests/test_workflow_versioning.py`'s
+    # AST check over every patch. What is asserted here is the half specific to
+    # this change: both of the decisions the id covers go through one gate.
+    for helper in ("_park_delay", "_skips_a_missed_wake"):
+        node = next(
+            found
+            for found in ast.walk(TREE)
+            if isinstance(found, ast.FunctionDef) and found.name == helper
+        )
+        assert "_parks_on_wall_clock" in ast.dump(node), f"{helper} decides behind the gate"
+
+
+def test_a_missed_period_is_skipped_rather_than_replayed() -> None:
+    """4.4's rule, pinned where its inverse would be invisible.
+
+    The branch announces and *continues*: no planning call, no dispatch, no
+    billable round. The failure this guards against is someone later "fixing"
+    the skip into a catch-up, which would pass every test that asserts a cycle
+    ran and would turn a thirteen-hour outage into thirteen hours of rounds.
+    """
+    loop = SOURCE.split("async def run(")[1].split("async def _load_context")[0]
+    skip = loop.split("_skips_a_missed_wake(wake_ctx)")[1].split("ctx = wake_ctx")[0]
+    assert "self._record_late_wake(" in skip
+    assert "continue" in skip
+    assert "_run_cycle" not in skip
+
+
+def test_every_cycle_decision_carries_its_wake_lateness() -> None:
+    """4.4's trending half, asserted on the payload rather than on a run.
+
+    Recorded on every round, not only late ones — a measurement that appears
+    only when something is wrong cannot be trended. It rides the existing
+    command's payload rather than a second write, which is also why it needs no
+    version gate of its own (D-033's recorded-result side).
+    """
+    record = next(
+        node
+        for node in ast.walk(TREE)
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == "_record"
+    )
+    dumped = ast.dump(record)
+    assert "wake_lateness_seconds" in dumped
+    scheduled = [
+        node
+        for node in ast.walk(record)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "execute_activity"
+    ]
+    assert len(scheduled) == 1, "one command, carrying one more value — not a second write"
+
+
 def test_the_planner_s_targets_are_read_defensively_from_the_context() -> None:
     """M8-F7 plus spec §11: a history captured before the field must replay.
 

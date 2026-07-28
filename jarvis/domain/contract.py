@@ -16,10 +16,11 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from jarvis.domain.lifecycle import LifecycleState
 from jarvis.domain.provenance import ProvenanceHead
+from jarvis.domain.schedule import VALIDATION_REFERENCE, parse_cron, resolve_timezone
 from jarvis.kernel.ids import BusinessId, BusinessTypeName
 
 
@@ -178,7 +179,37 @@ class WakeConditions(_Contract):
     """
 
     schedule_cron: str | None = None
-    """Cron expression for schedule-based waking, e.g. a daily planning cycle."""
+    """Cron expression for schedule-based waking, e.g. a daily planning cycle.
+
+    **Five real fields as of M10** (design OPERATIONAL-RUNTIME.md 4.1/4.2).
+    Until then the platform reduced any expression to an interval of 3600 or
+    86400 seconds, so this field's *stored value did not mean what it says*:
+    ``"0 9 * * *"`` was executed as "every 24 hours from the last park", and
+    ``"0 9,16 * * *"`` — a legitimate twice-daily schedule — as hourly (M10-F4,
+    12x the intended cycles). It is now read as a calendar, and an expression
+    the platform cannot execute exactly is refused here rather than flattened.
+
+    ANNOUNCING, ``PLATFORM_DEFAULT`` (register row
+    ``wake_conditions.schedule_cron``): nobody authorised the ``"0 9 * * *"``
+    that a type definition supplies. The row exists because *this change moves
+    what the value means*, and a parameter whose semantics move must be visible
+    in the register on the day they move."""
+
+    schedule_timezone: str = "UTC"
+    """IANA timezone the wall-clock times in :attr:`schedule_cron` are read in.
+
+    Additive with a default, which is what keeps the three live contracts
+    deserialising unchanged — and honest, because UTC is the platform's clock of
+    record and every stored instant already is one, so the default states what
+    those contracts have always done rather than papering over a gap.
+
+    Governance thread, stated because market hours will pull on it (4.3): a
+    business *type* may **request** a timezone in its definition
+    (``Origin.TYPE_DEFINITION`` — a request, per the plugin trichotomy) and only
+    the owner's creation or refresh flow **establishes** one
+    (``Origin.OWNER`` / ``APPROVED_CONFIG``). A type declaring
+    ``America/New_York`` is asking, not deciding — which is why no type
+    declares one today and this field is not on the refresh path."""
 
     event_triggers: frozenset[str] = Field(default_factory=frozenset)
     """Event types that wake this Manager, e.g. ``approval.decided`` — which is
@@ -200,6 +231,29 @@ class WakeConditions(_Contract):
     provenance: ProvenanceHead = Field(default_factory=ProvenanceHead)
     """Static provenance head for :attr:`max_cycles_per_day`. Additive with a
     default; see :class:`jarvis.domain.provenance.ProvenanceHead`."""
+
+    @model_validator(mode="after")
+    def _schedule_must_be_executable(self) -> WakeConditions:
+        """Refuse a schedule the platform cannot keep exactly (design 4.2).
+
+        Loudly, and here, because the alternative is the defect this replaces:
+        an expression nobody could execute was silently reduced to an hourly
+        timer, and the company ran twelve times a day instead of twice with
+        nothing anywhere saying so. A refusal at contract creation reaches a
+        person who can fix the expression; a flattening reaches a bill.
+
+        Both halves are checked together because they are one question — a
+        wall-clock time means nothing without the clock it is read on — and the
+        satisfiability probe runs from a *fixed* reference instant, so
+        validating the same contract twice cannot give two answers.
+        """
+        if self.schedule_cron is None:
+            resolve_timezone(self.schedule_timezone)
+            return self
+        parse_cron(self.schedule_cron).next_fire_at(
+            VALIDATION_REFERENCE, timezone=self.schedule_timezone
+        )
+        return self
 
 
 class KpiDirection(StrEnum):

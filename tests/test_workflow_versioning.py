@@ -45,6 +45,7 @@ import ast
 import base64
 import json
 import pathlib
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any, cast
@@ -68,9 +69,11 @@ from jarvis.manager.activities import DERIVED_CYCLE_KEY, all_manager_activities
 from jarvis.manager.state import CycleOutcome, KpiTargetState, ManagerState, TacticalPlan
 from jarvis.manager.types import CycleContext, PlanRequest
 from jarvis.manager.workflow import (
+    MINIMUM_PARK,
     PATCH_NOTHING_TO_DO_KPIS,
     PATCH_PAUSED_WAKE_NOTICE,
     PATCH_POST_WAKE_CONTEXT,
+    PATCH_WALL_CLOCK_SCHEDULE,
     BusinessManagerWorkflow,
 )
 from jarvis.runtime.activities import all_activities
@@ -81,6 +84,9 @@ RUN_ID = "11e3a4ab-097d-4f33-aef4-0ef25ed82895"
 """A run id of the shape Temporal assigns, for the scripted `workflow.info()`."""
 
 TODAY = 739_900
+NOW = datetime(2026, 7, 28, 9, 0, tzinfo=UTC)
+"""The scripted workflow clock. A fixed instant, because a park's length is a
+subtraction and both of its operands have to be facts a replay would reproduce."""
 
 WORKFLOW_SOURCE = pathlib.Path("jarvis/manager/workflow.py").read_text(encoding="utf-8")
 WORKFLOW_TREE = ast.parse(WORKFLOW_SOURCE)
@@ -176,6 +182,7 @@ MANAGER_ACTIVITIES = frozenset(
         "record_cycle_decision",
         "record_manager_park",
         "record_dropped_wake",
+        "record_late_wake",
     }
 )
 """Every activity the Manager workflow may schedule, frozen deliberately.
@@ -197,7 +204,16 @@ a perfectly healthy running history, and a paused company is the ordinary state
 of one an operator has stopped. So it ships behind `PATCH_PAUSED_WAKE_NOTICE`,
 and the evidence for the gate is the scripted pair below rather than a forced
 divergence, because a fixture that never reaches the branch cannot diverge on
-it."""
+it.
+
+`record_late_wake` was added in P0-D (design OPERATIONAL-RUNTIME.md 4.4) and got
+the same answer for a third reason. Its branch is on the wake path *every*
+captured history sits on — both fixtures park on real timers — so this one is
+not a question about an unreachable branch at all: it is a new command on the
+most-travelled path there is, and it ships behind `PATCH_WALL_CLOCK_SCHEDULE`
+together with the changed park it belongs to. One id for both, because a history
+that took the new timer and the old silence is a state neither version was
+designed for."""
 
 
 def test_the_manager_schedules_only_the_activities_in_this_inventory() -> None:
@@ -636,10 +652,26 @@ class _Boundary:
     """
 
     def __init__(
-        self, contexts: list[CycleContext], *, patched: bool, dispatch: bool = True
+        self,
+        contexts: list[CycleContext],
+        *,
+        patched: bool,
+        dispatch: bool = True,
+        clock: datetime = NOW,
     ) -> None:
         self.calls: list[tuple[str, Any]] = []
         self.patched_ids: list[str] = []
+        self.timers: list[Any] = []
+        """Every timeout the loop asked to park for, in order — which is the
+        only place the wall-clock change is observable from outside."""
+
+        self.clock = clock
+        self.manager: BusinessManagerWorkflow | None = None
+        self.signal_on_wait: str | None = None
+        """A wake reason that arrives in the same workflow task as the timer it
+        was parked on — which is what an outage looks like from inside: the
+        runtime comes back, and the timer that fired hours ago and a signal that
+        queued behind it are delivered together."""
         self._contexts = list(contexts)
         self._patched = patched
         self._dispatch = dispatch
@@ -694,6 +726,17 @@ class _Boundary:
         self.patched_ids.append(patch_id)
         return self._patched
 
+    def now(self) -> datetime:
+        """Return the workflow's idea of now (`workflow.now()`).
+
+        Fixed, and that is the point of scripting it: the real one returns the
+        current workflow task's recorded time, which replays identically, so a
+        park computed from it is deterministic. A stub reading the wall clock
+        would make every assertion about a park's length flaky by exactly the
+        amount of time the test took to get there.
+        """
+        return self.clock
+
     def info(self) -> Any:
         """Return the run facts the loop derives its cycle key from (D-034.2).
 
@@ -714,9 +757,13 @@ class _Boundary:
             # which is how a reason signalled before the wait began reaches the
             # branch that drops it (D-035).
             return
+        self.timers.append(timeout)
         if timeout is None:
             # Parked on a signal with no scheduled wake — the end of the script.
             raise _ParkedError("parked on a signal")
+        if self.signal_on_wait is not None and self.manager is not None:
+            self.manager.wake(self.signal_on_wait)
+            self.signal_on_wait = None
         raise TimeoutError  # the schedule fired, which is what `_await_wake` reads
 
     def scheduled(self) -> list[str]:
@@ -735,6 +782,8 @@ async def _drive(
     state: ManagerState | None = None,
     signals: list[str] | None = None,
     dispatch: bool = True,
+    clock: datetime = NOW,
+    signal_on_wait: str | None = None,
 ) -> tuple[_Boundary, BusinessManagerWorkflow]:
     """Run the wake loop against a script until the script runs out.
 
@@ -747,10 +796,12 @@ async def _drive(
     `dispatch=False` scripts a plan that proposes nothing, driving the
     NOTHING_TO_DO branch (M7-F32) instead of the ordinary one.
     """
-    boundary = _Boundary(contexts, patched=patched, dispatch=dispatch)
+    boundary = _Boundary(contexts, patched=patched, dispatch=dispatch, clock=clock)
     manager = BusinessManagerWorkflow()
     for reason in signals or []:
         manager.wake(reason)
+    boundary.manager = manager
+    boundary.signal_on_wait = signal_on_wait
     original = workflow_module.workflow
     workflow_module.workflow = boundary  # type: ignore[assignment]
     try:
@@ -771,7 +822,9 @@ async def test_a_type_upgrade_applies_on_the_first_cycle_after_it() -> None:
     waited.
     """
     boundary, _ = await _drive([_ctx(measures_kpis=False), _ctx(measures_kpis=True)], patched=True)
-    assert boundary.patched_ids == [PATCH_POST_WAKE_CONTEXT]
+    # The park's own gate is consulted first, because the loop parks before it
+    # reloads — one decision per patch, in the order the loop takes them.
+    assert boundary.patched_ids == [PATCH_WALL_CLOCK_SCHEDULE, PATCH_POST_WAKE_CONTEXT]
     assert boundary.first_cycle().count("load_cycle_context") == 2
     assert "record_cycle_kpis" in boundary.first_cycle()
 
@@ -1009,6 +1062,319 @@ async def test_a_business_paused_during_the_wait_does_not_plan_a_round() -> None
         "the wake read, the reload that saw the pause, and the loop parking"
     )
     assert "plan_cycle" not in boundary.scheduled()
+
+
+# ── P0-D: the wall-clock schedule, where a fixture CAN diverge ─────────
+#
+# This gate is the first whose old path both committed fixtures genuinely
+# exercise: each parks on a real `86400s` timer, three times in the Finance
+# history and twice in the Affiliate one. So "both fixtures replay unedited" is
+# evidence here rather than the vacuous pass it is for the two gates above, and
+# the forced-open control below is a real divergence on a real history rather
+# than an in-memory construction. The scripted pair still ships, because a
+# fixture can only show that the old path survives — never what the new one does.
+
+
+def _timers(name: str) -> list[str]:
+    """Every timer duration one captured history started, in order."""
+    return [
+        str(event["timerStartedEventAttributes"]["startToFireTimeout"])
+        for event in _events(name)
+        if event["eventType"] == "EVENT_TYPE_TIMER_STARTED"
+    ]
+
+
+@pytest.mark.parametrize("name", sorted(HISTORIES))
+def test_both_captured_histories_park_on_the_old_interval(name: str) -> None:
+    """Why this patch's fixture evidence is not vacuous, read off the record.
+
+    `PATCH_PAUSED_WAKE_NOTICE` and `PATCH_NOTHING_TO_DO_KPIS` guard branches no
+    captured history ever reached, so their fixtures cannot diverge on them
+    whatever the gate does. This one is different in the way that matters: every
+    cycle in both histories ends by parking on a flat 86400-second timer, which
+    is exactly the command the new path replaces. If the gate leaked, these
+    histories would start a timer of a different length, computed from a field
+    they do not carry.
+    """
+    started = _timers(name)
+    assert started, "a history with no park would make the replay evidence vacuous"
+    assert set(started) == {"86400s"}, started
+
+
+@pytest.mark.parametrize("name", sorted(HISTORIES))
+def test_no_captured_context_carries_a_fire_time(name: str) -> None:
+    """The compatibility hinge, stated as a fact about the payloads (spec §11).
+
+    Every recorded context carries `schedule_interval_seconds` and none carries
+    `next_fire_at_utc`, so on the old branch the workflow reads the same 86400
+    it read then — and the *reason* that field survives in `CycleContext` at all
+    is these payloads. Deleting it as "replaced" would have made the three live
+    parked executions unreplayable, which is the failure D-033 exists to
+    prevent, and no test would have failed.
+    """
+    contexts = _completions(name, "load_cycle_context")
+    assert contexts, "a history with no context reads would make this vacuous"
+    for context in contexts:
+        assert context["schedule_interval_seconds"] == 86400
+        assert "next_fire_at_utc" not in context
+        parsed = CycleContext.model_validate(context)
+        assert parsed.next_fire_at_utc is None
+        assert parsed.period_ends_at_utc is None
+
+
+@pytest.mark.parametrize("name", sorted(HISTORIES))
+def test_no_captured_history_ever_had_a_timer_fire(name: str) -> None:
+    """Why the *skip* half gets no fixture control, stated as a fact about them.
+
+    Every wake in both histories was served by a signal — three signals and two
+    cancelled timers in the Finance history, one and one in the Affiliate — and
+    not one timer ever fired. `record_late_wake` is issued only on the branch a
+    *fired* timer takes, so no captured history can reach it and forcing the
+    gate open cannot make either of them diverge on it.
+
+    That is an argument for the scripted pair below, not against the patch, and
+    it is the same shape as `PATCH_PAUSED_WAKE_NOTICE`'s: a branch no fixture
+    reaches is proven by driving the loop, never by a replay that passes.
+    """
+    kinds = [str(event["eventType"]) for event in _events(name)]
+    assert "EVENT_TYPE_TIMER_STARTED" in kinds, "a history with no park would make this vacuous"
+    assert "EVENT_TYPE_TIMER_FIRED" not in kinds
+
+
+@pytest.mark.parametrize("name", sorted(HISTORIES))
+async def test_a_changed_park_length_is_not_what_the_replayer_checks(
+    name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """What "both fixtures replay unedited" does **not** prove, made executable.
+
+    Forced open, and with every recorded context given the instants a post-M10
+    `load_cycle_context` would return, these histories park for `MINIMUM_PARK`
+    where they recorded `86400s` — and the replayer accepts it. Temporal's
+    nondeterminism check compares the *sequence of commands*, and a timer is a
+    timer whatever its duration.
+
+    So the honest evidence for the park half is not this replay. It is the two
+    assertions above — the fixtures carry the old field and only the old field,
+    and their timers are all `86400s` — plus the scripted pair below, which
+    drives the same context through both branches and reads the durations off
+    directly.
+
+    Recorded as a test rather than as prose because the belief this corrects is
+    the tempting one: "the fixtures still replay, so the park is unchanged". If
+    a future SDK does start comparing durations this will fail, and the right
+    answer then is to delete it and keep the stricter check.
+    """
+    monkeypatch.setattr(workflow_module, "_parks_on_wall_clock", lambda: True)
+    raw = json.loads((FIXTURES / HISTORIES[name][1]).read_text(encoding="utf-8"))
+    scheduled = {
+        e["eventId"]: _activity_name(e)
+        for e in raw["events"]
+        if e["eventType"] == "EVENT_TYPE_ACTIVITY_TASK_SCHEDULED"
+    }
+    for event in raw["events"]:
+        attrs = event.get("activityTaskCompletedEventAttributes")
+        if not isinstance(attrs, dict):
+            continue
+        if scheduled.get(attrs["scheduledEventId"]) != "load_cycle_context":
+            continue
+        payload = attrs["result"]["payloads"][0]
+        context = json.loads(base64.b64decode(payload["data"]).decode())
+        context["next_fire_at_utc"] = "2020-01-01T09:00:00+00:00"
+        context["period_ends_at_utc"] = "2020-01-02T09:00:00+00:00"
+        payload["data"] = base64.b64encode(json.dumps(context).encode()).decode()
+
+    replayer = Replayer(
+        workflows=[BusinessManagerWorkflow],
+        data_converter=pydantic_data_converter,
+        workflow_runner=UnsandboxedWorkflowRunner(),
+    )
+    await replayer.replay_workflow(WorkflowHistory.from_json(HISTORIES[name][0], raw))
+
+
+def _scheduled_ctx(**overrides: Any) -> CycleContext:
+    """A context carrying both shapes, so the gate is the only variable.
+
+    A real post-M10 `load_cycle_context` writes only the two instants. Keeping
+    the old interval here as well is what lets the same script be driven with
+    the version decision open and closed and have the difference be the
+    *decision* rather than the payload — which is the whole point of a scripted
+    pair, and the reason the closed run below parks at all instead of waiting
+    for a signal that never comes.
+    """
+    fields: dict[str, Any] = {
+        "next_fire_at_utc": NOW + timedelta(hours=8),
+        "period_ends_at_utc": NOW + timedelta(hours=32),
+    }
+    return _ctx(**(fields | overrides))
+
+
+async def test_a_fresh_execution_parks_to_the_calendar_instant() -> None:
+    """The fix, stated as the behaviour M10-F13 was reported as.
+
+    The park is the distance from now to the *next fire*, so a Manager served
+    late does not push its schedule out by however late it was. The old path
+    could only say "another 86400 seconds from whenever I got here", which is
+    how a 22:40 daily anchor became an 06:14 one and would have kept moving with
+    every outage after that.
+    """
+    boundary, _ = await _drive([_scheduled_ctx(), _scheduled_ctx()], patched=True)
+
+    assert PATCH_WALL_CLOCK_SCHEDULE in boundary.patched_ids
+    assert boundary.timers[0] == timedelta(hours=8)
+
+
+async def test_on_the_old_path_the_park_is_still_the_recorded_interval() -> None:
+    """The defect itself, pinned: what the three parked executions replay.
+
+    Same script, version decision closed. The loop reads the interval its own
+    recorded context carries and parks on exactly that, which is the command
+    those histories hold. Kept as a test rather than deleted with the defect,
+    because it is the only thing that distinguishes a version gate that
+    preserves old behaviour from one that quietly does nothing — and here,
+    unlike the two gates above, there are real running executions on the far
+    side of it.
+    """
+    boundary, _ = await _drive([_ctx(), _ctx()], patched=False)
+
+    assert boundary.timers[0] == timedelta(seconds=3600)
+
+
+async def test_a_context_from_before_the_change_still_parks_on_the_new_path() -> None:
+    """The seam between the two, which is one workflow task wide.
+
+    A history that ends between a context load and the park takes the *new*
+    branch with an *old* payload: the gate is open, and the recorded context
+    carries an interval and no fire time. Reading that as "no schedule" would
+    park the Manager on a signal it will never receive — a schedule-only
+    company (M7-F2) silently stops for good — so the recorded interval is the
+    fallback.
+    """
+    boundary, _ = await _drive([_ctx(), _ctx()], patched=True)
+
+    assert boundary.timers[0] == timedelta(seconds=3600)
+
+
+async def test_a_cycle_that_overran_its_own_next_fire_parks_briefly() -> None:
+    """`MINIMUM_PARK` (4.2): an early wake is harmless, a negative timer is a crash.
+
+    A round that took longer than the gap to its own next fire would otherwise
+    ask for a timer of minus something. It parks a minute instead and the next
+    context load recomputes against the calendar; what bounds an early wake is
+    the daily allowance and the wake-cycle ceiling, both of which already
+    enforce.
+    """
+    overrun = _scheduled_ctx(next_fire_at_utc=NOW - timedelta(minutes=5))
+    boundary, _ = await _drive([overrun, overrun], patched=True)
+
+    assert boundary.timers[0] == MINIMUM_PARK
+
+
+def _late_notices(boundary: _Boundary) -> list[Any]:
+    """Every payload the loop sent to `record_late_wake`."""
+    return [arg for name, arg in boundary.calls if name == "record_late_wake"]
+
+
+async def test_a_wake_served_inside_its_period_runs_and_records_how_late_it_was() -> None:
+    """4.4's first half, worked through the execution Part 0 measured.
+
+    That wake fired at 22:40 and was served 7h34m later, which is still inside
+    its daily period — so the round runs, and the lateness is stamped on the
+    decision it records. Nothing is skipped and nothing is announced: late is
+    not missed, and a notice per late round would teach an operator to ignore
+    the one that matters.
+    """
+    served = NOW
+    fired = served - timedelta(hours=7, minutes=34)
+    late = _scheduled_ctx(
+        next_fire_at_utc=fired,
+        period_ends_at_utc=fired + timedelta(days=1),
+    )
+    boundary, _ = await _drive([late, late], patched=True, clock=served)
+
+    assert _late_notices(boundary) == []
+    assert "plan_cycle" in boundary.scheduled(), "the round ran"
+    recorded = boundary.calls[boundary.scheduled().index("record_cycle_decision")][1]
+    assert recorded["wake_lateness_seconds"] == str(7 * 3600 + 34 * 60)
+
+
+async def test_a_wake_whose_period_has_ended_is_skipped_and_announced() -> None:
+    """4.4's rule: a schedule period admits at most one cycle.
+
+    The runtime was down past the *next* fire, so this wake answers a round
+    whose period is over. It is skipped — no planning, no dispatch, no billable
+    cycle — and announced once, because silently draining a backlog is the
+    recovery burst INCIDENT-M9-F118 had to reconstruct after the fact. Then the
+    loop goes back for a fresh context and parks on the calendar again.
+    """
+    missed = _scheduled_ctx(
+        next_fire_at_utc=NOW - timedelta(days=1),
+        period_ends_at_utc=NOW - timedelta(hours=2),
+    )
+    boundary, _ = await _drive([missed, _scheduled_ctx()], patched=True)
+
+    assert _late_notices(boundary) == [
+        {"business_id": BIZ, "wake_lateness_seconds": str(24 * 3600)}
+    ]
+    assert "plan_cycle" not in boundary.scheduled(), "zero replayed cycles"
+    assert boundary.timers == [MINIMUM_PARK, timedelta(hours=8)], (
+        "it re-read its context and parked on the calendar again"
+    )
+
+
+async def test_on_the_old_path_a_missed_period_is_silent_and_runs_anyway() -> None:
+    """The defect itself, pinned, and the reason both halves share one id.
+
+    Same script, version decision closed: the round runs as though nothing had
+    happened and nothing is said, which is what a Manager parked when this
+    shipped does until its next context load. Two behaviours, one gate — a
+    history that took the new timer and the old silence would be a Manager
+    parking to a calendar it never tells anyone it missed.
+    """
+    missed = _scheduled_ctx(
+        next_fire_at_utc=NOW - timedelta(days=1),
+        period_ends_at_utc=NOW - timedelta(hours=2),
+    )
+    boundary, _ = await _drive([missed, missed], patched=False)
+
+    assert _late_notices(boundary) == []
+    assert "plan_cycle" in boundary.scheduled()
+    assert boundary.timers[0] == timedelta(seconds=3600), "and it parked on the flat interval"
+
+
+async def test_a_signalled_reason_still_runs_its_own_round_after_a_skip() -> None:
+    """The narrow reading of 4.4: what is skipped is the *scheduled* round.
+
+    An answered approval is its own trigger and carries its own authorisation
+    (D-024), and dropping it here would be D-035's silent drop reintroduced
+    through the back door of a schedule that happened to lapse in the same
+    outage. So the missed period is announced and the signalled round runs —
+    with no lateness stamped on it, because it is not answering the fire it was
+    late for.
+    """
+    missed = _scheduled_ctx(
+        next_fire_at_utc=NOW - timedelta(days=1),
+        period_ends_at_utc=NOW - timedelta(hours=2),
+    )
+    boundary, _ = await _drive([missed, missed], patched=True, signal_on_wait="approval:apr_9")
+
+    assert len(_late_notices(boundary)) == 1
+    assert "plan_cycle" in boundary.scheduled()
+    recorded = boundary.calls[boundary.scheduled().index("record_cycle_decision")][1]
+    assert recorded["wake_lateness_seconds"] == "0"
+
+
+async def test_every_round_records_its_lateness_even_when_there_is_none() -> None:
+    """4.4's trending half: the field is on every decision, not only late ones.
+
+    A measurement that appears only when something is wrong cannot be trended,
+    and "wakes have been getting later every day for a week" is the sentence
+    that precedes an outage rather than the one that follows it. An on-time
+    round records zero, which is a reading rather than an absence.
+    """
+    boundary, _ = await _drive([_scheduled_ctx(), _scheduled_ctx()], patched=True)
+
+    recorded = boundary.calls[boundary.scheduled().index("record_cycle_decision")][1]
+    assert recorded["wake_lateness_seconds"] == "0"
 
 
 # ── M8-5: D-027 amendment pass, M7-F32's gate ───────────────────────────────

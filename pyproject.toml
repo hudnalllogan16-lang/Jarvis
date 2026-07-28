@@ -14,6 +14,13 @@ dependencies = [
     "pydantic-settings>=2.6",
     "redis>=5.2",
     "httpx>=0.28",
+    # P0-D's one new dependency (design OPERATIONAL-RUNTIME.md 4.3): `zoneinfo`
+    # has no timezone database on Windows, the host of record, so without this
+    # every IANA name except UTC is unresolvable and a market-hours schedule
+    # could not be validated, let alone kept. Data, not code — no import and no
+    # API surface — and `jarvis.domain.schedule` still refuses an unresolvable
+    # zone loudly rather than quietly substituting one.
+    "tzdata>=2024.1",
 ]
 
 [project.scripts]
