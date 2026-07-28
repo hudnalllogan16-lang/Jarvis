@@ -2222,3 +2222,18 @@ how Jarvis is deployed, supervised, or scheduled in wall-clock time; M9''s only 
 a published M9 claim true. M9 baselines the architecture; M10 makes it operable — opening
 with Operational Readiness (headless supervised entrypoint, restart policy, liveness, real
 cron via D-033, M10-F2 silent-non-autonomy signal) before Trading Intelligence.
+
+---
+
+## OWNER RATIFICATION 2026-07-28 — the constitution is permanent; M9 closed; M10 authorized
+
+The owner formally accepted the review conclusions and authorized: m9-baseline (tag+push),
+M9 closure, and M10. **Spec amended to v1.6** (§15 Authority Model + §3.1/§5/§8/§11.5/§12.5
+amendments, incorporating EXECUTIVE-GOVERNANCE.md rev 2 Part 8 by reference). **D-043…D-052
+RATIFIED as drafted** (record entry: docs/reports/M9-CLOSEOUT.md, which also carries the
+owner''s blessing of the M9-F130 remediation table — the three constraints and the persisted
+48 default are legitimate Approved Configuration from this date; the KNOWN_M130_EXCEPTIONS
+allowlist may be retired by a future packet updating origins accordingly). **M10 opens with
+Phase 0, Operational Readiness** — Trading Intelligence gated on demonstrated unattended
+operation per the owner''s six criteria; an organizational strategic review precedes
+significant implementation. Closeout package: docs/reports/M9-CLOSEOUT.md.
