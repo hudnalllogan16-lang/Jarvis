@@ -183,7 +183,11 @@ class ProvisioningService:
 
         Raises:
             ConfigurationError: If any declared `action_type` is outside the
-                type's own namespace, or is registered above L2-tactical.
+                type's own namespace, is absent from the Action Registry
+                entirely (M9-F185 — an unregistered action has no authority
+                to install with; the trichotomy's default is nothing, not
+                whatever the level comparison below happens to fall through
+                to), or is registered above L2-tactical.
         """
         for policy in definition.autonomy_policies:
             reason = namespace_error(policy.action_type, type_name=definition.name)
@@ -191,7 +195,14 @@ class ProvisioningService:
                 raise ConfigurationError(reason)
 
             entry = granted_entry(policy.action_type)
-            if entry is not None and entry.level not in {
+            if entry is None:
+                raise ConfigurationError(
+                    f"business type {definition.name} declares {policy.action_type!r}, "
+                    f"which the Action Registry does not grant: an unregistered action "
+                    f"has no authority at all (design 8.3) and may not be installed. "
+                    f"Register it in jarvis/domain/authority.py first."
+                )
+            if entry.level not in {
                 AuthorityLevel.L0,
                 AuthorityLevel.L1,
                 AuthorityLevel.L2_TACTICAL,

@@ -410,6 +410,14 @@ install (Part 8.3).
 | credential and scope grant | contract, at creation | `OWNER_ONLY` | same |
 | compliance-requirement change | type definition, owner-signed | `OWNER_ONLY` | same |
 
+**Two explicit exclusions (M9 audit, F2/F3).** Contract refresh executes under D-030 outside
+this graduation-keyed registry BY DESIGN — its authority is the operator's consent, recorded
+per-apply, not a registry grant, so its absence from the table above is not a gap. And
+`platform.install_business_type` — the "type install / upgrade / toggle" row — is performed
+automatically ONLY for the repo-shipped, injected catalog (`BUILTIN_TYPES`, at kernel
+bootstrap): the injection point is the convention's boundary, and any install reached by any
+other path still takes the `OWNER_ONLY` row above in full.
+
 **L4, L5 — reserved. No entries. Asserted empty by test.**
 
 **What the widening exposed.** Enumerating the *whole* platform rather than the Executive's
