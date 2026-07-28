@@ -1963,3 +1963,14 @@ The kpi-series endpoint is specified exactly in the M9-2 report (labels never ke
 points never omitted; KpiEngine.series reused) → packet M9-2a dispatched under rolling
 dispatch; trend render follows via warm continuation; product-reviewer gates the phase after
 trends land.
+
+## M9-1a merged (executive rollup + census) — 1007 tests on main
+
+D-038/D-039/D-040 implemented; import-rule detector proven both directions; live census
+reproduces the design''s example exactly (Summit named worst, its sentence verbatim).
+Ratified worker latitude: platform ceiling INJECTED (budget package untouched — correct
+territory respect; packet D wires it from Settings exactly as container.py does);
+never_measured = zero cycles AND zero stuck (stuck work is real watch evidence, never
+swallowed). KpiEngine gains public completed_cycle_count(). Ledger: health-aggregation and
+budget-rollup rows RETIRED; alerts, breaker-caller, platform_feed-reader rows OPEN pending
+packets C/E. No findings opened.
