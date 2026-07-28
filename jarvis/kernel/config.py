@@ -141,6 +141,25 @@ class HeartbeatSettings(BaseModel):
     GC pause) does not flip a healthy part to "down" on its own.
     """
 
+    poller_stale_after_seconds: int = Field(default=300, gt=0)
+    """Signal 2's own staleness margin (design OPERATIONAL-RUNTIME.md Part
+    3.2/7.2, D-058, packet P0-C): a task queue's newest `last_access_time`
+    older than this reads as `degraded` rather than `ok`.
+
+    A wider margin than the heartbeat's own — Temporal's own poll loop is
+    not tuned to this platform's 15s cadence, and 300s tolerates a slow
+    provider round trip inside one poll without flipping the `workers`
+    component on a delay that self-corrects. Owner-adjustable, like every
+    other cadence here."""
+
+    part_failing_after_crashes: int = Field(default=10, gt=0)
+    """Design 5.4's crash-loop honesty threshold: at this many consecutive
+    crashes of one part — ten minutes of failure at the Supervisor's own
+    capped 60s backoff, by design — the platform stops implying it is
+    coping and tells the operator once. Mirrors `PartStatus.consecutive_crashes`,
+    already tracked and already capped; this is only the point at which
+    silence becomes a defect."""
+
 
 class TemporalSettings(BaseModel):
     """Workflow runtime configuration (spec §2: Temporal, non-negotiable)."""

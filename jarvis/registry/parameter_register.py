@@ -238,6 +238,31 @@ PARAMETER_ENTRIES: tuple[ParameterEntry, ...] = (
             "permission. Parameter Register row (design OPERATIONAL-RUNTIME.md Part 3.4)."
         ),
     ),
+    # ── ANNOUNCING — the two-signal verdict ──
+    # (design OPERATIONAL-RUNTIME.md Part 3.2/5.4/7.2, packet P0-C)
+    ParameterEntry(
+        name="settings.heartbeat.poller_stale_after_seconds",
+        param_class=ParameterClass.ANNOUNCING,
+        origin=Origin.APPROVED_CONFIG,
+        current_source="approved config (Settings; owner-adjustable)",
+        location="jarvis.kernel.config:HeartbeatSettings.poller_stale_after_seconds",
+        note=(
+            "Paces the workers health read and the liveness verdict's Signal 2; gates no "
+            "permission. Parameter Register row (design OPERATIONAL-RUNTIME.md Part 7.2)."
+        ),
+    ),
+    ParameterEntry(
+        name="settings.heartbeat.part_failing_after_crashes",
+        param_class=ParameterClass.ANNOUNCING,
+        origin=Origin.APPROVED_CONFIG,
+        current_source="approved config (Settings; owner-adjustable)",
+        location="jarvis.kernel.config:HeartbeatSettings.part_failing_after_crashes",
+        note=(
+            "Paces design 5.4's crash-loop honesty notice; gates no permission — a slower "
+            "threshold only delays how quickly a crash-looping part is announced. "
+            "Parameter Register row (design OPERATIONAL-RUNTIME.md Part 7.2)."
+        ),
+    ),
     # ── ANNOUNCING — wall-clock cron (design OPERATIONAL-RUNTIME.md Part 4, packet P0-D) ──
     ParameterEntry(
         name="wake_conditions.schedule_cron",

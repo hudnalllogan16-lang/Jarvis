@@ -86,6 +86,19 @@ class NotificationKind(StrEnum):
     the same cause and the same (absent) action, so a second notice adds
     nothing the audit log does not already hold."""
 
+    RUNTIME = "runtime"
+    """The platform's own liveness, not any one company's (design
+    OPERATIONAL-RUNTIME.md Part 3/5.4, `runtime.liveness_verdict`, packet
+    P0-C). `business_id=None`, like `SPENDING`'s platform-ceiling bands.
+
+    Covers three conditions, told apart by `link_ref` rather than by a kind
+    each — the same reuse `SPENDING`'s bands already establish (M9-F83):
+    an outage starting, an outage recovering (with its duration), and one
+    supervised part crash-looping past design 5.4's threshold. Sharing a
+    kind is safe here because every variant is compared by its own distinct
+    ref, never by kind alone, so one condition can never swallow another
+    under :meth:`NotificationService.has_unread`."""
+
 
 class NotificationService:
     """Creates and reads operator notifications."""

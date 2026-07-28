@@ -81,6 +81,7 @@ async def test_health_route_exists_without_the_shell_topology() -> None:
             "workflows",
             "thinking",
             "runtime",
+            "workers",
         }
         assert body["parts"] == []
     finally:
