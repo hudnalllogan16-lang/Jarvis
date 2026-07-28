@@ -1987,3 +1987,16 @@ for the next privacy pass; app.py wording edits beyond the literal file list wer
 proceed-and-flag under D-037. Remaining from the M9-2 round: M9-F26 (poll cost), M9-F27
 (grid pending indicator — product gate input), M9-F28 (copy pass) → the Phase-3 product gate
 decides their urgency.
+
+## M9-F75 … M9-F84 — alerts + breaker caller merged (M9-1b); 1046 on main
+
+Ratified: the trip call-site split (caller in executive because only a repeated looker sees a
+transition; the BREAKER decides via assert_closed — the enforcing check, never the rollup''s
+arithmetic; once-per-halt derived from the log, restart-safe); has_unread link_ref narrowing
+(band-as-state). §12.5''s "Jarvis paused spending — here''s why" is finally writable, D-011-
+rendered, windows labeled per D-040 without resolving the OPEN cap-window escalation.
+Routed: M9-F78/F79/F80 → packet D (one Settings ceiling, both consumers; window constant;
+no honest triggering_business supplier yet); M9-F76 → packet E (link_ref must not linkify);
+M9-F81 (a lifetime breach never settles — joins the owner cap-window escalation as evidence);
+M9-F83 (§9 ceiling has no warning band — packet D candidate); M9-F84 (Executive dormant
+until packet D — ledger row). M9-F82 fixed in-lane (detector self-root).
