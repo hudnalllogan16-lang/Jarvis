@@ -259,6 +259,21 @@ class KpiEngine:
             early_days=early_days,
         )
 
+    async def completed_cycle_count(self, business_id: BusinessId) -> int:
+        """Return how many of this company's wake cycles have completed.
+
+        Public accessor over :meth:`_completed_cycle_count`, added for the
+        Executive Layer's portfolio rollup (design EXECUTIVE-LAYER.md 2.2,
+        D-038, D-040): `runway_cycles` divides a company's own recorded
+        headroom by its own recorded cycle count, which design Part 4 draws
+        as the line between a permitted read (a company's own aggregate) and
+        a forbidden one (cycle-level detail — the Manager's internal unit,
+        spec §2.1, D-021). `health()` keeps using the private name for its
+        own call; this wrapper exists so a caller outside `kpi/` never reaches
+        for the underscored method.
+        """
+        return await self._completed_cycle_count(business_id)
+
     async def _completed_cycle_count(self, business_id: BusinessId) -> int:
         """Return how many distinct wake cycles have reached a terminal state.
 

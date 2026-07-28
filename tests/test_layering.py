@@ -41,6 +41,8 @@ MILESTONE: dict[str, int] = {
     # M5 — activation path
     "businesses": 5,
     "shell": 5,
+    # M9 — Executive Layer (design EXECUTIVE-LAYER.md Part 1, D-038)
+    "executive": 9,
 }
 
 COMPOSITION_ROOTS = {
