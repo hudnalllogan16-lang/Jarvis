@@ -49,20 +49,47 @@ export function humanizeAction(actionType) {
 /** Pluralise a countable noun without the "1 companies" tell. */
 export const plural = (n, one, many) => (n === 1 ? one : many);
 
+/** Drop trailing zeros without going through `Number.toString()`, which
+ *  switches to exponential notation below 1e-6 — "1e-7 hours since last
+ *  check" is machine notation arriving at an operator (§12.5). */
+function trimZeros(fixed) {
+  return fixed.includes('.') ? fixed.replace(/0+$/, '').replace(/\.$/, '') : fixed;
+}
+
 /** A measured KPI reading, rounded to a size that reads as a measurement
- *  rather than raw float noise. `data_freshness_hours` is the case that
- *  found this (M9-3 surface backlog, M9-F46): a reading of 0.0005 hours interpolated straight into
- *  the goal line as "0.0005 hours since last check" — precision nobody
- *  asked for and nobody can act on. Significant-figure rounding rather than
- *  a fixed decimal count, so a small reading (well under 1) still shows
- *  something meaningful instead of flattening to "0", and a large one shows
- *  a clean whole number instead of a stray ".00". Applies to every goal
- *  reading, not a freshness special case — `metrics_tracked` and
- *  `reports_delivered` are already whole numbers and round-trip unchanged. */
+ *  rather than as raw float noise. `data_freshness_hours` is the case that
+ *  found this (M9-3 surface backlog, M9-F46): 0.0005 interpolated straight
+ *  into the goal line as "0.0005 hours since last check" — precision nobody
+ *  asked for and nobody can act on.
+ *
+ *  **Significant figures, not a fixed decimal count** — which is what this
+ *  function's own docstring has claimed since M9-3 while the code did the
+ *  opposite (M9-F101). `toFixed(2)` on 0.0005 is "0.00", and the round-trip
+ *  through `Number()` turned that into **"0"**: the reading that motivated
+ *  the function was the one it erased, and it erased it into the one value a
+ *  measurement must never be confused with. `10-interaction-patterns.md` is
+ *  explicit that zero is a measurement — rendering "very nearly zero" as "0"
+ *  is a lie of format in the same family as rendering "unmeasured" as 0.
+ *
+ *  So: two significant figures below 1, one decimal below 10, whole numbers
+ *  above. `metrics_tracked` and `reports_delivered` are already whole and
+ *  round-trip unchanged; a true zero stays "0", because it is one. */
 export function measurement(n) {
   const x = Number(n);
-  if (!Number.isFinite(x)) return String(n);
+  // Not "NaN" / "Infinity". The old fallback passed the value through
+  // `String()`, which hands an operator a machine token in the middle of a
+  // sentence — "NaN hours since last check" (§12.5, M9-F102). Unreachable
+  // today, since every caller is served a float; an em dash is what the tile
+  // already shows for a value the platform genuinely does not have.
+  if (!Number.isFinite(x)) return '—';
   if (x === 0) return '0';
-  const digits = Math.abs(x) < 1 ? 2 : Math.abs(x) < 10 ? 1 : 0;
-  return Number(x.toFixed(digits)).toString();
+  const mag = Math.abs(x);
+  if (mag < 1) {
+    // Decimal places needed for two significant figures: 0.0005 -> 5, giving
+    // "0.00050" -> "0.0005". Capped because toFixed rejects more than 100 and
+    // nothing an operator reads needs anywhere near that.
+    const places = Math.min(20, 1 - Math.floor(Math.log10(mag)));
+    return trimZeros(x.toFixed(places));
+  }
+  return trimZeros(x.toFixed(mag < 10 ? 1 : 0));
 }

@@ -59,22 +59,58 @@ function readings(points) {
     .filter(Number.isFinite);
 }
 
-/** The sentence beneath the chart. This is the accessible equivalent of the
- *  drawing, not a caption for it: the `<svg>` is `aria-hidden`, so everything
- *  the chart says has to be sayable here, in greyscale and out loud.
+/** Where the newest reading stands against its target, direction-aware.
+ *
+ *  Closes M9-F100, the Phase-3 gate's finding: the chart alone drew Data
+ *  freshness (0.0005 against a 24-hour ceiling — excellent) and Reports
+ *  delivered (3 against a goal of 4 — short) as the *identical* mark, a dot
+ *  below a line, because below-the-line is value space and value space does
+ *  not know which way is good. Geometry cannot carry this, so words do.
+ *
+ *  It closes the accessibility half of the same gap too: the `<svg>` is
+ *  `aria-hidden`, so until now the relation existed only as a position and a
+ *  screen reader received none of it.
+ *
+ *  `direction === 'below'` means lower is better (M7-F30 — a freshness reading
+ *  of one hour against a 24-hour target is excellent, not a 96% miss), so the
+ *  comparison flips rather than the copy.
+ *
+ *  Placeholder-quality copy; an operator-surface pass is owed on all three. */
+function relation(latest, target, direction) {
+  if (latest === target) return 'on target';
+  const ahead = direction === 'below' ? latest < target : latest > target;
+  return ahead ? 'ahead of target' : 'short of it';
+}
+
+/** How the readings got to where they are — the trend half of the note.
  *
  *  "up from" / "down from" compares the newest reading with the oldest one
- *  held. It states a fact about the data and no judgement about it — whether
- *  up is good is what the target line answers, and lower-is-better metrics
- *  exist (M7-F30). */
-function note(values, unit) {
+ *  held. It states a fact about the data and no judgement about it: whether up
+ *  is good is what `relation()` answers, once, so that the two halves cannot
+ *  contradict each other. */
+function movement(values, unit) {
   if (values.length < 2) return 'one reading so far — a trend needs a second';
   const first = values[0];
   const last = values[values.length - 1];
   const count = `${values.length} readings`;
-  if (last === first) return `${count} &middot; unchanged`;
+  if (last === first) return `${count}, unchanged`;
   const way = last > first ? 'up from' : 'down from';
-  return `${count} &middot; ${way} ${esc(measurement(first))} ${esc(unit)}`;
+  return `${count}, ${way} ${esc(measurement(first))} ${esc(unit)}`;
+}
+
+/** The sentence beneath the chart — the accessible equivalent of the drawing,
+ *  not a caption for it. The `<svg>` is `aria-hidden`, so everything the chart
+ *  says has to be sayable here, in greyscale and out loud.
+ *
+ *  Two facts, in the order an operator wants them: **where it stands**, then
+ *  **how it got there**. A metric with no target has no relation to state and
+ *  falls back to the movement alone. */
+function note(values, s) {
+  const latest = values[values.length - 1];
+  const target = Number(s.target);
+  const how = movement(values, s.unit);
+  if (!Number.isFinite(target)) return how;
+  return `${relation(latest, target, s.direction)} &middot; ${how}`;
 }
 
 /**
@@ -156,6 +192,6 @@ export function trendMark(s) {
     <svg class="trend__chart" viewBox="0 0 ${W} ${H}" aria-hidden="true"
       focusable="false">${targetLine}${line}<circle class="trend__now"
       cx="${x(newest)}" cy="${y(values[newest])}" r="2"/></svg>
-    <p class="trend__note">${note(values, s.unit)}</p>
+    <p class="trend__note">${note(values, s)}</p>
   </div>`;
 }

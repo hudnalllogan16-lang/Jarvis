@@ -114,16 +114,47 @@ The most important object in the product.
     spent $1.45 of $25.00
     ── LATEST UPDATE ─────────────────
     "We couldn't verify how many posts…"  [more in Details]
+    ▏ UPDATE AVAILABLE                the pending-update marker, when there is one
     [Details] [Pause]
 
 **States.** running (dot breathes) · paused (surface desaturates, text drops to secondary) ·
 health band healthy / watch / at_risk (drives meter fill only) · truncated update (ellipsis
-plus an explicit "more in Details" affordance — M7 product re-review F3).
+plus an explicit "more in Details" affordance — M7 product re-review F3) · **update available**
+(below).
 
 **Rules.** **One meter and one sentence.** The three health parts belong to Details, not the
 card; this was ratified at M7-5a and re-deciding it needs a reason. Colour means health and
 nothing else, which is why `kind` is grey type rather than a badge. The card never shows a raw
 identifier.
+
+#### Pending-update marker — `.co-card__update`
+
+Added at M9-2c by Phase-3 gate ruling (M9-F27). Before it, the only way to discover that a
+company's template had an update waiting was to open every company one at a time — a search no
+operator should have to run across their own roster.
+
+**Anatomy.** One line, `--font-data`, uppercase, behind a 2px `--accent` left rule: the
+`.pending-update` card's own signature from the company workspace, shrunk to a single line so the
+operator meets the same mark at both levels.
+
+**Rules.**
+
+- **A marker, not a control.** The Details link directly beneath it is the way in; a second link
+  to the same destination would spend the card's one destination affordance twice.
+- **`--accent`, never a status hue.** This is the exception the card's colour rule already has:
+  `02-color.md` rule 3 makes the accent an *affordance*, not a status, which is why `.btn--link`
+  is already accent-coloured here. A pending update is not a health problem and must never be
+  able to look like one — it carries no amount and can never graduate (D-030).
+- **Never inferred.** It renders from a served field or not at all. Deriving it across the roster
+  from the surface would cost one `/api/companies/{id}` fetch per company — the exact price
+  `12-application-shell.md` refused a cross-company Goals workspace for.
+
+**Dormant as shipped.** `/api/companies` does not carry `pending_update`; only
+`/api/companies/{id}` does. The component, its styles and its render path are complete and emit
+**nothing** until the list payload gains the field — the same discipline as the persona
+components (`11-persona-components.md`), applied to a marker rather than a whole component, and
+for the same reason: the data does not exist yet, so the mark must not appear yet. The exact
+field addition is named in the M9-2c report.
 
 ### Meter — `.meter`
 
@@ -213,8 +244,12 @@ undecided — the reservation is what kept a plausible line off the page for thr
 | Points | Renders |
 |---|---|
 | 0 | nothing at all. The goals section's own unmeasured sentence already says it, and an empty chart frame is a container promising a value it does not have. |
-| 1 | the target line and **one dot**, no line, placed a *fixed* distance above / on / below the target — plus "one reading so far — a trend needs a second." |
-| 2+ | the target line, the reading line scaled to its own domain, the latest dot, and "*n* readings · up from / down from / unchanged". |
+| 1 | the target line and **one dot**, no line, placed a *fixed* distance above / on / below the target — plus "on target · one reading so far — a trend needs a second." |
+| 2+ | the target line, the reading line scaled to its own domain, the latest dot, and "ahead of target · *n* readings, up from / down from / unchanged". |
+
+Every note leads with the **relation** — where the newest reading stands against its target — and
+follows with the **movement**. A metric with no target has no relation to state and shows the
+movement alone.
 
 **Rules.**
 
@@ -243,12 +278,21 @@ undecided — the reservation is what kept a plausible line off the page for thr
    colour inside a page whose meter already means health (`01-principles.md` #2), and it would
    restate as a hue a judgement the health parts already give as a number.
 5. **The prose line is the accessible equivalent, not a caption.** The `<svg>` is
-   `aria-hidden="true"`; "up from 2 metrics" is a fact about the data, legible in greyscale and
-   to a screen reader. Same division of labour as the meter: the chart is the glance, the words
-   are the fact.
-6. **No draw-on animation** (`08-motion.md`). A line that animates into place performs; the data
+   `aria-hidden="true"`, so everything the drawing says has to be sayable there — legible in
+   greyscale and out loud. Same division of labour as the meter: the chart is the glance, the
+   words are the fact.
+6. **The relation is stated in words, because geometry cannot carry it.** Added at M9-2c by
+   Phase-3 gate ruling (M9-F100). The chart alone drew Data freshness (0.0005 against a 24-hour
+   ceiling — excellent) and Reports delivered (3 against a goal of 4 — short) as the *identical*
+   mark: a dot below a line. It had to. The y axis is **value** space, and value space does not
+   know which way is good — `direction: "below"` means lower is better (M7-F30), so "below the
+   line" is a triumph for one metric and a shortfall for the next. Only words can say which, and
+   because the `<svg>` is `aria-hidden` they were also the only channel a screen reader had. The
+   relation compares the **newest** reading with the target, direction-aware, and is stated
+   exactly once — the movement half never re-judges it.
+7. **No draw-on animation** (`08-motion.md`). A line that animates into place performs; the data
    did not arrive gradually.
-7. **Geometry is computed into SVG attributes, never into `style=`** — which the surface forbids
+8. **Geometry is computed into SVG attributes, never into `style=`** — which the surface forbids
    outright, and which is the shape a CSS-drawn sparkline would have been forced into. The
    constraint chose the technique here, not taste.
 
