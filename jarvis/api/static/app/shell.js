@@ -12,6 +12,13 @@
 //      furniture that lies, which is docs/design/01-principles.md #3 applied
 //      to navigation itself. Pinned by tests/test_design_system.py.
 //
+//      DETAIL_ROUTES is the M9-2 extension, and it does not weaken that rule.
+//      A detail route is a pane reached by drilling INTO a workspace rather
+//      than from the rail (`#/companies/<id>`). What the rule forbids is an
+//      ORPHAN — a pane nothing reaches — so a detail route must name a parent
+//      that is itself a rail workspace, and that parent's rail item stays lit
+//      while the operator is inside. Both halves are pinned by the same test.
+//
 //   2. Only the active workspace is painted. Two panes declare a region with
 //      the same name (the company grid appears on the Command Center and on
 //      Companies); painting both would put two elements with the same id in
@@ -35,9 +42,17 @@ const WORKSPACES = [
   { id: 'settings', label: 'Settings' },
 ];
 
+/** Destinations reached by drilling into a workspace, never from the rail
+ *  (docs/design/12-application-shell.md, "Detail routes"). `parent` is both
+ *  the hash segment that addresses them (`#/<parent>/<id>`) and the rail item
+ *  that stays lit while the operator is inside one. */
+const DETAIL_ROUTES = [{ id: 'company', parent: 'companies' }];
+
 const DEFAULT_WS = WORKSPACES[0].id;
 
-let current = DEFAULT_WS;
+/** A resolved route: which pane is showing, and — for a detail route — whose
+ *  rail item stays lit and which record is being shown. */
+let current = { ws: DEFAULT_WS, parent: null, id: null };
 let onRoute = () => {};
 let releaseRail = null;
 
@@ -63,8 +78,20 @@ export function navCount(id, count) {
   slot.hidden = !count;
 }
 
-function paneOf(id) {
-  return document.querySelector(`[data-ws="${id}"]`);
+/** The active route. A painting module reads `id` to know WHICH record it is
+ *  looking at; `ws` and `parent` are the shell's own business. */
+export function currentRoute() {
+  return current;
+}
+
+/** The only part of the frame a workspace module may write to, and only
+ *  because a detail route's title is DATA rather than a label the shell holds
+ *  (docs/design/12-application-shell.md). Everything else in the top bar, the
+ *  rail and the system strip is painted from the platform's own endpoints: a
+ *  workspace that could rewrite the health banner could make a broken
+ *  platform look fine. */
+export function setWorkspaceTitle(text) {
+  el('wsTitle').textContent = text;
 }
 
 function railIsOverlay() {
@@ -101,43 +128,73 @@ function renderNav() {
   ).join('');
 }
 
-/** Show one workspace and empty the one leaving, so no two panes ever hold the
- *  same region's markup at once. */
-function show(id) {
-  for (const w of WORKSPACES) {
-    const pane = paneOf(w.id);
-    if (!pane) continue;
-    const active = w.id === id;
-    if (!active && !pane.hidden) {
+/** Show one pane and empty the one leaving, so no two panes ever hold the same
+ *  region's markup at once. Panes are read from the document rather than from
+ *  WORKSPACES: detail panes are panes too, and the rail↔pane test is what
+ *  keeps the two lists honest about each other. */
+function show(r) {
+  for (const pane of document.querySelectorAll('[data-ws]')) {
+    const active = pane.dataset.ws === r.ws;
+    // Also cleared when the pane stays but the RECORD changes: drilling from
+    // one company straight to another would otherwise leave the first one's
+    // numbers on screen under the second one's name until the fetch returns.
+    const stale = !active || r.id !== current.id;
+    if (stale && !pane.hidden) {
       for (const slot of pane.querySelectorAll('[data-region]')) slot.innerHTML = '';
     }
     pane.hidden = !active;
-    const link = document.querySelector(`[data-nav="${w.id}"]`);
-    if (link) {
-      link.classList.toggle('nav-item--on', active);
-      if (active) link.setAttribute('aria-current', 'page');
-      else link.removeAttribute('aria-current');
-    }
-    if (active) el('wsTitle').textContent = w.label;
   }
-  current = id;
+
+  // Inside a detail route the PARENT's rail item stays lit: a rail with
+  // nothing lit tells an operator they are nowhere.
+  const lit = r.parent || r.ws;
+  for (const w of WORKSPACES) {
+    const link = document.querySelector(`[data-nav="${w.id}"]`);
+    if (!link) continue;
+    const active = w.id === lit;
+    link.classList.toggle('nav-item--on', active);
+    if (active) link.setAttribute('aria-current', 'page');
+    else link.removeAttribute('aria-current');
+  }
+
+  // A detail route's own title is data and arrives with its fetch; the parent
+  // label holds the slot until the pane's module replaces it, so the title is
+  // never blank and never a raw identifier.
+  const named = WORKSPACES.find((w) => w.id === lit);
+  if (named) setWorkspaceTitle(named.label);
+  current = r;
 }
 
 function routeFromHash() {
   const want = (location.hash || '').replace(/^#\//, '');
-  return WORKSPACES.some((w) => w.id === want) ? want : DEFAULT_WS;
+  const cut = want.indexOf('/');
+  if (cut > 0) {
+    const parent = want.slice(0, cut);
+    const id = decodeURIComponent(want.slice(cut + 1));
+    const detail = DETAIL_ROUTES.find((d) => d.parent === parent);
+    if (detail && id) return { ws: detail.id, parent, id };
+  }
+  // A detail route can never be reached by fallback — the fallback has no id
+  // to supply — so an unrecognised hash lands on the Command Center as before.
+  return {
+    ws: WORKSPACES.some((w) => w.id === want) ? want : DEFAULT_WS,
+    parent: null,
+    id: null,
+  };
 }
 
 function route() {
-  const id = routeFromHash();
-  const changed = id !== current;
-  show(id);
+  const r = routeFromHash();
+  const changed = r.ws !== current.ws || r.id !== current.id;
+  show(r);
   if (railIsOverlay() && railOpen()) closeRail();
   // The workspace is what changed, so move the reading position to it — but
   // only on a real navigation, never on the initial paint, where stealing
-  // focus would fight the operator's own first Tab.
+  // focus would fight the operator's own first Tab. Drilling from one company
+  // to another counts as a navigation even though the pane never changed,
+  // which is why `id` is part of the comparison.
   if (changed) el('ws').focus();
-  onRoute(id);
+  onRoute(r);
 }
 
 export function startShell(repaint) {

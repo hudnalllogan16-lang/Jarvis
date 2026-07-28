@@ -4,6 +4,7 @@
 
 import { post } from './api.js';
 import { action } from './actions.js';
+import { companyHref } from './companies.js';
 import { esc, ago } from './format.js';
 import { flash } from './flash.js';
 import { refresh } from './refresh.js';
@@ -21,10 +22,41 @@ export function askCard(a) {
         data-verb="approve">Approve</button>
       <button class="btn" data-act="decide" data-id="${esc(a.id)}"
         data-verb="deny">Say no</button>
-      <button class="btn btn--small" data-act="open-co"
-        data-id="${esc(a.company_id)}">Why?</button>
+      <a class="btn btn--small" href="${companyHref(a.company_id)}">Why?</a>
       <span class="ask__waited">waiting ${esc(ago(a.waiting_since))}</span>
     </div></article>`;
+}
+
+/**
+ * The whole attention region: the heading that gets loud, and the queue.
+ *
+ * The page's centre of gravity moves. When something needs the operator it
+ * takes the top and is loud; when nothing does it collapses to one quiet line
+ * and whatever is below becomes the hero (docs/design/01-principles.md #2).
+ *
+ * @param list  the approvals to show — the full queue on the Command Center
+ *              and the Approvals workspace, one company's own on its
+ *              workspace, where the queue is already filtered by the caller.
+ * @param scope the company name when this region is scoped to one, so an
+ *              empty queue says whose. "Nothing needs you right now." on a
+ *              company page would be a claim about the whole platform made
+ *              from inside one company — true today by accident, and a lie the
+ *              moment a different company is waiting.
+ */
+export function asksRegion(list, scope) {
+  if (list.length) {
+    return (
+      `<h2 class="section-head section-head--urgent">Needs your OK
+         <span class="section-head__count">${list.length}</span></h2>` +
+      list.map(askCard).join('')
+    );
+  }
+  return (
+    `<h2 class="section-head">Needs your OK</h2>` +
+    (scope
+      ? `<p class="calm">Nothing from ${esc(scope)} needs you right now.</p>`
+      : `<p class="calm">Nothing needs you right now.</p>`)
+  );
 }
 
 // What the yes actually authorises. Shown open, in full, and never trimmed: an

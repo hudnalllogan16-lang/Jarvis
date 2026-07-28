@@ -33,7 +33,13 @@ change lands.
 | Card grid | `repeat(auto-fill, minmax(292px, 1fr))`, gap 12px | company cards |
 | Tile row | `repeat(auto-fit, minmax(180px, 1fr))`, gap 12px | stat tiles |
 | Fact grid | `repeat(auto-fit, minmax(190px, 1fr))`, gap 14px 24px | approval card facts |
-| Part row | flex, wrap, gap 20px | health parts in Details |
+| Part row | flex, wrap, gap 20px | health parts |
+| Workspace split | `minmax(0, 1fr) minmax(0, 320px)`, gap 24px | the company workspace (M9-2) |
+
+The workspace split is the one grid in the system with an asymmetric, *fixed-ish* second track:
+`--layout-side` is 320px because the side column carries the health meter, and a meter narrower
+than about 300px puts its ten segments below the width at which a fill reads as a percentage
+without counting them. It collapses at `--bp-md`, the same width the card grid goes two-up.
 
 The last two gaps were 22px and 18px until M8-4 — neither on the 4px grid, and undocumented as
 optical exceptions, so they were snapped to `--space-9` and `--space-8` in the same pass that

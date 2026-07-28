@@ -129,6 +129,12 @@
   --layout-fact-min: 190px;
   --layout-sheet:    640px;
 
+  /* The company workspace's side column (M9-2). 320 because that column
+     carries the health meter, and ten segments narrower than ~300px stop
+     reading as a percentage and start reading as ten objects to count.
+     docs/design/05-layout.md, "Grids". */
+  --layout-side:     320px;
+
   /* The nav rail. 216px fits the longest shipped label ("Command Center") at
      the body size with its active rule and gutters, without the wrapping that
      would make a fixed rail ragged. Reserved by docs/design/05-layout.md at

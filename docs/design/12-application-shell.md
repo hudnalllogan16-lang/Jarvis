@@ -30,8 +30,8 @@ itself. So the rail lists exactly the workspaces that are built, and concepts th
 buildable are **reserved in this document**, where a reservation costs the operator nothing.
 
 `tests/test_design_system.py` pins this mechanically: every rail item resolves to a `data-ws`
-pane in `index.html`, and every pane is reachable from the rail. Neither can grow without the
-other.
+pane in `index.html`, and every pane is reachable — from the rail, or from the workspace that
+owns it (see "Detail routes" below). Neither side can grow without the other.
 
 ### Shipped workspaces
 
@@ -59,6 +59,45 @@ approvals are **attention** — loud when pending, one calm line when not (`01-p
 The last row is the one to re-read before adding it. The other three are missing data; that one
 is a missing *decision*, and it belongs to the Manager, not to a UI packet.
 
+### Detail routes — destinations the rail does not own
+
+Added at M9-2 for the company workspace (`13-company-workspace.md`). A **detail route** is a pane
+the operator reaches by drilling into a workspace rather than by clicking the rail:
+
+    #/companies            a rail workspace
+    #/companies/<id>       its detail route — one company
+
+The rail rule is unchanged in force, only in phrasing. "A nav item is a promise that a destination
+exists" was always about *nav items*; it never said every destination must be a nav item. What
+would be wrong is an **orphan** — a pane nothing reaches — and that is still forbidden, which is
+why a detail route declares its parent rather than merely existing:
+
+    <section class="ws__pane" data-ws="company" data-ws-parent="companies" hidden>
+
+Three rules follow, and each exists because the naive version gets it wrong:
+
+- **The parent's rail item stays lit.** Inside a company, `Companies` keeps `nav-item--on` and
+  `aria-current="page"`. A rail with nothing lit tells an operator they are nowhere; lighting a
+  fifth item that is not in the rail is not available.
+- **The parent must be a real workspace.** A detail route whose parent is not in the rail is an
+  orphan one level removed — reachable only by typing a URL. Pinned by test.
+- **A detail route is never the default.** An unrecognised hash falls back to the Command Center,
+  as before; a route needing an id can never be reached by fallback, because the fallback has no
+  id to supply.
+
+### The top bar title on a detail route
+
+A workspace's title is its label — a constant the shell already holds. A detail route's title is
+**data**, and data arrives after the paint. So the shell sets the parent's label on navigation and
+exposes one setter (`setWorkspaceTitle`) for the pane's own module to replace it once the fetch
+lands. The title is therefore never empty and never a raw identifier; at worst it reads
+`Companies` for one frame before it reads `Portfolio Watch`.
+
+This is the only thing in the frame a workspace module may write to. Everything else in the top
+bar, the rail and the system strip is platform-level and is painted from the platform's own
+endpoints — a workspace that could rewrite the health banner could make a broken platform look
+fine.
+
 ---
 
 ## The regions contract
@@ -84,6 +123,14 @@ router, and a hash route survives a reload and can be linked. Rail items are `<a
 navigate, so they are links, and they get keyboard activation for free
 (`09-accessibility.md`). The active item carries `aria-current="page"` **and** an accent left
 rule **and** primary-weight text; colour never carries it alone.
+
+**The rule generalises to every control that navigates**, which is what M9-2's detail route made
+concrete: "Details" on a company card, "more in Details" in a truncated update, and "Why?" on an
+approval all change the route, so all three are `<a href="#/companies/<id>">` wearing `.btn` or
+`.btn--link`. They were buttons behind a JS handler until the destination became a route, and
+that shape cost the operator middle-click, open-in-new-tab, the browser's own Back, and the
+status-bar preview of where they were about to go. A control that navigates is a link; a control
+that acts is a button. `[data-act]` is for the second kind only.
 
 On navigation, focus moves to the workspace (`<main tabindex="-1">`) so a keyboard operator
 continues from the content that just changed rather than from the top of the document. The

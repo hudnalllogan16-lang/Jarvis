@@ -235,6 +235,16 @@
   font-family: var(--font-body);
   font-size: var(--size-md);
   font-weight: var(--weight-medium);
+  /* inline-flex, not the anchor's default inline: since M9-2 the controls that
+     NAVIGATE are <a href> wearing this class (docs/design/12-application-shell.md,
+     "Navigation"), and an inline anchor honours neither `min-height` nor
+     vertical padding — a Details link would sit shorter than the Pause button
+     beside it. No change for a <button>, which already lays its label out
+     this way. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
   padding: var(--space-3) var(--space-7);
   min-height: 32px;
   border: 1px solid var(--border-default);
@@ -294,8 +304,11 @@
   cursor: not-allowed;
 }
 
-/* In-prose affordance — "more in Details". */
+/* In-prose affordance — "more in Details". `display: inline` puts back what
+   `.btn` now sets: this one sits INSIDE a sentence, and an inline-flex box
+   cannot wrap across a line break the way the prose around it does. */
 .btn--link {
+  display: inline;
   background: none;
   border: 0;
   padding: 0;
@@ -490,14 +503,19 @@
   margin: var(--space-1) 0 var(--space-6);
 }
 
-.co-card__money {
+/* A money line: muted prose with the figures in the data face. Its own block
+   since M9-2, not `.co-card__money` — it was already being used outside the
+   card (the Details sheet used it too), which is exactly the half-migrated
+   naming state docs/design/06-components.md closed at M8-4 growing back. The
+   company workspace is its third home, so it is named for what it is. */
+.money {
   font-family: var(--font-data);
   font-variant-numeric: tabular-nums;
   font-size: var(--size-sm);
   color: var(--text-muted);
 }
 
-.co-card__money b {
+.money b {
   color: var(--text-primary);
   font-weight: var(--weight-medium);
 }
@@ -530,7 +548,12 @@
   flex: none;
 }
 
-.co-card--running .dot {
+/* Two entry points, ONE declaration: the card sets the state on its own
+   modifier, and a dot outside a card carries `.dot--running` itself (the
+   company workspace header is the first). Declaring the animation twice is how
+   two dots start breathing at different rates. */
+.co-card--running .dot,
+.dot--running {
   background: var(--status-healthy);
   animation: breathe 2.6s var(--ease-breathe) infinite;
 }
@@ -638,6 +661,113 @@
   font-variant-numeric: tabular-nums;
   font-size: var(--size-lg);
   font-weight: var(--weight-medium);
+}
+
+/* ── The company workspace — docs/design/13-company-workspace.md ──────────
+   Level 2 as a place rather than as a dialog (M9-2). Everything the Details
+   sheet held lives here; the sheet's company path was deleted rather than kept
+   beside it, because the disclosure ladder allows exactly three levels. */
+
+/* The way out, and the first Tab stop in the pane. It names the DESTINATION,
+   never "Back": a route can be arrived at from a link, a reload or a bookmark,
+   and only one of those has a back to go to. */
+.ws-back {
+  display: inline-block;
+  font-family: var(--font-data);
+  font-size: var(--size-xs);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--text-muted);
+  text-decoration: none;
+  margin-bottom: var(--space-6);
+  transition: color var(--motion-quick) var(--ease-standard);
+}
+
+.ws-back:hover {
+  color: var(--text-primary);
+}
+
+/* Identity and the ONE control that changes it. A header that grows a fourth
+   fact has become a dashboard and stopped being a title. */
+.co-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-8);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-8);
+}
+
+.co-head__name {
+  font-family: var(--font-display);
+  font-size: var(--size-4xl);
+  font-weight: var(--weight-bold);
+  letter-spacing: var(--track-tight);
+  line-height: var(--leading-tight);
+}
+
+/* `.kind`'s -7px is an optical correction for the CARD's 17px display face
+   (docs/design/04-spacing.md, "optical corrections"). Against a 26px name it
+   overcorrects into the baseline above, so the block that changed the type
+   size owns the correction for its own size. */
+.co-head .kind {
+  margin-top: var(--space-1);
+}
+
+/* A measure, not a width: the description is the type's own promise and reads
+   as prose, so it stops where prose stops rather than at the column edge. */
+.co-head .kind-desc {
+  max-width: 62ch;
+  margin-bottom: 0;
+}
+
+.co-head__acts {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+}
+
+.co-head__status {
+  font-family: var(--font-data);
+  font-size: var(--size-2xs);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  white-space: nowrap;
+}
+
+/* Paused reads the same at both levels: the card desaturates its text, so does
+   this. An operator should not have to re-learn "paused" one level down. */
+.co-head--paused .co-head__name {
+  color: var(--text-secondary);
+}
+
+/* Things that CHANGE on the left, things that ARE on the right. Both tracks
+   are minmax(0, …) rather than a bare 1fr: a grid item's default min-width is
+   its content, so one long unbroken string in the activity feed would widen
+   its own track and scroll the page sideways — docs/design/05-layout.md
+   rule 4. */
+.co-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, var(--layout-side));
+  gap: var(--space-9);
+  margin-top: var(--space-9);
+}
+
+.co-layout__main,
+.co-layout__side {
+  min-width: 0;
+}
+
+/* The side column opens on a meter row, which IS a heading (uppercase label,
+   value right-aligned) — a `.section-head` above it would say HEALTH twice.
+   Its own top spacing is therefore zero, and the headings further down keep
+   the scale's full separation. */
+.co-layout__side > .meter__row {
+  margin-top: 0;
 }
 
 /* ── Approval card — the loud object ─────────────────────────────────────── */
@@ -1218,6 +1348,16 @@ pre {
     inset: 0;
     background: var(--surface-overlay);
     z-index: var(--z-topbar);
+  }
+}
+
+/* The company workspace's split collapses at the same width the card grid goes
+   two-up. Below it the order is main-then-side, which keeps "what is
+   happening" above "what the numbers are" — the four-region page frame's own
+   argument (docs/design/05-layout.md), applied inside one workspace. */
+@media (max-width: 900px) {
+  .co-layout {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
