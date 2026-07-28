@@ -32,9 +32,15 @@ from jarvis.capabilities.request import (
     ScopedRequest,
 )
 from jarvis.capabilities.tools import DESTINATION_PARAM
-from jarvis.domain.contract import BusinessContract, CapabilityPermission, CapabilityType
+from jarvis.domain.contract import (
+    BusinessContract,
+    CapabilityPermission,
+    CapabilityType,
+    WakeConditions,
+)
 from jarvis.domain.kpi import KpiMapping, KpiObservationScope, KpiSource
 from jarvis.domain.lifecycle import accepts_dispatch
+from jarvis.domain.schedule import next_fire_at
 from jarvis.kernel.container import KernelServices, PlatformKernel
 from jarvis.kernel.errors import RegistryError, ScopeViolationError
 from jarvis.kernel.ids import (
@@ -212,6 +218,34 @@ reason, deduplicated per company (see `notified` there), distinct from
 `PAUSED` (the seven-day sweep's "answer this") for the reason recorded there:
 sharing a kind would let the sweep's own unread notice suppress this one."""
 
+LATE_WAKE_TITLE = "{name} missed a scheduled round"
+LATE_WAKE_BODY = (
+    "Jarvis wasn't running when this company's round was due, so that round was "
+    "skipped rather than run late. The next one happens at its usual time, and "
+    "nothing it had already done is lost."
+)
+"""Spec §12.5 for the notice a skipped scheduled round raises (design 4.4).
+
+The operator's question after an outage is "did my company do its work?", and
+the honest answer is that one round did not happen and the schedule is
+unchanged. It says that without saying why the platform was down, because the
+company's situation is what §12.5 asks for and the platform's is what the
+record below is for.
+
+Deliberately not "it will catch up". It will not, and that is the design: a
+runtime down thirteen hours must never restart into thirteen hours of rounds,
+each of which costs money and none of which is worth running — the content of a
+missed morning planning round is worthless by that evening. Promising a catch-up
+in the copy would be the one sentence here that is false."""
+
+LATE_WAKE_EVENT = "wake.skipped_after_period"
+"""The audit entry beside the notice (design 4.4, §11).
+
+Same division as D-035's: the notice is one per company until dismissed, so it
+cannot be the count; the audit log keeps every skipped period with the lateness
+that caused it. That number is the forensic half — "wakes have been getting
+later for a week" is a sentence someone can only write from these rows."""
+
 DROPPED_WAKE_EVENT = "wake.dropped_while_paused"
 """The audit entry D-035 requires beside the notification.
 
@@ -335,7 +369,18 @@ class ManagerActivities:
         """Load everything a cycle needs from outside the workflow.
 
         Includes the day ordinal: the workflow needs today's date for wake-rate
-        accounting and cannot read a clock itself (D-004). It also includes
+        accounting and cannot read a clock itself (D-004).
+
+        **And the schedule, as two absolute instants** (design 4.2): when this
+        business next fires, and when the period that fire belongs to ends. Both
+        are computed here rather than in the workflow for two reasons that are
+        each sufficient — the workflow may not read a clock, and resolving an
+        IANA timezone is file-backed I/O that has no business inside the workflow
+        sandbox. Because the result is recorded in history, the park the workflow
+        computes from it is deterministic on replay by construction. Until M10
+        this returned `schedule_interval_seconds`, a flattening of any expression
+        to 3600 or 86400 (M10-F4/M10-F13); that field is now written by nothing,
+        and `CycleContext` keeps it only so the executions parked on it replay. It also includes
         whether this business's type declares KPI mappings (D-027.2), for the
         same reason one step further out — the workflow has to know whether the
         cycle has a measurement step, and reading a type definition is a
@@ -354,12 +399,13 @@ class ManagerActivities:
             contract = await svc.registry.get_contract(BusinessId(business_id))
             state = await svc.registry.get_state(BusinessId(business_id))
             definition = await self._kernel.type_definition(svc, contract.business_type)
-            interval = _interval_seconds(contract.wake_conditions.schedule_cron)
+            next_fire, period_end = _schedule_instants(contract.wake_conditions, datetime.now(UTC))
             return CycleContext(
                 business_id=BusinessId(business_id),
                 display_name=contract.display_name,
                 dispatchable=accepts_dispatch(state),
-                schedule_interval_seconds=interval,
+                next_fire_at_utc=next_fire,
+                period_ends_at_utc=period_end,
                 max_cycles_per_day=contract.wake_conditions.max_cycles_per_day,
                 wake_cycle_ceiling_usd=contract.budget.wake_cycle_ceiling_usd,
                 day_ordinal=datetime.now(UTC).date().toordinal(),
@@ -1131,6 +1177,103 @@ class ManagerActivities:
             )
             return {"decision_id": decision_id, "notified": str(notified).lower()}
 
+    @activity.defn(name="record_late_wake")
+    async def record_late_wake(self, payload: dict[str, str]) -> dict[str, str]:
+        """Tell the operator a scheduled round was skipped, and record it (4.4).
+
+        **This is the single emit site for ``business.late_wake_notice``** —
+        L1, approval NONE, AUDIT and NOTIFY_ON_TRANSITION, the row design 7.1
+        specifies. L1 by the level's own definition: the whole behaviour is a
+        comparison of stored values against a schedule the owner set — a wake's
+        service time against its own next fire — firing and announcing without
+        asking. It mirrors ``business.dropped_wake_notice`` (D-035) exactly and
+        invents no governance vocabulary.
+
+        **The registry row itself is composed at merge, not here** (P0-D lane
+        note). Adding an `ACTION_REGISTRY` entry also moves
+        `REGISTRY_DIGEST_PIN` and `AUTONOMY_PIN`, which the concurrent Phase 0
+        lanes each touch, so this lane declares the emit site and its four
+        values and leaves the row to the composition that lands them together.
+        Until that row exists the action is emitted by a module the registry
+        does not yet describe, which is a gap in the constitution's coverage
+        rather than in this code — and it is a gap no gate here can catch,
+        because the registry's completeness ratchet binds type-declared L2
+        actions rather than platform L1 ones.
+
+        The workflow decides *that* a period was missed, because that is a
+        comparison of two recorded instants and therefore pure work it may do
+        inside D-004; this composes the sentence, because the sentence names the
+        company and a display name is a contract read. The same division
+        `record_manager_park` and `record_dropped_wake` make.
+
+        **Both records, and they answer different questions.** The audit entry is
+        §11's forensic account — every skipped period with the lateness that
+        caused it, which is the only place a "wakes have been getting later for a
+        week" trend can be read from. The notification is what reaches the
+        operator without their looking, deduplicated to one unanswered notice per
+        company: a runtime down for a week would otherwise queue seven identical
+        notices whose action is the same one, which is the permanent accumulation
+        §12.5 forbids. The audit log is where the count lives.
+
+        Its own `NotificationKind`, for the reason `WAITING_ON_RESUME` and
+        `UNFINISHED_ROUND` each have one: a company can meet several of these
+        conditions inside a single outage, and sharing a kind would let whichever
+        notice arrived first swallow the rest under `has_unread`.
+
+        Returns:
+            The lateness recorded and whether an operator was notified — so the
+            activity's result says which of the two records this skip produced.
+        """
+        identity = RuntimeIdentity.from_activity()
+        # Same reasoning as `record_cycle_decision`: no contract, credential or
+        # effect is reached, but one company's account of its day is not
+        # another's to write (§10, §11.5).
+        await self._assert_identity(identity, payload["business_id"], reached="operator notice")
+        business_id = BusinessId(payload["business_id"])
+        lateness = payload.get("wake_lateness_seconds") or "0"
+
+        async with self._kernel.services() as svc:
+            contract = await svc.registry.get_contract(business_id)
+            await svc.audit.record(
+                event_type=LATE_WAKE_EVENT,
+                actor=business_id,
+                business_id=business_id,
+                workflow_id=identity.workflow_id,
+                payload={
+                    "wake_lateness_seconds": lateness,
+                    "schedule_cron": contract.wake_conditions.schedule_cron,
+                    "schedule_timezone": contract.wake_conditions.schedule_timezone,
+                    "reason": (
+                        "the round's own schedule period had already ended when the wake "
+                        "was served, so it was skipped rather than replayed (design 4.4)"
+                    ),
+                },
+            )
+
+            notifications = NotificationService(svc.session)
+            notified = not await notifications.has_unread(
+                business_id, kind=NotificationKind.MISSED_ROUND
+            )
+            if notified:
+                await notifications.notify(
+                    notification_id=new_notification_id(),
+                    kind=NotificationKind.MISSED_ROUND,
+                    title=LATE_WAKE_TITLE.format(name=contract.display_name),
+                    body=LATE_WAKE_BODY,
+                    business_id=business_id,
+                )
+            logger.warning(
+                "a scheduled round was skipped; its period had already ended",
+                extra={
+                    "context": {
+                        "business_id": business_id,
+                        "wake_lateness_seconds": lateness,
+                        "notified": notified,
+                    }
+                },
+            )
+            return {"wake_lateness_seconds": lateness, "notified": str(notified).lower()}
+
     @activity.defn(name="record_dropped_wake")
     async def record_dropped_wake(self, payload: dict[str, str]) -> dict[str, str]:
         """Tell the operator what a pause dropped, and record it (D-035).
@@ -1274,6 +1417,13 @@ class ManagerActivities:
                 inputs_considered={
                     "outcome": outcome,
                     "spend_usd": payload["spend_usd"],
+                    # Recorded on every round, not only late ones (4.4): a field
+                    # that appears only when something is wrong cannot be
+                    # trended, and a week of wakes arriving later each day is
+                    # the signal that precedes an outage rather than the one
+                    # that follows it. `.get`, because a history captured before
+                    # this field replays its own recorded payload (spec §11).
+                    "wake_lateness_seconds": payload.get("wake_lateness_seconds", "0"),
                 },
             )
             notified = await self._notify_unfinished_round(svc, business_id, outcome)
@@ -1916,24 +2066,46 @@ def _title_of(body: str) -> str:
     return "Untitled"
 
 
-def _interval_seconds(cron: str | None) -> int | None:
-    """Translate the supported cron subset into a wake interval.
+def _schedule_instants(
+    wake_conditions: WakeConditions, now: datetime
+) -> tuple[datetime | None, datetime | None]:
+    """Return when this business next fires, and when that period ends.
 
-    v1 supports daily and hourly schedules only. A full cron implementation is
-    scope §14 asks us not to add speculatively; when a business needs a schedule
-    this cannot express, that is the demonstrated need §14 requires.
+    Two instants rather than one because 4.4's rule needs both: the first is
+    what the Manager parks to, the second is the moment that park's period is
+    over and a still-unserved wake must be skipped instead of run. A duration
+    would not do — cron periods are not uniform, and ``"0 9,16 * * *"`` has a
+    seven-hour period and a seventeen-hour one.
+
+    Replaces `_interval_seconds`, which reduced every expression to 3600 or
+    86400 (M10-F4) and re-anchored the schedule on every park (M10-F13). Both
+    defects are gone at once here, because they were one defect: computing
+    against the calendar *is* the anti-drift property.
+
+    Args:
+        wake_conditions: The contract's schedule and its timezone.
+        now: This activity's own clock read, passed in so the computation itself
+            stays a pure function of its inputs.
+
+    Returns:
+        The next fire and the fire after it, both UTC, or ``(None, None)`` for a
+        business woken only by events.
+
+    Raises:
+        ScheduleError: If the stored expression or timezone is one this platform
+            cannot execute. Loud rather than degraded, deliberately: contract
+            validation refuses these at creation, so reaching one here means a
+            value that predates the validation, and the answer to it is a
+            Manager that parks visibly (D-034.1) rather than a company that
+            quietly stops waking.
     """
-    if cron is None:
-        return None
-    fields = cron.split()
-    if len(fields) != 5:
-        return None
-    minute, hour = fields[0], fields[1]
-    if hour == "*":
-        return 3600
-    if minute.isdigit() and hour.isdigit():
-        return 86400
-    return 3600
+    next_fire = next_fire_at(wake_conditions.schedule_cron, wake_conditions.schedule_timezone, now)
+    if next_fire is None:
+        return None, None
+    period_end = next_fire_at(
+        wake_conditions.schedule_cron, wake_conditions.schedule_timezone, next_fire
+    )
+    return next_fire, period_end
 
 
 def all_manager_activities(kernel: PlatformKernel) -> list[Callable[..., object]]:
@@ -1950,6 +2122,7 @@ def all_manager_activities(kernel: PlatformKernel) -> list[Callable[..., object]
         instance.record_cycle_decision,
         instance.record_manager_park,
         instance.record_dropped_wake,
+        instance.record_late_wake,
     ]
 
 

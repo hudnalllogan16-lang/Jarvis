@@ -477,6 +477,21 @@ _ENTRIES: Final[tuple[ActionEntry, ...]] = (
         note="D-035.",
     ),
     _entry(
+        "business.late_wake_notice",
+        _L.L1,
+        _R.NONE,
+        {_A.AUDIT, _A.NOTIFY_ON_TRANSITION},
+        module="jarvis/manager/activities.py",
+        symbol="record_late_wake",
+        note=(
+            "Design OPERATIONAL-RUNTIME.md 7.1, ratified with the Phase 0 design "
+            "(D-055..D-061). L1 by the level's own definition: the whole behaviour is a "
+            "comparison of stored values against an owner-set schedule — a wake's service "
+            "time against its own next fire — announcing without asking. Mirrors "
+            "business.dropped_wake_notice (D-035) exactly and invents no vocabulary."
+        ),
+    ),
+    _entry(
         "capability.dispatch",
         _L.L1,
         _R.NONE,
