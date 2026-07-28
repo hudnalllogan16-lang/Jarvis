@@ -1,4 +1,4 @@
-"""Temporal worker entrypoint (spec §2).
+"""The platform's long-lived parts (spec §2): the worker, the sweep, the tick.
 
 Hosts the Business Manager workflow and every activity it depends on. Also runs
 the scheduler sweep, because §9's 24h and 7-day approval timers must fire whether
@@ -11,6 +11,17 @@ any Manager happens to be awake either. Composing it here rather than inside
 forward import outside a composition root (`tests/test_layering.py`). This
 module already is one, and is named as the Executive's home for exactly that
 reason.
+
+**This is where parts are composed, not where a process is defined** (design
+OPERATIONAL-RUNTIME.md 1.2, packet P0-A). `main()` — a bare `asyncio.gather`
+over the three run loops, which SETUP.md called the production topology — is
+**deleted**, along with `python -m jarvis.runtime.worker`. It ran the parts with
+no supervision, so a crash ended that part silently for the life of the process,
+and it was a second opinion about what the platform runs. The three loops below
+are unchanged: they are the parts, they are good, and the one place that
+composes them into a runtime is `jarvis/shell/service.py::build_supervisor`.
+The composition-root exemption this module keeps is for the Executive tick
+(D-041), which is the object graph it still builds.
 """
 
 from __future__ import annotations
@@ -22,7 +33,6 @@ from temporalio.contrib.pydantic import pydantic_data_converter
 from temporalio.worker import Worker
 
 from jarvis.executive.runner import run_executive_tick
-from jarvis.kernel.config import Settings
 from jarvis.kernel.container import PlatformKernel
 from jarvis.kernel.errors import ConfigurationError
 from jarvis.kernel.logging import get_logger
@@ -192,17 +202,3 @@ async def run_executive(kernel: PlatformKernel, *, interval_seconds: int | None 
         except Exception:
             logger.exception("executive tick failed; retrying next tick")
         await asyncio.sleep(interval)
-
-
-async def main() -> None:
-    """Console entrypoint: run the worker, the scheduler, and the Executive together."""
-    kernel = PlatformKernel(Settings())  # type: ignore[call-arg]
-    await kernel.ensure_builtin_types()
-    try:
-        await asyncio.gather(run_worker(kernel), run_scheduler(kernel), run_executive(kernel))
-    finally:
-        await kernel.aclose()
-
-
-if __name__ == "__main__":
-    asyncio.run(main())

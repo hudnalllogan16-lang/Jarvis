@@ -97,15 +97,21 @@ earlier** — with exactly three exceptions.
 
 **Permitted exceptions — composition roots:**
 
-- `jarvis/shell/launcher.py` — the Developer Shell (roadmap revision 3): composes the
-  development topology and holds no logic (enforced by test).
+- `jarvis/shell/service.py` — **the one part table** (M10-P0-A, design OPERATIONAL-RUNTIME.md
+  1.3): `bootstrap` with both postures, `build_supervisor`, and the headless `jarvis-run`
+  entrypoint. The only module in `jarvis/` that calls `Supervisor.add`, enforced by
+  `tests/test_one_part_table.py`.
+- `jarvis/shell/launcher.py` — the operator console (roadmap revision 3, D-016): the same
+  bootstrap and the same part table, plus a window. Holds no logic (enforced by test).
 
 - `jarvis/kernel/container.py` — the DI container constructs everything, so by definition it
   imports everything.
-- `jarvis/runtime/worker.py` — the entrypoint registers the workflow, the scheduler, and (M9-1c,
-  D-041) the Executive Layer's own deterministic tick.
+- `jarvis/runtime/worker.py` — where the long-lived parts are composed: the workflow
+  registration, the scheduler sweep, and (M9-1c, D-041) the Executive Layer's own deterministic
+  tick. It no longer defines a *process*: `main()` and `python -m jarvis.runtime.worker` were
+  deleted at M10-P0-A.
 
-All three are composition roots: they wire the graph rather than sit in it. Every *other* module must
+All four are composition roots: they wire the graph rather than sit in it. Every *other* module must
 import backward only. `tests/test_layering.py` asserts this, because the failure mode is gradual
 — one forward import in a service module is invisible in review and the layering is gone a few
 months later with no single commit to blame.
@@ -132,6 +138,7 @@ roadmap revision 2.
 | `DecisionLog.record_platform_decision` / `platform_feed` — writer exists, no reader (§11.5) | M1 | M9-1d — `jarvis.api.app._platform_halt_reason` | Retired |
 | `NotificationKind.SPENDING` — declared kind, zero writers, zero readers (§3, CFO) | M3 | M9-1b — `jarvis.executive.alerts.raise_spend_alerts` | Retired |
 | `jarvis/executive/` — rollup, census, cap alerts and the halt narrative; nothing runs them on a timer yet (§3, D-041) | M9-1a…M9-1b | M9-1c — `run_executive`, composed at `runtime/worker.py` | Retired |
+| `jarvis/shell/service.py::serve_headless` and the `jarvis-run` entrypoint — written and unit-tested, but never started as a process by anything in this repository | M10-P0-A | P0-F — the service install script and the compose `jarvis` service; P0-G runs it on the real host (Part 8, V1…V7) | **Open** |
 
 **The entry this ledger missed.** `KpiEngine.record` was written in M3 and had no caller for four
 milestones — it was never listed here, so the debt accrued invisibly and was found by a live run

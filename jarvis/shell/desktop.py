@@ -61,6 +61,25 @@ def window_available() -> bool:
     return True
 
 
+def dashboard_is_serving(*, port: int = DASHBOARD_PORT) -> bool:
+    """Return whether something already answers on the dashboard port.
+
+    One TCP connect, no retry. The console uses it to decide whether to host a
+    runtime or attach to one that is already serving (design
+    OPERATIONAL-RUNTIME.md 6.3) — the same question `wait_for_dashboard` asks
+    repeatedly, asked once.
+
+    Args:
+        port: The dashboard port (`Settings().api_port`).
+
+    Returns:
+        True if the port accepts a connection.
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.settimeout(0.5)
+        return probe.connect_ex((DASHBOARD_HOST, port)) == 0
+
+
 def wait_for_dashboard(*, port: int = DASHBOARD_PORT, timeout: float = 30.0) -> bool:
     """Block until the dashboard's port accepts connections.
 
@@ -78,10 +97,8 @@ def wait_for_dashboard(*, port: int = DASHBOARD_PORT, timeout: float = 30.0) -> 
     """
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-            probe.settimeout(0.5)
-            if probe.connect_ex((DASHBOARD_HOST, port)) == 0:
-                return True
+        if dashboard_is_serving(port=port):
+            return True
         time.sleep(0.25)
     return False
 

@@ -243,10 +243,10 @@ Leave this running in its own terminal.
 
 ---
 
-## Step 7 — Start the worker
+## Step 7 — Start the runtime
 
 ```bash
-uv run python -m jarvis.runtime.worker
+uv run jarvis-run
 ```
 
 Expected output: a JSON log line saying `kernel initialised`, then `worker starting`. Then, if you
@@ -255,10 +255,13 @@ have no companies yet, quiet — this process also runs the scheduler sweep and 
 the Step 6 dashboard while this is running and it reaches `ACTIVE`, the next sweep starts its
 Business Manager workflow within seconds, and it runs on its own from there.
 
-This topology (worker + scheduler + Executive as a bare `asyncio.gather`, no process supervision
-— see `docs/reports/RUNTIME-AUDIT.md` M10-F6/F7) is not the supported way to run Jarvis
-unattended; a crash here does not restart itself. `uv run python -m jarvis` runs the same three
-loops, plus the API, under one supervisor that does restart crashed parts.
+`jarvis-run` is the headless platform: the same four parts the desktop console runs, composed
+from the same part table under the same supervisor, with no window whose close event can end it
+(design `docs/design/OPERATIONAL-RUNTIME.md`, packet P0-A). The old
+`python -m jarvis.runtime.worker` — worker, scheduler and Executive as a bare `asyncio.gather`
+with no supervision at all, which `docs/reports/RUNTIME-AUDIT.md` M10-F6/F7 found was never a
+supported topology — is **deleted**. Running `jarvis-run` unattended under a service manager is
+packet P0-F's; until that lands, run it in a terminal as above.
 
 Confirm it registered at http://localhost:8233 under the `jarvis-platform` task queue.
 
@@ -347,8 +350,8 @@ docker compose down                     # stop (keeps data)
 docker compose down -v                  # stop and wipe data
 uv run pytest -q                        # tests
 uv run alembic upgrade head             # apply migrations
-uv run python -m jarvis                  # supported topology: everything, one process, supervised
-uv run python -m jarvis.api.server       # dashboard only — read-only, no autonomy (no worker/scheduler)
-uv run python -m jarvis.runtime.worker  # worker + scheduler + executive, unsupervised (no auto-restart)
+uv run jarvis-run                        # the platform: every part, supervised, no window
+uv run python -m jarvis                  # the operator console: the same parts, plus a window
+uv run python -m jarvis.api.server       # dashboard only — read-only, attaches to a runtime elsewhere
 docker compose logs -f temporal         # tail Temporal
 ```
