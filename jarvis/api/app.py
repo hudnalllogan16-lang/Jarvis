@@ -50,6 +50,12 @@ logger = get_logger(__name__)
 
 STATIC_DIR = "jarvis/api/static"
 
+MAX_KPI_SERIES_LIMIT = 365
+"""Upper bound on `?limit=` for `/kpi-series` (M9-2a). One reading a day for a
+year is already more than a trend line needs; the bound exists so the query
+`KpiEngine.series` runs stays cheap regardless of what a client passes, the
+same reasoning `target_value`'s own bounds protect the contract side."""
+
 
 class CreateCompanyBody(BaseModel):
     """Operator input to the create-a-company flow (spec §4).
@@ -925,6 +931,68 @@ def create_app(kernel: PlatformKernel) -> FastAPI:
                 }
                 for row in rows
             ]
+
+    async def _kpi_series_readings(
+        svc: KernelServices, contract: BusinessContract, *, limit: int
+    ) -> list[dict[str, Any]]:
+        """Per-metric observation history for the trend drill-down (M9-2a).
+
+        design 13-company-workspace.md reserves a trend indicator until "a
+        per-company KPI series read" exists — this is that read. One entry
+        per contract `kpi_target`, mirroring `_goal_readings`' label fallback
+        (a target's raw `key` never reaches the operator, spec §12.5) and
+        reusing `KpiEngine.series` exactly as `_goal_readings` reuses
+        `KpiEngine.latest`: no new query, no engine change.
+
+        `points` is always present, oldest-first (`series` already orders it
+        that way), even when empty — a target with no observation yet reads
+        as "no points", the same empty-vs-null distinction `_goal_readings`'
+        `measured: None` protects one level up, here kept as an empty list
+        rather than a null so a client draws "no line yet" without a
+        null-point special case.
+        """
+        engine = KpiEngine(svc.session)
+        out: list[dict[str, Any]] = []
+        for target in contract.kpi_targets:
+            rows = await engine.series(contract.business_id, target.key, limit=limit)
+            out.append(
+                {
+                    "label": target.operator_label or target.key.replace("_", " ").capitalize(),
+                    "unit": target.unit,
+                    "direction": target.direction.value,
+                    "target": float(target.target_value),
+                    "points": [
+                        {"when": row.recorded_at.isoformat(), "value": float(row.value)}
+                        for row in rows
+                    ],
+                }
+            )
+        return out
+
+    @app.get("/api/companies/{business_id}/kpi-series")
+    async def kpi_series(  # pyright: ignore[reportUnusedFunction]
+        business_id: str, limit: int = 30
+    ) -> list[dict[str, Any]]:
+        """Per-company KPI observation history (M9-2a).
+
+        The read `design 13-company-workspace.md` reserves the trend element
+        on: no route served `kpi_values`, so no line could be drawn through
+        more than the single latest reading the goals drill-down already
+        shows. `limit` is bounded rather than trusted, the same defensive
+        shape `full_details`' own `limit` lacks and this route does not
+        repeat — an unbounded value here would reach `KpiEngine.series`'s SQL
+        `LIMIT` unchecked.
+        """
+        bounded_limit = max(1, min(limit, MAX_KPI_SERIES_LIMIT))
+        async with kernel.services() as svc:
+            try:
+                rows = await svc.registry.list_instances()
+                next(r for r in rows if r.business_id == business_id)
+            except StopIteration:
+                raise HTTPException(404, "No company with that id.") from None
+
+            contract = await svc.registry.get_contract(BusinessId(business_id))
+            return await _kpi_series_readings(svc, contract, limit=bounded_limit)
 
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
