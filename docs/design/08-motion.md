@@ -73,6 +73,11 @@ read, it leaves.
 - **No number roll-ups.** A health score animating from 0 to 73 is a lie for 200ms. Values
   change in place; tabular figures (`03-typography.md`) make that legible without motion.
 - **No parallax, no hover-tilt, no gradient drift.**
+- **No theme-swap animation.** Switching Dark/Light/Match your device (Settings, M9-3) snaps
+  instantly. It is the operator's own action, already reported by the control they just used —
+  letting every element's own hover/colour transition fire on its own timing for the same repaint
+  reads as a smear, not a change worth watching (M9-F25). `.theme-swap` (`base.css`) suppresses
+  every transition for exactly that one repaint; see `app/theme.js`.
 
 ## Reduced motion
 

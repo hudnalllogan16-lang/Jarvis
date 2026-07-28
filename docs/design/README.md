@@ -24,6 +24,7 @@ like; this says what that feeling is *made of*.
 | 10 | [Interaction Patterns](10-interaction-patterns.md) | Progressive disclosure, empty/null/error states |
 | 11 | [Persona Components](11-persona-components.md) | Manager personas (spec v1.5 / D-028.1) — spec only |
 | 12 | [The Application Shell](12-application-shell.md) | Rail, top bar, workspaces, routing, reserved slots |
+| 13 | [The Company Workspace](13-company-workspace.md) | The per-company page every business workspace inherits |
 
 ## Where the system lives in code
 

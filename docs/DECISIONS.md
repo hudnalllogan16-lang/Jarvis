@@ -1906,3 +1906,71 @@ whose founding packet carries the authority (the M8-F162 refusals, both correct,
 evidence); (2) M8-F150 reconciled: a packet may name files outside an agent''s default
 territory explicitly, and the agent proceeds-and-flags rather than escalating. Measured
 against the retro''s +25â€“35% prediction through M9.
+
+---
+
+## D-038 … D-041 ratified; M9-F1 … M9-F5; two owner escalations open (M9-1)
+
+Executive Layer design merged (docs/design/EXECUTIVE-LAYER.md — authoritative). Ratified as
+drafted: **D-038** the deterministic half computes and reports, never writes a contract —
+enforced by the import rule (executive imports registry/budget/kpi/observability/
+notifications and nothing else; importing jarvis.llm IS the violation event); **D-039** a
+portfolio has a census, not a score (live data is the argument: means read healthy while
+Summit sits on watch); **D-040** every Executive figure names its window; runway in cycles;
+absent is not zero; **D-041** the Executive runs on its own timer at runtime/worker.py —
+never a workflow, never Scheduler.sweep. **D-042 held** pending owner escalation 2.
+
+Findings: **M9-F1** the business cap sums lifetime while the platform breaker is rolling —
+Summit''s $25 lifetime cap ≈ 30 cycles, less than one day''s allowance; **M9-F2**
+CircuitBreaker.trip() has no caller and §12.5''s "Jarvis paused spending" has never been
+written (0 platform decision rows); **M9-F3** nothing sets KPI targets — Executive
+target-setting and M8-F6 are the same event from opposite directions and must land together;
+**M9-F4** Executive reasoning has no budget scope (why the judgment half is deferred);
+**M9-F5** per-model cost tracking explicitly homed here, deferred with rationale.
+
+**OWNER ESCALATIONS (D-037: re-surfaced until ruled):** (1) `business_cap_usd` window —
+lifetime vs rolling — changes what a spending limit MEANS to the operator (user-facing);
+(2) a platform-scoped approval action_type for capital allocation — §8/D-013 security
+boundary. **Manager-decided:** escalation 3 (Executive budget scope) = an explicit
+sub-ceiling within D-003''s platform scope, set at Executive-enablement time, NOT a fifth
+scope — recorded now so packet D can wire the seam; the judgment half stays deferred until
+the sub-ceiling has an owner-visible surface anyway. Cross-lane rule active: the census
+wording and M9-3''s never-measured item must agree before either ships.
+
+## M9-F50 … M9-F51 — decline persistence (M9-4); M8-F102 and audit Finding 3 CLOSED
+
+Migration 0007 (contract_refresh_declines, upsert-per-business) scratch-proven both
+directions then applied live (only write; companies byte-identical). Suppression is
+VERSION-keyed, deliberately not digest-keyed — a digest key cannot distinguish a version
+bump from same-version drift and would silently reopen M8-F3''s class (M9-F50, ratified:
+exactly the right call within data-engineer authority). "Not now" is now real: decline
+suppresses, a new version re-offers, same-version drift does not (proven by reproducing
+M8-F3''s historical shape via direct row mutation — M9-F51 records that drift is latent,
+unreachable via normal install today). 980 tests. Stale scratch DB jarvis_migcheck noted as
+litter for a future hygiene pass.
+
+## M9-F20 … M9-F29 — company workspaces (M9-2); UI Phase 3 foundation merged
+
+Merged at 983. Ratified: the workspace REPLACES the Details sheet (three-level ladder
+preserved — a fourth level was refused); navigation controls are links (reload-survival,
+linkability); a detail pane names a rail parent that stays lit. M9-F20–F24 fixed in-lane
+(naming regrowth, details-preserving repaint rule now documented, orphan-route empty state,
+duplicate accessible name, anchor button metrics). Open → routed: M9-F25 transition smear
+(m9-3''s theme toggle must address), M9-F26 the 15s poll re-runs plan_refresh (successor
+candidate: cache or lighter read), M9-F27 grid pending-indicator (product gate input),
+M9-F28 copy pass owed, M9-F29 raw floats in goal readings (m9-3 freshness-copy item covers).
+The kpi-series endpoint is specified exactly in the M9-2 report (labels never keys; empty
+points never omitted; KpiEngine.series reused) → packet M9-2a dispatched under rolling
+dispatch; trend render follows via warm continuation; product-reviewer gates the phase after
+trends land.
+
+## M9-1a merged (executive rollup + census) — 1007 tests on main
+
+D-038/D-039/D-040 implemented; import-rule detector proven both directions; live census
+reproduces the design''s example exactly (Summit named worst, its sentence verbatim).
+Ratified worker latitude: platform ceiling INJECTED (budget package untouched — correct
+territory respect; packet D wires it from Settings exactly as container.py does);
+never_measured = zero cycles AND zero stuck (stuck work is real watch evidence, never
+swallowed). KpiEngine gains public completed_cycle_count(). Ledger: health-aggregation and
+budget-rollup rows RETIRED; alerts, breaker-caller, platform_feed-reader rows OPEN pending
+packets C/E. No findings opened.

@@ -143,8 +143,13 @@ Fill colour meets 3:1 against its own track in both themes (`09-accessibility.md
 
 ### Status dot — `.dot`
 
-6px circle. `--running` takes `--status-healthy` and the `breathe` animation; paused is
+6px circle. Running takes `--status-healthy` and the `breathe` animation; paused is
 `--text-muted` and static.
+
+The running state has two selectors and one rule: `.co-card--running .dot` (inherited from the
+card's own modifier) and the standalone `.dot--running`, for a dot outside a card — the company
+workspace header being the first. One declaration, two entry points; defining the animation twice
+is how two dots start breathing at different rates.
 
 **Rules.** Always paired with a text status label. Never the sole carrier of a state.
 
@@ -330,10 +335,62 @@ A disclosure in the frame, not a workspace. The count on its control is always v
 existence of an update is never hidden — only the reading of it is deferred to one click. Empty
 state is `.calm`: no notifications is a good emptiness.
 
+---
+
+## Workspace components — shipped at M9-2
+
+Full specification: `13-company-workspace.md`.
+
+### Return link — `.ws-back`
+
+**Anatomy.** A single `<a href>` to the parent workspace, prefixed by a `‹` and reading
+"All companies" — the destination, never "Back". "Back" describes the operator's history; the
+label should describe where they will land, because a route can be arrived at from anywhere
+(a link, a reload, a bookmark) and only one of those has a "back".
+
+**Rules.** First element in the pane, so it is the first Tab stop. Muted at rest, primary text on
+hover; it is a way out, not an invitation. It never replaces the browser's own Back — it is a
+second, visible path to the same place.
+
+### Company page header — `.co-head`
+
+**Anatomy.** Two groups on one row, wrapping at narrow widths.
+
+    Portfolio Watch                        ● Running   [Pause]
+    Finance tracker
+    Tracks the financial metrics you configure…
+
+Left: name (`--font-display`, `--size-4xl`), `.kind`, `.kind-desc`. Right: `.dot` +
+status word, then the one lifecycle control.
+
+**States.** running · paused (`.co-head--paused` desaturates the name to secondary, matching
+`.co-card--paused`, so a paused company looks the same at both levels).
+
+**Rules.** The header carries identity and the *one* action that changes it. Every other number
+belongs to a tile or a section below — a header that grows a fourth fact has become a dashboard
+and stopped being a title.
+
+The name is a `<p>`, **not a heading**. On this route the top bar's `<h1>` already *is* the
+company's name, and a second heading one level down makes a screen reader announce it twice; the
+page's heading outline is then one `h1` and one `h2` per section, with no duplicate and no skip.
+Same shape as `.co-card__name`, which is a `<div>` for the same reason.
+
+### Workspace split — `.co-layout`
+
+Two columns: `minmax(0, 1fr)` main and `minmax(0, var(--layout-side))` side, `--space-9` gap,
+collapsing to one column at `--bp-md`.
+
+**Rules.** Things that change go left, things that are go right. Both tracks are `minmax(0, …)`,
+never a bare `1fr`: a grid item's default `min-width` is its content, and one long unbroken
+string in the activity feed would widen its track and scroll the page sideways.
+
 ### Still SPEC ONLY
 
 - **Persona chip** — see `11-persona-components.md`. **No rendering path until persona data
   exists.**
 - **Trend indicator** — direction arrow plus delta, in `--font-data`. Requires a time series the
-  API does not serve. Specified in `02-color.md`'s "not yet" section; not drawn here because its
-  form depends on data shape that does not exist.
+  API does not serve. The data exists — `kpi_values` has been an append-only series since D-027
+  and `KpiEngine.series()` reads it — but no route exposes it, so the surface holds one reading
+  per metric and nothing before it. A direction arrow needs a previous reading; drawn from a
+  single point it would be decoration that lies. Reserved with the endpoint shape it needs in
+  `13-company-workspace.md`.

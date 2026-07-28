@@ -36,7 +36,7 @@ from jarvis.domain.contract import BudgetPolicy, BusinessContract, WakeCondition
 from jarvis.events.types import CAPABILITY_RESULT
 from jarvis.kernel.config import LLMSettings, Settings
 from jarvis.kernel.container import PlatformKernel
-from jarvis.kernel.ids import BusinessTypeName, new_business_id
+from jarvis.kernel.ids import BusinessId, BusinessTypeName, new_business_id
 from jarvis.persistence.models import Base
 
 
@@ -292,23 +292,28 @@ async def test_applying_a_real_pending_update_writes_it_and_reports_updated(
     assert "ready" in second.json()["detail"].lower()
 
 
-async def test_dismissing_a_real_pending_update_writes_nothing_and_still_offers_it(
+async def test_dismissing_a_real_pending_update_writes_nothing_and_suppresses_the_offer(
     kernel: PlatformKernel, api: httpx.AsyncClient
 ) -> None:
-    """Design 4.3: a decline is recorded but changes no contract, and M8-F102
-    (decline persistence) stays deferred — nothing suppresses the offer, so
-    the same real diff is still there on the next look. Honest, not a bug."""
+    """Design 4.3, M8-F102 closed (M9-4): a decline is recorded, writes no
+    contract, and now really suppresses the offer — the inert-control gap
+    audit Finding 3 named. Re-offered only on the next version change, not on
+    the very next look; `test_a_new_version_clears_a_declined_suppression`
+    (test_contract_refresh.py) proves the other half at the service level."""
     business_id = await _stale_affiliate_company(kernel, "Trailhead Gear Reviews")
 
     res = await api.post(f"/api/companies/{business_id}/pending-update/dismiss")
     assert res.status_code == 200
     assert res.json() == {"status": "Not now."}
 
+    async with kernel.services() as svc:
+        contract = await svc.registry.get_contract(BusinessId(business_id))
+    assert CAPABILITY_RESULT in contract.wake_conditions.event_triggers, (
+        "a decline must not apply anything"
+    )
+
     detail = (await api.get(f"/api/companies/{business_id}")).json()
-    assert detail["pending_update"] is not None, "a decline must not apply anything"
-    assert detail["pending_update"]["changes"] == [
-        "It will stop starting a new round of work when its own work comes back."
-    ]
+    assert detail["pending_update"] is None, "the same offer must not reappear until re-versioned"
 
 
 # ── not_ready_count wired to a real caller (M8-F61) ─────────────────────────

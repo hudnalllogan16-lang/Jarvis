@@ -60,7 +60,13 @@ from jarvis.kernel.ids import BusinessId, BusinessTypeName, new_business_id
 from jarvis.kpi.engine import KpiEngine
 from jarvis.observability.audit import AuditLog
 from jarvis.observability.decision_log import DecisionLog
-from jarvis.persistence.models import ApprovalRow, AuditLogRow, DecisionLogRow, KpiValueRow
+from jarvis.persistence.models import (
+    ApprovalRow,
+    AuditLogRow,
+    BusinessTypeRow,
+    DecisionLogRow,
+    KpiValueRow,
+)
 from jarvis.registry.registry import BusinessRegistry
 
 # ── the two live type definitions, at the versions that matter ──────────────
@@ -602,6 +608,112 @@ async def test_declining_is_recorded_as_an_outcome(
     assert not contains_technical_language(entry.summary)
     assert not contains_technical_language(entry.rationale)
     assert await _audit_count(session, "business.contract_refreshed") == 0
+
+
+# ── decline persistence (D-030 Part 4.3, M8-F102/M9-4) ──────────────────────
+#
+# Audit Finding 3: "Not now" wrote a Decision Log row and suppressed nothing —
+# an inert control on a shipping surface. These prove the mechanism that
+# closes it, and the M8-F3 distinction the packet flagged as an escalation
+# risk: a genuine version change must re-offer a declined plan, but the
+# installed row's stored content drifting while its version string does not
+# (the live shape M8-F3 found) must not be mistaken for that same signal.
+
+
+async def test_a_decline_suppresses_the_same_offer_on_replan(
+    session: AsyncSession, registry: BusinessRegistry, refresh: ContractRefreshService
+) -> None:
+    """The M8-F102 fix, proven directly: declining collapses the next
+    `plan_refresh` to the same empty shape a genuinely-current company gets,
+    so nothing downstream needs new logic to stop offering it."""
+    await _provisioning(session, registry).install(_affiliate())
+    trailhead = await _company(registry, _affiliate("1.0.0"), "Trailhead Gear Reviews")
+
+    first = await refresh.plan_refresh(trailhead)
+    assert first.changes, "the fixture must have a real offer for suppression to mean anything"
+    await refresh.decline_refresh(trailhead, first, consent=_consent(first, granted=False))
+
+    second = await refresh.plan_refresh(trailhead)
+
+    assert second.is_empty
+    assert second.changes == ()
+    assert second.source_digest == second.target_digest
+
+
+async def test_a_new_version_clears_a_declined_suppression(
+    session: AsyncSession, registry: BusinessRegistry, refresh: ContractRefreshService
+) -> None:
+    """Design 4.3's own words: re-offered on the *next version change*. A real
+    upgrade moves `installed_version`, which is exactly what unsuppresses."""
+    provisioning = _provisioning(session, registry)
+    await provisioning.install(_affiliate())
+    trailhead = await _company(registry, _affiliate("1.0.0"), "Trailhead Gear Reviews")
+
+    first = await refresh.plan_refresh(trailhead)
+    await refresh.decline_refresh(trailhead, first, consent=_consent(first, granted=False))
+    assert (await refresh.plan_refresh(trailhead)).is_empty, "sanity: suppressed before the bump"
+
+    await provisioning.install(_affiliate("1.1.0", compliance_requirements=("A newer rule.",)))
+    reoffered = await refresh.plan_refresh(trailhead)
+
+    assert not reoffered.is_empty
+    assert reoffered.installed_version == "1.1.0"
+    assert any(c.field == "compliance_requirements" for c in reoffered.changes)
+
+
+async def test_same_version_drift_does_not_clear_a_declined_suppression(
+    session: AsyncSession, registry: BusinessRegistry, refresh: ContractRefreshService
+) -> None:
+    """The escalation risk the packet named, proven closed: same-version drift
+    — the installed row's stored definition edited in place with no version
+    bump, the live shape `compute_digest`'s docstring records as M8-F3 —
+    must not read as "a new version" and clear a decline. Simulated by
+    mutating the installed row's stored JSON directly, the same way that live
+    row came to differ from its own declared version: no `install()` call
+    exists that produces this state honestly, because the duplicate-version
+    gate refuses to reinstall an unchanged version number.
+    """
+    provisioning = _provisioning(session, registry)
+    await provisioning.install(_affiliate())
+    trailhead = await _company(registry, _affiliate("1.0.0"), "Trailhead Gear Reviews")
+
+    first = await refresh.plan_refresh(trailhead)
+    await refresh.decline_refresh(trailhead, first, consent=_consent(first, granted=False))
+    assert (await refresh.plan_refresh(trailhead)).is_empty, "sanity: suppressed before the drift"
+
+    row = await session.get(BusinessTypeRow, "affiliate")
+    assert row is not None
+    drifted = dict(row.plugin_metadata)
+    drifted["definition"] = {
+        **drifted["definition"],
+        "compliance_requirements": ["A rule nobody published a version bump for."],
+    }
+    row.plugin_metadata = drifted
+    await session.flush()
+
+    still_suppressed = await refresh.plan_refresh(trailhead)
+
+    assert still_suppressed.is_empty, (
+        "content changed but the version string did not — a digest-only rule would have "
+        "cleared this; the version-keyed rule must not"
+    )
+
+
+async def test_declining_the_same_plan_twice_does_not_error(
+    session: AsyncSession, registry: BusinessRegistry, refresh: ContractRefreshService
+) -> None:
+    """A repeated decline (a double click) upserts rather than colliding on
+    the primary key — the same idempotent-write discipline `apply_refresh`
+    already applies to acceptance, applied here to refusal."""
+    await _provisioning(session, registry).install(_affiliate())
+    trailhead = await _company(registry, _affiliate("1.0.0"), "Trailhead Gear Reviews")
+    plan = await refresh.plan_refresh(trailhead)
+
+    await refresh.decline_refresh(trailhead, plan, consent=_consent(plan, granted=False))
+    await refresh.decline_refresh(trailhead, plan, consent=_consent(plan, granted=False))
+
+    assert (await refresh.plan_refresh(trailhead)).is_empty
+    assert await registry.declined_refresh_version(trailhead) == "1.0.1"
 
 
 # ── idempotency (D-024.3) and staleness ─────────────────────────────────────

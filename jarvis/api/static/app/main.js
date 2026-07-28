@@ -12,11 +12,12 @@
 import { get } from './api.js';
 import { startDispatch } from './actions.js';
 import { startPanel } from './panel.js';
-import { startShell, region, navCount } from './shell.js';
+import { startShell, region, navCount, currentRoute } from './shell.js';
 import { setRefresh } from './refresh.js';
 import { tileRow } from './tiles.js';
-import { askCard, editing, registerApprovalActions } from './approvals.js';
+import { asksRegion, editing, registerApprovalActions } from './approvals.js';
 import { coCard, registerCompanyActions } from './companies.js';
+import { paintCompany } from './company-workspace.js';
 import { paintHealth, paintNotes, paintSettings, registerSystemActions } from './system.js';
 import { registerNewCoActions } from './newco.js';
 
@@ -27,41 +28,47 @@ async function paint() {
     get('/api/companies'),
   ]);
 
+  // On a detail route this is the record being shown; elsewhere it is null.
+  // The shell resolves it, so no module parses the hash a second time. `ws`
+  // distinguishes the Approvals workspace from the Command Center — both
+  // platform-wide (`id` is null on either), but only one is the whole page
+  // with nothing beneath the queue to give an empty one context (M9-F40).
+  const { id, ws } = currentRoute();
+  const focused = id ? companies.find((c) => c.id === id) : null;
+
   // The rail's only count, and it is a count that NEEDS the operator — never
-  // a total (docs/design/06-components.md, "Nav item badge").
+  // a total (docs/design/06-components.md, "Nav item badge"). It stays the
+  // PLATFORM's count even inside one company: the rail is furniture, and
+  // furniture that changed meaning per route would be unlearnable.
   navCount('approvals', approvals.length);
 
   const tiles = region('tiles');
   if (tiles) tiles.innerHTML = tileRow(summary, approvals, companies);
 
-  // The page's centre of gravity moves. When something needs the operator it
-  // takes the top and is loud; when nothing does it collapses to one quiet line
-  // and the companies become the hero.
+  // One approvals region, declared by three panes and filled in at most one
+  // (docs/design/12-application-shell.md, "the regions contract"). A company
+  // workspace sees only its own; every other route sees the whole queue.
   //
-  // The region is skipped entirely while an approval payload is being edited:
-  // a repaint that deletes half-typed text in a request someone is about to
-  // authorise is a defect, not a refresh.
+  // Skipped entirely while an approval payload is being edited: a repaint that
+  // deletes half-typed text in a request someone is about to authorise is a
+  // defect, not a refresh.
   const asks = region('asks');
   if (asks && !editing()) {
-    // On the Approvals route this region IS the page — there is no company
-    // grid beneath it to give "nothing needs you" its context, the way there
-    // is on the Command Center. `.calm` stays the right component (an empty
-    // queue is success, not a failed load — docs/design/06-components.md),
-    // but the route on its own needs the teaching sentence Command Center
-    // gets for free from what sits below it (M9-3 surface backlog, M9-F40).
-    const onApprovalsRoute = asks.closest('[data-ws]')?.dataset.ws === 'approvals';
-    asks.innerHTML = approvals.length
-      ? `<h2 class="section-head section-head--urgent">Needs your OK
-           <span class="section-head__count">${approvals.length}</span></h2>` +
-        approvals.map(askCard).join('')
-      : `<h2 class="section-head">Needs your OK</h2>
-         <p class="calm">Nothing needs you right now.${
-           onApprovalsRoute
-             ? " Jarvis asks here before it spends money, publishes anything, or does" +
-               " something a company can't already do on its own — with exactly" +
-               " what it wants to do and why, before anything happens."
-             : ''
-         }</p>`;
+    // A route addressing a company the roster does not have has no subject to
+    // scope a queue to, and the pane already says so. Rendering "Nothing needs
+    // you right now" from here would make a claim about the whole platform out
+    // of a filter that matched nothing — false the moment a different company
+    // is waiting.
+    const orphan = id && !focused;
+    const shown = id ? approvals.filter((a) => a.company_id === id) : approvals;
+    // The Approvals workspace passes `teach: true` into asksRegion — that
+    // region IS the whole page there, with no company grid beneath it to
+    // give an empty queue context the way the Command Center gets for free
+    // (M9-3 surface backlog, M9-F40). The company workspace's own `scope`
+    // wording takes precedence regardless, same as before.
+    asks.innerHTML = orphan
+      ? ''
+      : asksRegion(shown, focused ? focused.name : null, ws === 'approvals');
   }
 
   const cos = region('companies');
@@ -73,6 +80,12 @@ async function paint() {
          straight away, and asks before doing anything that spends money.</span>
          <div class="empty__act">
            <button class="btn btn--primary" data-act="open-new">New company</button></div></div>`;
+  }
+
+  // The company workspace pays for its own fetch, and only when it is the
+  // active route — the same bargain paintSettings already makes.
+  if (id && region('company-head')) {
+    await paintCompany(id, approvals.filter((a) => a.company_id === id));
   }
 }
 

@@ -30,14 +30,32 @@ export function currentTheme() {
 }
 
 /** Apply and persist a theme choice. 'system' clears both the attribute and
- *  the cookie, returning the surface to `prefers-color-scheme`. */
+ *  the cookie, returning the surface to `prefers-color-scheme`.
+ *
+ *  M9-F25 ("transition smear", found live on the M9-2 company workspace):
+ *  several components declare their own hover/colour transition
+ *  (`--motion-quick` on `.btn`, `--motion-slow` on `.btn--primary` and
+ *  `.section-head--urgent` — docs/design/08-motion.md #2–3). Those exist to
+ *  report a state change happening TO an element; a theme swap is the
+ *  operator's own deliberate action, already reported by the control they
+ *  just used, so letting every element fade to its new colours on its own
+ *  unrelated timing reads as a messy smear instead of one clean change.
+ *  `.theme-swap` (base.css) kills every transition for exactly this repaint,
+ *  the same shape `prefers-reduced-motion` already uses for a session-long
+ *  preference, applied here for one swap instead. */
 export function setTheme(value) {
   const html = document.documentElement;
+  html.classList.add('theme-swap');
   if (value === 'system') {
     html.removeAttribute('data-theme');
     document.cookie = `${COOKIE}=; path=/; max-age=0`;
-    return;
+  } else {
+    html.setAttribute('data-theme', value);
+    document.cookie = `${COOKIE}=${value}; path=/; max-age=${YEAR}; samesite=lax`;
   }
-  html.setAttribute('data-theme', value);
-  document.cookie = `${COOKIE}=${value}; path=/; max-age=${YEAR}; samesite=lax`;
+  // Force the new values to commit before transitions come back next frame —
+  // without this the class removal could be batched with the attribute
+  // change and the swap would still animate.
+  void html.offsetHeight;
+  requestAnimationFrame(() => html.classList.remove('theme-swap'));
 }

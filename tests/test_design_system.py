@@ -144,6 +144,7 @@ def test_both_themes_define_the_same_semantic_tokens() -> None:
         "10-interaction-patterns.md",
         "11-persona-components.md",
         "12-application-shell.md",
+        "13-company-workspace.md",
     ],
 )
 def test_the_design_system_artifact_is_complete(doc: str) -> None:
@@ -158,7 +159,29 @@ def test_the_design_system_artifact_is_complete(doc: str) -> None:
 SHELL = pathlib.Path("jarvis/api/static/app/shell.js")
 
 
-def test_every_nav_item_has_a_workspace_and_every_workspace_has_a_nav_item() -> None:
+def _rail_ids() -> set[str]:
+    """The workspaces shell.js offers in the rail.
+
+    Read from the WORKSPACES literal only: DETAIL_ROUTES follows it in the same
+    file and uses the same `id:` key, so a bare file-wide scan would count a
+    detail route as a rail item and make the promise below vacuous for exactly
+    the entries it was extended to cover.
+    """
+    source = SHELL.read_text(encoding="utf-8")
+    block = re.search(r"const WORKSPACES = \[(.*?)\n\];", source, flags=re.S)
+    assert block, "WORKSPACES literal not found in shell.js"
+    return set(re.findall(r"\bid:\s*'([a-z-]+)'", block.group(1)))
+
+
+def _detail_routes() -> dict[str, str]:
+    """Detail-route id -> the rail workspace it hangs off."""
+    source = SHELL.read_text(encoding="utf-8")
+    block = re.search(r"const DETAIL_ROUTES = \[(.*?)\];", source, flags=re.S)
+    assert block, "DETAIL_ROUTES literal not found in shell.js"
+    return dict(re.findall(r"id:\s*'([a-z-]+)',\s*parent:\s*'([a-z-]+)'", block.group(1)))
+
+
+def test_every_nav_item_has_a_workspace_and_every_pane_is_reachable() -> None:
     """docs/design/12-application-shell.md: "a nav item is a promise that a
     destination exists".
 
@@ -171,13 +194,72 @@ def test_every_nav_item_has_a_workspace_and_every_workspace_has_a_nav_item() -> 
 
     Asserted in both directions: an orphan pane is just as wrong, because it is
     a surface the operator cannot reach.
+
+    M9-2 widened the second direction rather than weakening it. A detail route
+    (`#/companies/<id>`) is a pane the rail does not offer, so "every pane is a
+    nav item" became "every pane is a nav item OR names the workspace it is
+    reached from" — and a detail route whose parent is not itself in the rail is
+    an orphan one level removed, which the next assertion catches.
     """
-    nav_ids = set(re.findall(r"\bid:\s*'([a-z-]+)'", SHELL.read_text(encoding="utf-8")))
+    nav_ids = _rail_ids()
+    detail_ids = set(_detail_routes())
     pane_ids = set(re.findall(r'data-ws="([a-z-]+)"', markup()))
     assert nav_ids, "no workspaces found in shell.js — did WORKSPACES move?"
-    assert nav_ids == pane_ids, (
-        f"rail and workspaces disagree: only in rail {nav_ids - pane_ids}, "
-        f"only in markup {pane_ids - nav_ids}"
+    reachable = nav_ids | detail_ids
+    assert reachable == pane_ids, (
+        f"rail and workspaces disagree: only in shell.js {reachable - pane_ids}, "
+        f"only in markup {pane_ids - reachable}"
+    )
+
+
+def test_every_detail_route_hangs_off_a_real_workspace() -> None:
+    """docs/design/12-application-shell.md, "Detail routes".
+
+    A detail route is reached by drilling into its parent, and its parent's rail
+    item stays lit while the operator is inside it. Both of those need the
+    parent to exist in the rail; a detail route naming a parent that does not is
+    reachable only by typing a URL, which is the orphan the rule above forbids
+    wearing a different shape. The markup must declare the same parent, because
+    that attribute is what the design document points a reader at.
+    """
+    routes = _detail_routes()
+    assert routes, "no detail routes found in shell.js — did DETAIL_ROUTES move?"
+    rail = _rail_ids()
+    declared = dict(re.findall(r'data-ws="([a-z-]+)"\s+data-ws-parent="([a-z-]+)"', markup()))
+    for pane, parent in routes.items():
+        assert parent in rail, (
+            f"detail route {pane!r} hangs off {parent!r}, which is not in the rail"
+        )
+        assert declared.get(pane) == parent, (
+            f"detail pane {pane!r} declares parent {declared.get(pane)!r} in the markup "
+            f"but {parent!r} in shell.js"
+        )
+
+
+def test_controls_that_navigate_are_links_not_buttons() -> None:
+    """docs/design/12-application-shell.md, "Navigation".
+
+    A control that navigates is a link; a control that acts is a button, and
+    `[data-act]` is for the second kind only. Until M9-2 the drill into one
+    company was `data-act="open-co"` on a `<button>` — which cost the operator
+    middle-click, open-in-new-tab, the browser's own Back, and the status-bar
+    preview of where they were about to go, all to reach what is now a route.
+
+    Pinned because the delegated-dispatch layer makes the wrong shape the easy
+    one: adding a `data-act` is one line, and nothing else in the suite would
+    notice that a destination had stopped being addressable.
+    """
+    emitted = surface_text()
+    assert "open-co" not in emitted, (
+        "a company workspace is a route — reach it with an href, not an action"
+    )
+    assert "companyHref(" in emitted, (
+        "nothing addresses a company workspace; the drill-down is unreachable"
+    )
+    assert 'href="#/companies/' not in emitted, (
+        "the address of a company workspace is built in ONE place (companyHref). "
+        "A hand-written second copy is how the card, the truncation affordance "
+        "and an approval's Why? drift into three slightly different routes."
     )
 
 
