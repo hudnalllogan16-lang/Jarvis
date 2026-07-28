@@ -2265,3 +2265,23 @@ The review (docs/reports/M10-ORG-REVIEW.md) is adopted with Manager corrections:
 4. **Ops note on record:** ports 5432/7233/8233 served by PID 21632 with `docker compose
    ps` empty — a non-compose owner serves the stack; Phase 0''s deployment-modes design must
    name the actual process model on this host (routed to the m10-p0 design as input).
+
+## Phase 0 design merged (OPERATIONAL-RUNTIME.md) — drafts renumbered D-055…D-061
+
+Live evidence anchors it: the stack UP with ZERO pollers for 13.5h (M9-F118 is the current
+state); measured cron drift (a 22:40 anchor now firing at 06:14). Design ratified by the
+Manager: ONE part table in a fourth composition root (jarvis/shell/service.py, AST-enforced);
+`jarvis-run` = the headless platform; the desktop adds only a window; worker.py::main
+DELETED (removes M10-F6''s dangerous half); api-only = honest console; bootstrap posture
+REFUSE(console)/WAIT(service). Two-signal liveness (self-report + DescribeTaskQueue;
+unknown≠zero), verdict as an injected L1 Executive rule (D-038 preserved); /api/ready split
+from /api/health; two-tier restart (part=Supervisor, process=OS, safe because the process
+holds no Manager state); wall-clock cron under PATCH_WALL_CLOCK_SCHEDULE with one-cycle-per-
+period and skip-with-notice (grace rejected: the period IS the grace); NSSM primary,
+containers restart:unless-stopped, console attach modes. Two new L1 actions + seven
+parameters registered per §15. The design''s proposed D-054…D-060 are RENUMBERED
+**D-055…D-061** (D-054 = the org entry) and ratified as drafted. Packet cut P0-A…G adopted;
+P0-D merges alone. **Owner question (non-blocking, gates only container-mode validation):
+M10-F11 — Docker Desktop is per-user; NSSM mode is unaffected and primary.** Named limit
+recorded: in-band alerting cannot report its own host''s death — outages become
+impossible-to-miss afterwards, with a duration.
