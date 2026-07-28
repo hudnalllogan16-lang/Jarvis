@@ -19,10 +19,13 @@ Why light survives rather than being dropped:
   expensive to retrofit later. This is that start.
 
 The theme resolves in this order: `[data-theme="light"|"dark"]` on `<html>` (explicit choice)
-overrides `prefers-color-scheme` (system preference) overrides dark (the shipped default).
-There is no theme *toggle* in the surface yet — the switch belongs to the Application Shell
-(M8-4), which owns chrome. The mechanism is complete and testable now; the control comes with
-the frame that holds it.
+overrides `prefers-color-scheme` (system preference) overrides dark (the shipped default). The
+toggle shipped at M9-3, in Settings (the Application Shell workspace that owns operator-facing
+chrome, per the plan above) — "Match your device" / "Dark" / "Light", persisted in a plain
+cookie the surface reads before its own first paint (`index.html`'s bootstrap script,
+`app/theme.js`) rather than in `localStorage`/`sessionStorage`. "Match your device" is the
+default and is not a fourth token state: it is simply the explicit `[data-theme]` staying unset,
+which is what already fell through to `prefers-color-scheme` above.
 
 ---
 

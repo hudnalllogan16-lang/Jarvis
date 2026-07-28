@@ -109,3 +109,19 @@ svg {
     scroll-behavior: auto !important;
   }
 }
+
+/* ── Theme swap ───────────────────────────────────────────────────────────
+   M9-3 surface backlog, M9-F25 ("transition smear"): components declare
+   their OWN hover/colour transition to report a state change happening to
+   THEM (docs/design/08-motion.md). A theme swap is not that — it is one
+   operator action, already reported by the Settings control they just used
+   — so every element fading to its new colours on its own independent
+   timing reads as a smear across the page rather than one clean change.
+   `app/theme.js` adds this class immediately before flipping [data-theme]
+   and removes it one frame later: the same "kill every transition" shape
+   the reduced-motion rule above already uses, scoped to one repaint instead
+   of a session-long preference. */
+.theme-swap,
+.theme-swap * {
+  transition: none !important;
+}

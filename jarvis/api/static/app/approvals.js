@@ -42,8 +42,14 @@ export function askCard(a) {
  *              company page would be a claim about the whole platform made
  *              from inside one company — true today by accident, and a lie the
  *              moment a different company is waiting.
+ * @param teach true only on the Approvals workspace's own platform-wide
+ *              queue (never when `scope` is set — a company page has its own
+ *              wording above). That route IS the whole page, with no company
+ *              grid beneath an empty queue to give it context the way the
+ *              Command Center gets for free, so its empty state teaches what
+ *              will appear here and why (M9-3 surface backlog, M9-F40).
  */
-export function asksRegion(list, scope) {
+export function asksRegion(list, scope, teach) {
   if (list.length) {
     return (
       `<h2 class="section-head section-head--urgent">Needs your OK
@@ -55,7 +61,13 @@ export function asksRegion(list, scope) {
     `<h2 class="section-head">Needs your OK</h2>` +
     (scope
       ? `<p class="calm">Nothing from ${esc(scope)} needs you right now.</p>`
-      : `<p class="calm">Nothing needs you right now.</p>`)
+      : `<p class="calm">Nothing needs you right now.${
+          teach
+            ? " Jarvis asks here before it spends money, publishes anything, or does" +
+              " something a company can't already do on its own — with exactly" +
+              " what it wants to do and why, before anything happens."
+            : ''
+        }</p>`)
   );
 }
 

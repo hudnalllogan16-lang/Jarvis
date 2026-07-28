@@ -15,7 +15,7 @@
 // trend (reserved, with the shape it needs, in 13-company-workspace.md).
 
 import { get } from './api.js';
-import { esc, money, ago, humanizeAction } from './format.js';
+import { esc, money, ago, humanizeAction, measurement } from './format.js';
 import { meter } from './companies.js';
 import { tile } from './tiles.js';
 import { region, setWorkspaceTitle } from './shell.js';
@@ -40,9 +40,12 @@ const BAND_WORDS = {
 // `health_parts`, server-computed. See the design document's arithmetic rule.
 function goalLine(g) {
   const goal = g.direction === 'below' ? 'at most' : 'at least';
+  // `measurement()` rounds to a size that reads as a reading rather than raw
+  // float noise (M9-3 surface backlog, M9-F46: "0.0005 hours since last
+  // check" for data freshness) — applied to every goal, not just freshness's.
   return `<div class="entry"><p>${esc(g.label)}</p>
-     <p class="entry__why">${esc(g.measured)} ${esc(g.unit)} &middot; goal is ${goal} ${esc(
-       g.target,
+     <p class="entry__why">${esc(measurement(g.measured))} ${esc(g.unit)} &middot; goal is ${goal} ${esc(
+       measurement(g.target),
      )} ${esc(g.unit)}</p></div>`;
 }
 
@@ -164,7 +167,12 @@ function headMarkup(c, approvals) {
       </div>
     </header>
     <div class="tile-row">${tiles(c, approvals)}</div>
-    ${pendingUpdateCard(c.id, c.pending_update)}`;
+    ${pendingUpdateCard(c.id, c.pending_update)}
+    ${
+      c.pending_update_note
+        ? `<p class="calm">${esc(c.pending_update_note)}</p>`
+        : ''
+    }`;
 }
 
 /** Work that stopped and has not been picked back up. Rendered only when there

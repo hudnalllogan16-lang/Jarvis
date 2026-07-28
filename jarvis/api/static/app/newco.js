@@ -16,6 +16,7 @@ async function openNew(note) {
     openSheet(`<h2 id="sheetTitle">No templates installed</h2>
       <p class="reason reason--lede">A company template describes what a company
       does. Install the starter template, then come back here to create a company from it.</p>
+      <p class="formErr" id="installErr"></p>
       <div class="acts acts--plain">
         <button class="btn btn--primary" data-act="install-templates">Install starter template</button>
         <button class="btn" data-act="close-sheet">Close</button>
@@ -108,12 +109,38 @@ export function registerNewCoActions() {
   // to a present participle. No spinners: a disabled control with a changed
   // label says the same thing and cannot animate forever if something fails.
   action('install-templates', async (_data, btn) => {
+    const err = el('installErr');
+    if (err) err.textContent = '';
     btn.disabled = true;
     btn.textContent = 'Installing…';
-    const res = await fetch('/api/company-templates/install-builtin', { method: 'POST' });
+    let res;
+    try {
+      res = await fetch('/api/company-templates/install-builtin', { method: 'POST' });
+    } catch {
+      // Network failure: fetch itself rejects rather than resolving with a
+      // response, so this needs its own catch — the `!res.ok` branch below
+      // never runs for it and the button would otherwise reset in silence.
+      btn.disabled = false;
+      btn.textContent = 'Install starter template';
+      if (err) err.textContent = "Jarvis couldn't reach the install step. Please try again.";
+      return;
+    }
     if (!res.ok) {
       btn.disabled = false;
       btn.textContent = 'Install starter template';
+      // A contained failure (`not_ready_count`) below is never a dead end and
+      // stays a note beside the form; a whole-request failure IS one, so it
+      // gets the same `.formErr` treatment as the create-company form
+      // (M9-3 surface backlog, M9-F41: the newco flow had no install-failure
+      // surfacing at all — the button just quietly went back to normal,
+      // telling the operator nothing about what happened).
+      if (err) {
+        const body = await res.json().catch(() => ({}));
+        err.textContent =
+          typeof body.detail === 'string' && body.detail
+            ? body.detail
+            : "Jarvis couldn't install the starter template. Please try again.";
+      }
       return;
     }
     // `not_ready_count` (M8-F61): a contained install failure used to log a

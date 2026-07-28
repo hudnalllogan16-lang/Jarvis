@@ -63,12 +63,19 @@ M6-5a: a transition wrote "moved from provisioning to active" into the
 activity feed. The write path is fixed at its source (`registry.py`); this is
 the backstop for that entry and for any other prose that does the same."""
 
-NEUTRAL_FALLBACK = "Working — details inside."
+NEUTRAL_FALLBACK = "Details inside."
 """Shown when a summary still reads as technical after id-stripping and
 lifecycle translation. Never the raw prose with the flagged word cut out: a
 partially-redacted sentence is still unreviewed model prose, and §12.5 asks
 for plain language, not laundered jargon. The full text remains one click away
-in "Full details" (§12.5's drill-down, unaffected by this guard)."""
+in "Full details" (§12.5's drill-down, unaffected by this guard).
+
+Was "Working — details inside." (M9-3 surface backlog, M9-F44): this text renders through two
+callers with different tenses — the card's one-line "Latest update"
+(present-moment, where "Working" fit) and the activity feed's own entries
+(each one a past, timestamped event, where "Working" claimed the company was
+still doing something a completed entry does not support). A guard shared by
+both call sites cannot assert either tense, so it now asserts neither."""
 
 DOING_NOW_LIMIT = 140
 """Character budget for the company card's one-line "Latest update" (spec

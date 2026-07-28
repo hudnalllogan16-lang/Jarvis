@@ -10,6 +10,7 @@ import { get, post } from './api.js';
 import { action } from './actions.js';
 import { esc, ago, plural } from './format.js';
 import { region } from './shell.js';
+import { currentTheme, setTheme } from './theme.js';
 
 const el = (id) => document.getElementById(id);
 
@@ -81,6 +82,16 @@ export async function paintSettings() {
   const subs = await get('/api/settings/subsystems');
   const parts = (await get('/api/health').catch(() => ({ parts: [] }))).parts || [];
   slot.innerHTML = `
+    <h2 class="section-head">Appearance</h2>
+    <div class="field">
+      <label for="themeSelect">Color theme</label>
+      <select id="themeSelect">
+        <option value="system">Match your device</option>
+        <option value="dark">Dark</option>
+        <option value="light">Light</option>
+      </select>
+      <p class="field__hint">Starts by matching your device until you choose one here.</p>
+    </div>
     <h2 class="section-head">What Jarvis can run</h2>
     <p class="reason reason--lede">Turning something off hides it from
       "New company". Companies you already have keep their own pause switch.</p>
@@ -118,6 +129,15 @@ export async function paintSettings() {
       '<p class="calm">Nothing to report — everything Jarvis does is running together, ' +
         'as one, right now.</p>'
     }`;
+
+  // Not `data-act` (the click-delegation layer, actions.js): a `<select>`
+  // reports its choice on `change`, which a native option click does not
+  // dispatch as a `click` on the element itself. Re-bound every repaint,
+  // same as newco.js's own template select — Settings repaints far less
+  // often than it is read, so re-attaching here costs nothing.
+  const themeSelect = el('themeSelect');
+  themeSelect.value = currentTheme();
+  themeSelect.addEventListener('change', () => setTheme(themeSelect.value));
 }
 
 export function registerSystemActions() {

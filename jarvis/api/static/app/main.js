@@ -29,8 +29,11 @@ async function paint() {
   ]);
 
   // On a detail route this is the record being shown; elsewhere it is null.
-  // The shell resolves it, so no module parses the hash a second time.
-  const { id } = currentRoute();
+  // The shell resolves it, so no module parses the hash a second time. `ws`
+  // distinguishes the Approvals workspace from the Command Center — both
+  // platform-wide (`id` is null on either), but only one is the whole page
+  // with nothing beneath the queue to give an empty one context (M9-F40).
+  const { id, ws } = currentRoute();
   const focused = id ? companies.find((c) => c.id === id) : null;
 
   // The rail's only count, and it is a count that NEEDS the operator — never
@@ -58,7 +61,14 @@ async function paint() {
     // is waiting.
     const orphan = id && !focused;
     const shown = id ? approvals.filter((a) => a.company_id === id) : approvals;
-    asks.innerHTML = orphan ? '' : asksRegion(shown, focused ? focused.name : null);
+    // The Approvals workspace passes `teach: true` into asksRegion — that
+    // region IS the whole page there, with no company grid beneath it to
+    // give an empty queue context the way the Command Center gets for free
+    // (M9-3 surface backlog, M9-F40). The company workspace's own `scope`
+    // wording takes precedence regardless, same as before.
+    asks.innerHTML = orphan
+      ? ''
+      : asksRegion(shown, focused ? focused.name : null, ws === 'approvals');
   }
 
   const cos = region('companies');
