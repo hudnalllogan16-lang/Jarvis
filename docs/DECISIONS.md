@@ -2237,3 +2237,31 @@ allowlist may be retired by a future packet updating origins accordingly). **M10
 Phase 0, Operational Readiness** — Trading Intelligence gated on demonstrated unattended
 operation per the owner''s six criteria; an organizational strategic review precedes
 significant implementation. Closeout package: docs/reports/M9-CLOSEOUT.md.
+
+---
+
+## D-054 — the M10 organization (enacting the strategic review, with two corrections)
+
+The review (docs/reports/M10-ORG-REVIEW.md) is adopted with Manager corrections:
+1. **D-037 validated by measurement** (9.7 min/merge at 4 lanes; +50% vs M8) and amended:
+   the serial-resource hotspot list updates to `jarvis/api/app.py`, `static/app/*.js`, and
+   `registry/` (index.html retired from it — split since M8); the 70% rule is RETIRED
+   (superseded by rolling dispatch''s continuous re-planning); **the lane ledger becomes
+   mechanism**: every packet commit is immediately followed by its dispatch, and the
+   Manager''s task list carries one line per open lane, checked at every notification —
+   closing the dropped-dispatch hole the wave barrier used to catch.
+2. **Roster:** delivery-coordinator RETIRED (never fired; D-037 abolished its unit of work)
+   along with the never-used execution-record infrastructure (scripts/manifest.py,
+   runlog.py, docs/runs/, and DELEGATION''s section — zero records in four milestones;
+   removal is a cleanup packet). spec-archaeologist becomes MANDATORY for recall (the
+   record grew 85% in one milestone). **docs-writer KEPT** — Manager correction: the
+   review''s packet-count method missed its two ad-hoc dispatches (M6-4 doc rot, M7
+   close-out); the role earns its file. **judgment-engineer (Opus) ADDED at M10**: owns
+   jarvis/llm/ and the judgment-work era, with the constraint that no judgment packet
+   dispatches before the evaluation harness + sub-ceiling exist — the review''s economic
+   argument, adopted as a gate.
+3. **DELEGATION.md drift** ("Eleven agents", missing experience-engineer) — fixed in the
+   cleanup packet with the section updates above.
+4. **Ops note on record:** ports 5432/7233/8233 served by PID 21632 with `docker compose
+   ps` empty — a non-compose owner serves the stack; Phase 0''s deployment-modes design must
+   name the actual process model on this host (routed to the m10-p0 design as input).
