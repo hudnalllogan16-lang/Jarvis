@@ -81,6 +81,22 @@
         <div class="grid" data-region="companies"></div>
       </section>
 
+      <!-- One company, at #/companies/<id>. A DETAIL ROUTE, not a rail
+           destination: it is reached by drilling into Companies, and
+           `data-ws-parent` is what keeps that rail item lit while the operator
+           is inside (docs/design/12-application-shell.md, "Detail routes";
+           full specification in 13-company-workspace.md).
+
+           Three regions, in the order the operator reads them. The middle one
+           declares `asks` — the SAME region name the Command Center and
+           Approvals panes declare — so a company's own approvals inherit the
+           mid-edit repaint suppression rather than reimplementing it. -->
+      <section class="ws__pane" data-ws="company" data-ws-parent="companies" hidden>
+        <div data-region="company-head"></div>
+        <section data-region="asks"></section>
+        <div data-region="company-body"></div>
+      </section>
+
       <section class="ws__pane" data-ws="approvals" hidden>
         <div data-region="asks"></div>
       </section>

@@ -15,7 +15,12 @@ import { esc, money, ago, plural } from './format.js';
 // interpolated into a `context` string is escaped at its own call site below.
 // A `context` built from an API value without esc() would be a hole; there is
 // no third option, because the escaping cannot happen in both places.
-function tile({ label, value, context, tone }) {
+//
+// Exported since M9-2: the company workspace builds a tile row of its own from
+// per-company fields. It reuses this primitive rather than growing a second
+// one, so the tile keeps one anatomy, one set of tones and one escaping
+// contract wherever it appears (docs/design/06-components.md, extend-first).
+export function tile({ label, value, context, tone }) {
   return `<div class="tile${tone ? ' tile--' + tone : ''}">
     <span class="tile__label">${esc(label)}</span>
     <span class="tile__value">${esc(value)}</span>

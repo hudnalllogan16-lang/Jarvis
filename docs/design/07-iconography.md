@@ -39,6 +39,18 @@ Encode grouping and severity. A 3px left rule in `--status-risk` marks an approv
 failure banner as belonging to a class of thing. This is the cheapest possible "icon": it costs
 one border property, works in both themes, and cannot be misread.
 
+### Not an exception: typographic characters
+
+`·` between two facts on a goal line, and `‹` before the company workspace's return link, are
+**typography, not iconography**. The boundary is mechanical rather than aesthetic: a typographic
+character comes from the font in the text run, inherits colour, size and weight from the words
+beside it, needs no asset and no request, and cannot fail to load the way an icon can. None of
+the three costs above applies to it.
+
+One obligation comes with it. A directional character is punctuation to a reader and noise to a
+screen reader, which announces `‹` by name — so it carries `aria-hidden="true"` and the words
+beside it are the label. "‹ All companies" is announced as "All companies", link.
+
 ## If an icon is ever added
 
 The bar is high, and these are the conditions — all of them, not any of them:

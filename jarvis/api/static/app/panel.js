@@ -6,6 +6,7 @@
 // the two overlays have identical obligations and solving it twice is how
 // they drift apart.
 
+import { action } from './actions.js';
 import { trapFocus, focusFirst } from './focus.js';
 
 const el = (id) => document.getElementById(id);
@@ -41,9 +42,17 @@ export function sheetOpen() {
   return !!release;
 }
 
-/** Dismissal paths: the scrim, Escape, and the sheet's own Close button
- *  (which routes through the `close-sheet` action). */
+/** Dismissal paths: the scrim, Escape, and the sheet's own Close button.
+ *
+ *  `close-sheet` is registered here since M9-2. It used to live in
+ *  companies.js because the Details sheet was that module's, but level 2 is a
+ *  route now and the create-company dialog is the sheet's only remaining
+ *  content — leaving the dismissal of the overlay registered by a module that
+ *  no longer opens it is how an action outlives its owner. The overlay
+ *  registers its own. */
 export function startPanel() {
+  action('close-sheet', () => closeSheet());
+
   el('panel').addEventListener('click', (ev) => {
     if (ev.target.id === 'panel') closeSheet();
   });

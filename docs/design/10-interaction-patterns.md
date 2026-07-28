@@ -7,13 +7,20 @@ Exactly three levels. A fourth means the information architecture is wrong.
 | Level | Surface | Carries | Costs the operator |
 |---|---|---|---|
 | 1 | Company card | one meter, one number, one sentence, spend, latest update | a glance |
-| 2 | Details panel | health parts, goals measured-vs-target, activity feed, autonomy grants, stuck work | one click |
-| 3 | Full details | the raw audit record | one more click, **and a fetch** |
+| 2 | Company workspace (`#/companies/<id>`) | health parts, goals measured-vs-target, activity feed, autonomy grants, stuck work, scoped approvals | one click |
+| 3 | Full details | the raw audit record | one more click, **and a fetch**, inside level 2 |
 
 **Level 1 answers "should I look closer?"** It is deliberately not a summary of level 2 — a
 condensed version of everything is harder to read than one well-chosen fact. The card carries
 the health *score* and the health *reason*; the three component parts that produce that score
 live at level 2. This was ratified at M7-5a and is worth re-deciding never.
+
+**Level 2 became a route at M9-2**, and the count of levels is why. The Details *sheet* held
+exactly this content in a modal; a company workspace shipped beside it would have been a fourth
+level and a second copy of the same fields. So the sheet's contents moved and the sheet's
+company path was deleted — `13-company-workspace.md` is the full argument. The sheet itself
+remains, for the create-company dialog, which is an interruption of a task rather than a place
+an operator goes.
 
 **Level 3 is fetched only when opened.** Drill-down is opt-in per §12.5; loading the audit
 payload eagerly makes it part of the default view in everything but appearance, and the network
@@ -90,13 +97,19 @@ answer and is styled as one.
 
 ## Live update without destroying work
 
-The surface repaints every 15 seconds. Two rules make that safe:
+The surface repaints every 15 seconds. Three rules make that safe:
 
 1. **Never replace a region the operator is editing.** If any approval payload field differs
    from its original value, or holds focus, the approvals region is skipped for that cycle. A
    repaint that deletes half-typed text in a request someone is about to authorise is a defect,
    not a refresh.
-2. **Never move what the operator is about to click.** Repaints replace content in place;
+2. **Never replace a region the operator is reading in depth.** A `<details>` the operator opened
+   — and, at level 3, waited on a fetch for — is destroyed by a repaint that replaces its
+   container: it snaps shut and its loaded content is gone. The company workspace holds its main
+   column while Full details is open (`13-company-workspace.md`). Added at M9-2, when level 2
+   moved onto the repaint cycle for the first time; the modal sheet never repainted, so this rule
+   had nowhere to be discovered before.
+3. **Never move what the operator is about to click.** Repaints replace content in place;
    layout does not reflow, values do not animate, and nothing enters above an existing control.
 
 ## Destructive and irreversible actions
