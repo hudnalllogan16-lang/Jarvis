@@ -86,9 +86,27 @@ class AutonomyPolicy(_Contract):
     """Consecutive clean approvals required before friction is reduced (spec §8).
     Explicit configuration, set at business creation — never defaulted silently."""
 
-    graduation_eligible: bool = True
-    """False for trade execution and any direct movement of real capital: those
-    MUST NOT be eligible for graduation in v1 (spec §8, hard constraint)."""
+    graduation_eligible: bool = False
+    """Whether this action may ever reduce to no-approval via §8's ladder.
+
+    **Opt-in, and the default is the whole point (M9-F115 → M9-F130).** It
+    defaulted to `True` until M9-G1a, so a type author who omitted the field got
+    a graduation-eligible action — while §8 requires approval by default with no
+    exception at launch, which is the opposite. That is design 9.5's "accidental
+    autonomy ratchet" in its subtlest form: not a bypass, a default nobody chose.
+
+    Flipping it costs one character of intent and fails safe in both directions:
+    a declaration that omits the field is now non-eligible, and a stored contract
+    that omits it deserializes as non-eligible rather than silently carrying a
+    privilege. Autonomy cannot increase by omission — every increase is now a
+    diff a human approved, which is exactly what the pinned inventory in
+    `tests/test_action_registry.py` asserts.
+
+    Still `False` for trade execution and any direct movement of real capital:
+    those MUST NOT be eligible for graduation in v1 (spec §8, hard constraint),
+    and `ApprovalService._advance_counter` guards that a second time on the
+    action's own amount so a misconfigured policy still cannot graduate money.
+    """
 
     @field_validator("graduation_threshold")
     @classmethod

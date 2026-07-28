@@ -23,6 +23,7 @@ from jarvis.businesses.definition import (
     read_installed_definition,
 )
 from jarvis.businesses.refresh import refreshed_contract
+from jarvis.domain.authority import AuthorityLevel, granted_entry, namespace_error
 from jarvis.domain.contract import BudgetPolicy, BusinessContract, WakeConditions
 from jarvis.domain.kpi import provisioned_kpi_targets
 from jarvis.domain.lifecycle import LifecycleState
@@ -71,7 +72,12 @@ class ProvisioningService:
         """Install a business type, refusing an internally inconsistent one.
 
         Raises:
-            ConfigurationError: If any permitted capability lacks a prompt
+            ConfigurationError: If any declared `action_type` lies outside the
+                type's own namespace or is registered above L2-tactical
+                (M9-F116 — see `_refuse_unauthorised_action_types`; checked
+                first, because it is the only one of these whose bypass is a
+                security event rather than a defect); if any permitted
+                capability lacks a prompt
                 template; if a `kpi_mappings` key names no
                 `default_kpi_targets` key (D-027.2 — a mapping with no target
                 writes an observation nothing reads); if `event_triggers`
@@ -89,6 +95,8 @@ class ProvisioningService:
                 cycle, or first refresh offer: the same defect surfaces either
                 way, but here it reaches a developer instead of an operator.
         """
+        self._refuse_unauthorised_action_types(definition)
+
         missing = definition.missing_templates()
         if missing:
             raise ConfigurationError(
@@ -138,6 +146,62 @@ class ProvisioningService:
             },
         )
         logger.info("business type installed", extra={"context": {"name": definition.name}})
+
+    @staticmethod
+    def _refuse_unauthorised_action_types(definition: BusinessTypeDefinition) -> None:
+        """Refuse a type that declares an action it may not declare (M9-F116, D-050 draft).
+
+        Two independent guards, in the order a bypass would have to defeat them.
+
+        **A-003's namespace rule, now enforced.** A-003 has said since M1 that an
+        action type is namespaced to the business *type*, and nothing checked it.
+        `AutonomyPolicy.action_type`'s pattern admits any dotted identifier, so a
+        business type could legally declare `platform.reallocate_capital` or
+        `platform.circuit_breaker` — and both would validate, install, and enter
+        `declared_action_types`.
+
+        It is contained today only by what does not exist yet: `platform_feed()`
+        filters on `business_id IS NULL`, so a company's rows cannot masquerade
+        as platform ones, and there is no platform-scoped approval path to
+        confuse. Design 8.1 builds exactly that path, and building it against an
+        unreserved namespace is how a plugin acquires a platform authority.
+
+        **Nothing above L2-tactical may be requested.** The second guard does not
+        depend on the first: even were the namespace comparison wrong, an action
+        the registry grants at L2-strategic or L3 is platform-owned, and a type
+        requesting one is asking to create policy, which Part 2 forbids
+        categorically. Defence in depth on the boundary that matters most —
+        plugins may *request* authority, they never *possess* it, and only
+        installation grants it (design 8.3).
+
+        Refused here rather than at first approval, for the reason every other
+        check in `install` is: the same defect surfaces either way, but here it
+        reaches a developer instead of an operator, and before any row exists.
+
+        Args:
+            definition: The type definition about to be installed.
+
+        Raises:
+            ConfigurationError: If any declared `action_type` is outside the
+                type's own namespace, or is registered above L2-tactical.
+        """
+        for policy in definition.autonomy_policies:
+            reason = namespace_error(policy.action_type, type_name=definition.name)
+            if reason is not None:
+                raise ConfigurationError(reason)
+
+            entry = granted_entry(policy.action_type)
+            if entry is not None and entry.level not in {
+                AuthorityLevel.L0,
+                AuthorityLevel.L1,
+                AuthorityLevel.L2_TACTICAL,
+            }:
+                raise ConfigurationError(
+                    f"business type {definition.name} declares {policy.action_type!r}, "
+                    f"which the Action Registry grants at {entry.level}: a type may not "
+                    f"request an authority above L2-tactical, because that is asking to "
+                    f"create policy (design 8.3, Part 2)."
+                )
 
     async def _refuse_unrefreshable_upgrade(self, definition: BusinessTypeDefinition) -> None:
         """Refuse ``definition`` if it would break an existing company's refresh (M8-F111).
