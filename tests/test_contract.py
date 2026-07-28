@@ -15,6 +15,7 @@ from jarvis.domain.contract import (
     KpiDirection,
     WakeConditions,
 )
+from jarvis.domain.provenance import Origin
 
 
 def test_unknown_action_type_requires_approval(contract: BusinessContract) -> None:
@@ -97,3 +98,31 @@ def test_a_stored_kpi_target_without_direction_still_loads_and_defaults_to_above
     loaded = BusinessContract.model_validate(payload)
 
     assert loaded.kpi_targets[0].direction is KpiDirection.ABOVE
+
+
+def test_a_stored_wake_conditions_without_provenance_still_loads_and_defaults_honestly_empty(
+    contract: BusinessContract,
+) -> None:
+    """M9-G1b: `provenance` (design EXECUTIVE-GOVERNANCE.md Part 3, D-048)
+    must be additive with a default, exactly like M7-F30's `direction` above
+    — the three live companies' stored contract JSON predates it entirely.
+
+    Built the same way: a hand-written pre-field payload, with no
+    `provenance` key at all, proving what a real stored row deserializes to
+    rather than what the Python default does for a caller who already knows
+    to omit the field.
+    """
+    payload = contract.model_dump()
+    pre_field_wake_conditions = {
+        "schedule_cron": "0 9 * * *",
+        "event_triggers": [],
+        "max_cycles_per_day": 48,
+    }
+    assert "provenance" not in pre_field_wake_conditions
+    payload["wake_conditions"] = pre_field_wake_conditions
+
+    loaded = BusinessContract.model_validate(payload)
+
+    assert loaded.wake_conditions.provenance.origin is Origin.PLATFORM_DEFAULT
+    assert loaded.wake_conditions.provenance.modified_by is None
+    assert loaded.wake_conditions.provenance.approved_by is None
