@@ -2016,3 +2016,16 @@ the aria gap; **M9-F101** measurement() implements fixed decimals, not its promi
 significant figures — 0.0005 renders "0"; fix to the contract. Gate rulings adopted:
 **M9-F27 grid-level pending-update indicator required before Phase 4** (in M9-2c);
 M9-F26/F88 during Phase 4; M9-F72 acceptable; copy passes last.
+
+## M9-F90 … M9-F94 — the Executive ticks (M9-1c merged); 1075 on main
+
+The deterministic Executive is LIVE-capable: its own 60s timer at the composition root
+(fourth Supervisor part, "Budget and health checks"), contained tick failure, no overlap;
+platform-ceiling 50/80 bands added (M9-F83 closed); five-tick scripted proof of band dedup +
+once-per-halt across fresh collaborators. Ratified proceed-and-flags: the 60s default and
+the launcher''s fourth part. Fixed in-lane: M9-F90 (stale band notice beside a halt),
+M9-F91 (has_unread signature). Noted for hygiene: M9-F92 (scheduler interval hardcoded),
+M9-F93 (runner loops first to get loop-level tests), M9-F94 (ledger "Retired" means
+a-function-calls-it, not something-runs — terminology note). M9-F80 stays open (no honest
+triggering_business supplier). Packet E (census/alerts surface + platform_feed reader) is
+unblocked but HELD until lane m9-2c merges — same surface hotspot.
