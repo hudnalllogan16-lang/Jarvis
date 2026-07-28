@@ -764,6 +764,169 @@ async def test_a_dismissed_notice_can_be_raised_again(
     assert len(notices) == 2
 
 
+# ── M9-F118's records: the round that started and failed ──────────────────
+
+
+async def _record_round(
+    kernel: PlatformKernel, company: BusinessId, outcome: str, summary: str = "It didn't finish."
+) -> None:
+    """Write one cycle's Decision Log entry the way the workflow does."""
+    await as_business(
+        company,
+        ManagerActivities(kernel).record_cycle_decision,
+        {
+            "business_id": company,
+            "cycle_id": "cyc_unfinished",
+            "summary": summary,
+            "rationale": "It stopped instead of pressing on.",
+            "outcome": outcome,
+            "spend_usd": "0",
+        },
+    )
+
+
+async def _notices(kernel: PlatformKernel) -> list[NotificationRow]:
+    """Every notification in the queue. Shared with D-035's section below, which
+    asks the same question of a different condition."""
+    async with kernel.services() as svc:
+        return list((await svc.session.scalars(select(NotificationRow))).all())
+
+
+async def _round_entries(kernel: PlatformKernel) -> list[DecisionLogRow]:
+    """Only the cycle entries: creating the company writes one of its own."""
+    async with kernel.services() as svc:
+        entries = (await svc.session.scalars(select(DecisionLogRow))).all()
+    return [entry for entry in entries if entry.action_type == "business.wake_cycle"]
+
+
+async def test_a_round_that_did_not_finish_reaches_the_operator_twice(
+    kernel: PlatformKernel, company: BusinessId
+) -> None:
+    """M9-F118, stated as the asymmetry it was found as.
+
+    `record_manager_park` above writes an entry *and* a notice for the round
+    that never started; this wrote only an entry for the round that started and
+    failed. So the quieter failure was the loud one, and on the morning all
+    three companies' rounds failed within seven seconds of each other the
+    operator-visible signal was nothing at all — not a failed notification, no
+    notification at all.
+    """
+    await _record_round(kernel, company, "failed")
+
+    entries = await _round_entries(kernel)
+    notices = await _notices(kernel)
+
+    assert len(entries) == 1
+    assert [n.kind for n in notices] == [NotificationKind.UNFINISHED_ROUND.value]
+    assert "Summit Trail Gear" in notices[0].title, "the notice names the company, not the platform"
+
+
+async def test_a_round_that_finished_says_nothing_in_the_queue(
+    kernel: PlatformKernel, company: BusinessId
+) -> None:
+    """The negative control, and the reason the copy table *is* the policy.
+
+    Every healthy outcome is absent from `UNFINISHED_ROUND_COPY`, so silence is
+    what a table lookup returns rather than what a second list has to remember.
+    A notice per completed round is the permanent accumulation §12.5 forbids,
+    and the activity feed is where a normal round is already recorded.
+    """
+    for outcome in ("completed", "nothing_to_do", "awaiting_approval"):
+        await _record_round(kernel, company, outcome, summary="It finished.")
+
+    assert len(await _round_entries(kernel)) == 3, "every round is still recorded in the feed"
+    assert await _notices(kernel) == []
+
+
+async def test_a_second_failed_round_does_not_queue_a_second_notice(
+    kernel: PlatformKernel, company: BusinessId
+) -> None:
+    """§12.5's "no permanent accumulation", against the condition that produces
+    the most of it.
+
+    A provider outage fails one round per company per wake for as long as it
+    lasts. The feed keeps every occurrence — that is the forensic record — and
+    the queue keeps one, because the operator's action is the same for all of
+    them.
+    """
+    for _ in range(3):
+        await _record_round(kernel, company, "failed")
+
+    assert len(await _round_entries(kernel)) == 3, "the feed keeps every occurrence"
+    assert len(await _notices(kernel)) == 1, "the queue keeps one"
+
+
+async def test_a_ceiling_stop_is_not_swallowed_by_an_unread_breakage(
+    kernel: PlatformKernel, company: BusinessId
+) -> None:
+    """Deduplicated per company *and* per condition (D-003 rule 5).
+
+    "It couldn't finish" sends an operator looking for a fault; "it stopped to
+    stay inside its spending limit" does not. A bare per-kind check would let
+    the first, still unread, swallow the second — the same information loss
+    `WAITING_ON_RESUME` exists to prevent, arriving through the deduplication
+    instead of through a shared kind, and closed the same way the spend bands
+    close it: the thing that differs is part of what is compared.
+    """
+    await _record_round(kernel, company, "failed")
+    await _record_round(kernel, company, "budget_exhausted")
+
+    notices = await _notices(kernel)
+    assert sorted(n.link_ref or "" for n in notices) == ["budget_exhausted", "failed"]
+    assert len({n.title for n in notices}) == 2, "two conditions, two sentences"
+
+
+async def test_a_company_that_cannot_be_named_still_gets_its_entry(
+    kernel: PlatformKernel,
+) -> None:
+    """The notice must never cost the record it was added beside.
+
+    The sentence names the company, and a name is a contract read — so a
+    company whose contract cannot be read would take the Decision Log entry
+    down with the transaction writing it. That inverts the two: §11.5's record
+    of what happened is the primary, and M9-F118's notice is the addition.
+    Pinned with an unknown company, which is the shape the failure would have.
+    """
+    unknown = BusinessId("biz_ffffffffffffffffffffffffffffffff")
+    await as_business(
+        unknown,
+        ManagerActivities(kernel).record_cycle_decision,
+        {
+            "business_id": unknown,
+            "cycle_id": "cyc_unnamed",
+            "summary": "It didn't finish.",
+            "rationale": "It stopped instead of pressing on.",
+            "outcome": "failed",
+            "spend_usd": "0",
+        },
+    )
+
+    assert len(await _round_entries(kernel)) == 1, "the entry survives an unnameable company"
+    assert await _notices(kernel) == []
+
+
+async def test_the_notice_does_not_share_a_kind_with_the_park(
+    kernel: PlatformKernel, company: BusinessId
+) -> None:
+    """Why `UNFINISHED_ROUND` is not `STUCK`, proved rather than argued.
+
+    A company meets both conditions inside one outage — the incident that
+    motivated this notice is three Managers failing against an unreachable
+    provider, which is exactly when a context read fails too. On a shared kind
+    the park's ref-less check would suppress whichever arrived second, and this
+    notice exists because a silence suppressed the first one.
+    """
+    activities = ManagerActivities(kernel)
+    await _record_round(kernel, company, "failed")
+    await as_business(company, activities.record_manager_park, {"business_id": company})
+
+    notices = await _notices(kernel)
+    assert sorted(n.kind for n in notices) == [
+        NotificationKind.STUCK.value,
+        NotificationKind.UNFINISHED_ROUND.value,
+    ]
+
+
 # ── M8-F87: the ordinal resets, so the bound binds every generation ────────
 
 
@@ -926,11 +1089,6 @@ async def _audited_drops(kernel: PlatformKernel) -> list[AuditLogRow]:
                 )
             ).all()
         )
-
-
-async def _notices(kernel: PlatformKernel) -> list[NotificationRow]:
-    async with kernel.services() as svc:
-        return list((await svc.session.scalars(select(NotificationRow))).all())
 
 
 async def test_a_dropped_reason_reaches_the_operator_twice(

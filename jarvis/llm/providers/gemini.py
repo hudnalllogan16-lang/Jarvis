@@ -8,8 +8,31 @@ import httpx
 
 from jarvis.kernel.config import LLMSettings
 from jarvis.kernel.errors import ProviderError
-from jarvis.llm.base import CompletionRequest, CompletionResponse, Role, StopReason, Usage
-from jarvis.llm.providers._http import post_json
+from jarvis.llm.base import (
+    CompletionRequest,
+    CompletionResponse,
+    ModelListing,
+    Role,
+    StopReason,
+    Usage,
+)
+from jarvis.llm.providers._http import get_json, post_json
+
+MODEL_PAGE_SIZE = 1000
+"""How many catalog entries one listing request asks for.
+
+Deliberately above this API's documented maximum page size: it clamps rather
+than refuses, so asking for more than can be returned is how one request gets
+the whole list wherever that ceiling happens to sit. `nextPageToken` is what
+decides whether it did."""
+
+MODEL_NAME_PREFIX = "models/"
+"""How this API namespaces a model in its catalog.
+
+The configured id is the bare name — it is what `generateContent` is addressed
+with below — so the prefix is stripped here rather than accommodated by the
+caller, which would put one vendor's naming convention into provider-agnostic
+code."""
 
 _STOP_REASONS: Final[dict[str, StopReason]] = {
     "STOP": StopReason.END_TURN,
@@ -82,6 +105,27 @@ class GeminiProvider:
             stop_reason=_STOP_REASONS.get(str(candidates[0].get("finishReason")), StopReason.OTHER),
             raw_stop_reason=candidates[0].get("finishReason"),
             model=self._settings.model,
+        )
+
+    async def list_models(self) -> ModelListing:
+        """Return the models this key may call (`ModelCatalog`).
+
+        Entries are namespaced (`models/<id>`) and the configured id is not, so
+        the prefix is stripped to whatever the caller would have to compare
+        against. A `nextPageToken` means the list is partial, which the caller
+        reads as "cannot tell" rather than as grounds to refuse a model.
+        """
+        body = await get_json(
+            self._client, "/models", provider=self.name, params={"pageSize": MODEL_PAGE_SIZE}
+        )
+        entries: list[dict[str, Any]] = body.get("models") or []
+        return ModelListing(
+            ids=tuple(
+                str(entry["name"]).removeprefix(MODEL_NAME_PREFIX)
+                for entry in entries
+                if entry.get("name")
+            ),
+            complete=not body.get("nextPageToken"),
         )
 
     async def aclose(self) -> None:

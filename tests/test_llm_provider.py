@@ -167,6 +167,85 @@ async def test_stop_reasons_normalise_across_vendors(
     assert response.stop_reason is expected
 
 
+@pytest.mark.parametrize(
+    ("provider_cls", "provider_name", "body"),
+    [
+        (
+            AnthropicProvider,
+            LLMProviderName.ANTHROPIC,
+            {"data": [{"id": "configured-model"}, {"id": "other-model"}], "has_more": False},
+        ),
+        (
+            OpenAICompatibleProvider,
+            LLMProviderName.OPENAI,
+            {"data": [{"id": "configured-model"}, {"id": "other-model"}]},
+        ),
+        (
+            GeminiProvider,
+            LLMProviderName.GEMINI,
+            {"models": [{"name": "models/configured-model"}, {"name": "models/other-model"}]},
+        ),
+    ],
+)
+async def test_model_catalogs_normalise_across_vendors(
+    provider_cls: type,
+    provider_name: LLMProviderName,
+    body: dict,
+) -> None:
+    """Three catalog shapes, one answer (the M9-F118 startup check).
+
+    `data[].id`, `data[].id` again, and `models[].name` carrying a prefix the
+    configured id does not — normalised in the transports, so the check that
+    reads them (`jarvis/llm/validation.py`) compares plain ids and knows no
+    vendor. Same reasoning `StopReason` gets above: a caller that had to strip
+    a prefix for one provider would be branching on the vendor, which is what
+    this layer exists to prevent.
+    """
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda _: httpx.Response(200, json=body)),
+        base_url="https://x",
+    )
+    listing = await provider_cls(_settings(provider_name), client).list_models()
+    assert listing.ids == ("configured-model", "other-model")
+    assert listing.complete is True
+
+
+@pytest.mark.parametrize(
+    ("provider_cls", "provider_name", "body"),
+    [
+        (
+            AnthropicProvider,
+            LLMProviderName.ANTHROPIC,
+            {"data": [{"id": "other-model"}], "has_more": True},
+        ),
+        (
+            GeminiProvider,
+            LLMProviderName.GEMINI,
+            {"models": [{"name": "models/other-model"}], "nextPageToken": "n"},
+        ),
+    ],
+)
+async def test_a_paged_catalog_says_so(
+    provider_cls: type,
+    provider_name: LLMProviderName,
+    body: dict,
+) -> None:
+    """The one vendor difference that must survive normalisation.
+
+    A partial list is the difference between "your model is not offered" and
+    "I only saw some of them", and the check refuses to reject a model on the
+    second. Asserted per vendor field — `has_more` and `nextPageToken` are what
+    carry it — because a transport that dropped either would hand the check a
+    confident wrong answer instead of an honest "cannot tell".
+    """
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda _: httpx.Response(200, json=body)),
+        base_url="https://x",
+    )
+    listing = await provider_cls(_settings(provider_name), client).list_models()
+    assert listing.complete is False
+
+
 async def test_raw_stop_reason_preserved_for_audit_only() -> None:
     """The vendor's own value survives for §11, separate from the normalised one."""
     body = {"content": [{"type": "text", "text": "x"}], "stop_reason": "end_turn"}

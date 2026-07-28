@@ -115,6 +115,52 @@ class CompletionResponse(BaseModel):
     (spec §12.5: the model is not an operator-facing concept)."""
 
 
+class ModelListing(BaseModel):
+    """What a provider says it will serve, and whether that is the whole list.
+
+    `complete` is the field that matters and the reason this is not a bare
+    tuple. Every catalog endpoint these transports read is paginated, so a
+    single page is evidence that a model *is* offered and never evidence that
+    one is not — and the caller acting on this (`jarvis/llm/validation.py`) can
+    refuse to start a worker. A partial list must therefore be able to say so,
+    or the first provider to grow past one page turns a configured, working
+    model into a refusal nobody can explain.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    ids: tuple[str, ...] = ()
+    complete: bool = False
+
+
+@runtime_checkable
+class ModelCatalog(Protocol):
+    """A provider that can say which models it offers.
+
+    Separate from `LLMProvider` on purpose. That protocol is the surface
+    *business logic* depends on, and nothing in business logic may ask which
+    models exist — the model is configuration (A-005), and a Manager that could
+    enumerate models could choose one. This is a startup and diagnostics
+    surface, so it is a second, narrower protocol that the composition root
+    checks for with `isinstance` and every other layer ignores.
+
+    A transport that does not implement it is not a defect: the answer is then
+    the one an unreachable catalog gives, a warning rather than a refusal.
+    """
+
+    async def list_models(self) -> ModelListing:
+        """Return the models this provider currently offers.
+
+        Returns:
+            The listing, with `complete` False when the provider signalled more
+            pages than were read.
+
+        Raises:
+            ProviderError: On any transport, auth, or protocol failure.
+        """
+        ...
+
+
 @runtime_checkable
 class LLMProvider(Protocol):
     """The only LLM surface business logic may depend on.

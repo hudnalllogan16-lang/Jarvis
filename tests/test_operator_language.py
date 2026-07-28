@@ -242,6 +242,48 @@ def test_the_park_notification_body_adds_to_its_title() -> None:
     assert MANAGER_PARKED_BODY.endswith(".")
 
 
+def _unfinished_round_copy() -> list[tuple[str, str, str]]:
+    """Every (outcome, title, body) M9-F118's notice can produce."""
+    from jarvis.manager.activities import UNFINISHED_ROUND_COPY
+
+    return [(outcome, copy.title, copy.body) for outcome, copy in UNFINISHED_ROUND_COPY.items()]
+
+
+@pytest.mark.parametrize(("outcome", "title", "body"), _unfinished_round_copy())
+def test_the_unfinished_round_notices_are_written_for_the_operator(
+    outcome: str, title: str, body: str
+) -> None:
+    """§12.5 for M9-F118's notice, across every way a round can fail to finish.
+
+    Parametrized over the table for the reason D-035's is: the failure mode is
+    a row added later in the wrong register, and this table's keys are outcome
+    values an operator never sees — one of them is `budget_exhausted`, which is
+    a system state rather than anything that happened to a company.
+    """
+    rendered_title = title.format(name="Affiliate Co")
+    assert not contains_technical_language(rendered_title), outcome
+    assert not contains_technical_language(body), outcome
+    assert rendered_title[0].isupper()
+    assert body.endswith(".")
+    assert rendered_title not in body, "a body that restates its title says nothing new"
+
+
+def test_no_unfinished_round_notice_echoes_its_own_key() -> None:
+    """The keys are `CycleOutcome` values, and every one of them is internal.
+
+    A row whose sentence contained "budget exhausted" would be naming the
+    platform's state rather than the company's situation — the same leak the
+    dotted keys of `DROPPED_WAKE_COPY` are checked for below.
+    """
+    from jarvis.manager.activities import UNFINISHED_ROUND_COPY
+
+    assert UNFINISHED_ROUND_COPY, "an empty table would make this vacuous"
+    for outcome, copy in UNFINISHED_ROUND_COPY.items():
+        spelled = outcome.replace("_", " ")
+        assert spelled not in copy.title.lower(), outcome
+        assert spelled not in copy.body.lower(), outcome
+
+
 def _dropped_wake_copy() -> list[tuple[str, str, str]]:
     """Every (kind, title, body) D-035's notice can produce, including the default."""
     from jarvis.manager.activities import DROPPED_WAKE_COPY, DROPPED_WAKE_DEFAULT

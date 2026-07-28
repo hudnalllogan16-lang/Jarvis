@@ -221,6 +221,24 @@ class KpiEngine:
             .where(DeadLetterRow.resolved.is_(False))
         )
         stuck_count = int(stuck or 0)
+        # **This number is blind to a failed round, and knowingly so (M9-F118).**
+        # It counts unresolved dead letters, which are what a *dispatched* piece
+        # of work leaves behind when it gives up. A round that fails before
+        # dispatch — planning refused, the provider unreachable, a ceiling
+        # reached — dispatches nothing, so it leaves nothing here: on the
+        # morning all three companies failed their rounds within seven seconds
+        # of each other, every one of them read 100.
+        #
+        # Deliberately not fixed here. Widening the input changes what the
+        # published series *means* for every company that already has one, and
+        # a health band that moves without its definition moving is the M8-F90
+        # problem at platform scale. M9-7 makes the failure loud where an
+        # operator actually reads it (the notice in
+        # `jarvis.manager.activities.record_cycle_decision`); the metric's
+        # semantics join the M10 pass with M7-F60, which is already the packet
+        # for "what does a result being *useful* mean". Until then the honest
+        # reading of this figure is "nothing it started was abandoned", not
+        # "this company is working".
         reliability = max(0, 100 - stuck_count * 20)
 
         attainment = await self.attainment(contract)

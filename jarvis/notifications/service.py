@@ -31,6 +31,28 @@ class NotificationKind(StrEnum):
     PAUSED = "paused"
     SPENDING = "spending"
     GRADUATED = "graduated"
+    UNFINISHED_ROUND = "unfinished_round"
+    """A company's round of work ended without finishing (M9-F118).
+
+    Its own kind rather than `STUCK`, which is the obvious reuse and is wrong
+    for the same structural reason `WAITING_ON_RESUME` is not `PAUSED`. `STUCK`
+    is what D-034.1's park raises — "this company cannot read its own setup" —
+    and it is deduplicated per company with no ref at all. An unfinished round
+    is a different condition with a different sentence, and one company can
+    meet both inside one outage: the incident this closes (M9-F118) is three
+    Managers failing their rounds against an unreachable provider, which is
+    exactly the situation in which a context read fails too. Sharing the kind
+    would let whichever notice arrived first swallow the other under
+    :meth:`has_unread` — and this notice exists because a silence swallowed the
+    first one.
+
+    Deduplicated per company *and* per condition, the ref being the outcome
+    that raised it, because "it couldn't finish" and "it stopped to stay inside
+    its spending limit" are different facts that lead an operator to different
+    actions (D-003 rule 5). That reuses the spend-band mechanism (M9-F83)
+    rather than minting a kind per variant: the thing that differs is part of
+    what is compared."""
+
     WAITING_ON_RESUME = "waiting_on_resume"
     """Something arrived for a paused company and was dropped (D-035).
 

@@ -36,7 +36,7 @@ from jarvis.domain.contract import BusinessContract, CapabilityPermission, Capab
 from jarvis.domain.kpi import KpiMapping, KpiObservationScope, KpiSource
 from jarvis.domain.lifecycle import accepts_dispatch
 from jarvis.kernel.container import KernelServices, PlatformKernel
-from jarvis.kernel.errors import ScopeViolationError
+from jarvis.kernel.errors import RegistryError, ScopeViolationError
 from jarvis.kernel.ids import (
     BusinessId,
     InvocationId,
@@ -49,7 +49,7 @@ from jarvis.kernel.ids import (
 from jarvis.kernel.logging import get_logger
 from jarvis.kernel.runtime import RuntimeIdentity
 from jarvis.llm.base import CompletionRequest, Message, Role
-from jarvis.manager.state import KpiTargetState, PlanItem, TacticalPlan
+from jarvis.manager.state import CycleOutcome, KpiTargetState, PlanItem, TacticalPlan
 from jarvis.manager.types import (
     CycleContext,
     CycleKpiRequest,
@@ -221,6 +221,65 @@ park's (§11 is the forensic record, §12.5's queue is what the operator has to
 read), and the reason it matters here is that the notice deliberately does not
 accumulate — so the record of *how many* things a pause has dropped has to live
 somewhere that does."""
+
+
+class CycleNoticeCopy(NamedTuple):
+    """The two sentences one unfinished round produces (M9-F118)."""
+
+    title: str
+    body: str
+
+
+UNFINISHED_ROUND_COPY: dict[str, CycleNoticeCopy] = {
+    CycleOutcome.FAILED.value: CycleNoticeCopy(
+        title="{name} couldn't finish its last round of work",
+        body=(
+            "Something it needed didn't answer, so it stopped rather than "
+            "press on with half an answer. It will try again on its next "
+            "scheduled round, and nothing it had already done is lost."
+        ),
+    ),
+    CycleOutcome.BUDGET_EXHAUSTED.value: CycleNoticeCopy(
+        title="{name} reached its spending limit for one round of work",
+        body=(
+            "It had used the amount set aside for a single round, so it "
+            "stopped instead of spending past the limit you set. Its next "
+            "scheduled round starts with a fresh allowance."
+        ),
+    ),
+}
+"""Spec §12.5 for the notice a cycle that did not finish raises, keyed by how
+it ended — and, by being keyed that way, the whole of the policy for *which*
+outcomes tell the operator anything at all.
+
+The gap this closes is structural rather than a bug in a notification. Until
+M9-7 `record_cycle_decision` wrote a Decision Log entry and stopped there,
+while `record_manager_park` — the sibling below, for the *other* way a round
+fails to happen — wrote an entry *and* raised a notice. So a Manager that could
+not read its context reached the operator without their looking, and a Manager
+whose round failed outright did not. M9-F118 is that asymmetry observed live:
+all three companies' rounds failed within seven seconds of each other against a
+provider returning 404, every containment behaved exactly as designed, and the
+operator-visible signal was nothing at all.
+
+Two entries, not one, because D-003 rule 5 already insists these are different
+facts everywhere else in the platform: a round that broke sends an operator
+looking for a fault, a round that stopped on its ceiling does not. The
+workflow's own `CEILING_STOP_*` and `CYCLE_FAILED_*` templates make the same
+split for the feed; this makes it for the queue. Every other outcome —
+completed, nothing to do, awaiting approval — is absent, which is what makes
+absence the answer: a round that ended normally is what the activity feed is
+for, and a notice per healthy round is the permanent accumulation §12.5
+forbids.
+
+Authored here rather than beside the branch in `jarvis/manager/workflow.py`,
+where the feed's own sentences live, for the reason the park's records are: the
+sentence names the company, and composing it needs the display name off the
+contract. The workflow decides *that* a round ended the way it did — it is
+already the thing that chooses the outcome — and this decides what that means
+in the operator's language. Keyed on `CycleOutcome` values rather than on free
+strings so the two sides cannot drift into a table lookup that silently misses:
+an outcome with no row here is silent by construction, never by typo."""
 
 DERIVED_CYCLE_KEY = re.compile(r"cyc_[0-9a-f]{32}_\d{1,9}")
 """The shape a workflow-derived cycle key has (D-034.2, `_cycle_key`).
@@ -1159,33 +1218,134 @@ class ManagerActivities:
             return {"reason_kind": reason_kind, "notified": str(notified).lower()}
 
     @activity.defn(name="record_cycle_decision")
-    async def record_cycle_decision(self, payload: dict[str, str]) -> str:
-        """Write the cycle's Decision Log entry (spec §2.1, §11.5).
+    async def record_cycle_decision(self, payload: dict[str, str]) -> dict[str, str]:
+        """Write the cycle's Decision Log entry, and say so when it went wrong.
+
+        Spec §2.1 and §11.5 for the entry; M9-F118 for the notice.
 
         Reads `cycle_id` defensively: a history captured before D-021 carries a
         payload without it, and replaying that history must write an entry rather
         than raise a `KeyError` inside an activity.
+
+        **The notice is the asymmetry M9-F118 found.** `record_manager_park`
+        above writes both records for the round that never started; this wrote
+        only the entry for the round that started and failed — so the loudest
+        thing a Manager can do was reserved for the quieter failure. A cycle
+        that ends `FAILED` or `BUDGET_EXHAUSTED` now reaches the operator
+        without their having to look, in the same shape the park's does:
+        `UNFINISHED_ROUND_COPY` above holds the sentences, the audit-facing
+        record stays the Decision Log entry, and the queue gets one notice.
+
+        Read off the *recorded outcome*, which the payload has carried since
+        this activity existed, so the workflow issues exactly the commands it
+        issued before — nothing on the cycle path changes shape, no history
+        replays differently, and a Manager already parked on its wake timer
+        gains the notice on its next real failure rather than at its next
+        continuation (D-033's own rule: versioning is for a *changed command*,
+        and there is none here).
+
+        Deduplicated per company and per outcome (`link_ref`), for the reason
+        the park's dedup exists — §12.5 forbids permanent accumulation, and a
+        provider outage produces one failed round per company per wake for as
+        long as it lasts — while still letting a ceiling stop be reported over
+        an unread breakage notice, because they are different facts.
+
+        Returns:
+            The decision id, and whether an operator was notified — recorded,
+            like the park's, so the activity's result says which records this
+            cycle actually produced.
         """
         identity = RuntimeIdentity.from_activity()
         # No contract, credential, or effect here — but the Decision Log is what
         # an owner reads to know what their company did, and one company's
         # account of its day is not another's to write (§10, §11.5).
         await self._assert_identity(identity, payload["business_id"], reached="decision record")
+        business_id = BusinessId(payload["business_id"])
+        outcome = payload["outcome"]
         async with self._kernel.services() as svc:
             decision_id = new_decision_id()
             await svc.decisions.record(
                 decision_id=decision_id,
-                business_id=BusinessId(payload["business_id"]),
+                business_id=business_id,
                 summary=payload["summary"],
                 rationale=payload["rationale"],
                 cycle_id=payload.get("cycle_id") or None,
                 action_type="business.wake_cycle",
                 inputs_considered={
-                    "outcome": payload["outcome"],
+                    "outcome": outcome,
                     "spend_usd": payload["spend_usd"],
                 },
             )
-            return decision_id
+            notified = await self._notify_unfinished_round(svc, business_id, outcome)
+            return {"decision_id": decision_id, "notified": str(notified).lower()}
+
+    async def _notify_unfinished_round(
+        self, services: KernelServices, business_id: BusinessId, outcome: str
+    ) -> bool:
+        """Raise the operator notice for a round that did not finish (M9-F118).
+
+        Returns False without touching the database for every outcome
+        `UNFINISHED_ROUND_COPY` has no sentence for, which is every healthy one.
+        That ordering is deliberate rather than incidental: a completed round is
+        the common case by a wide margin, and it must not pay for a contract
+        read and a notification query to be told it has nothing to say.
+
+        **The entry is never lost to the notice.** The sentence needs the
+        company's display name, and a name is a contract read — so a company
+        whose contract cannot be read would, without the guard below, take the
+        Decision Log entry down with the transaction that was writing it. That
+        inverts the two: the entry is §11.5's record of what happened, the
+        notice is the addition M9-F118 asks for, and losing the primary to
+        serve the secondary is not a trade this path may make.
+
+        Args:
+            services: The transaction the Decision Log entry was written in, so
+                the entry and the notice commit together or not at all.
+            business_id: Whose round it was — derived, already checked.
+            outcome: The `CycleOutcome` value the workflow recorded.
+
+        Returns:
+            Whether a notification was written.
+        """
+        copy = UNFINISHED_ROUND_COPY.get(outcome)
+        if copy is None:
+            return False
+
+        notifications = NotificationService(services.session)
+        if await notifications.has_unread(
+            business_id, kind=NotificationKind.UNFINISHED_ROUND, link_ref=outcome
+        ):
+            logger.warning(
+                "a round did not finish; the operator already has an unread notice",
+                extra={"context": {"business_id": business_id, "outcome": outcome}},
+            )
+            return False
+
+        try:
+            contract = await services.registry.get_contract(business_id)
+        except RegistryError:
+            logger.warning(
+                "a round did not finish and could not be named for the operator",
+                extra={"context": {"business_id": business_id, "outcome": outcome}},
+            )
+            return False
+        await notifications.notify(
+            notification_id=new_notification_id(),
+            kind=NotificationKind.UNFINISHED_ROUND,
+            title=copy.title.format(name=contract.display_name),
+            body=copy.body,
+            business_id=business_id,
+            # The condition, not the cycle. A per-cycle ref would make every
+            # round its own variant and defeat the deduplication entirely —
+            # ninety-six notices a day for one outage, which is exactly the
+            # accumulation §12.5 forbids.
+            link_ref=outcome,
+        )
+        logger.warning(
+            "a round did not finish; the operator was told",
+            extra={"context": {"business_id": business_id, "outcome": outcome}},
+        )
+        return True
 
     # ── internals ──────────────────────────────────────────────────────────
 
