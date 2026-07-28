@@ -14,8 +14,15 @@ import httpx
 
 from jarvis.kernel.config import LOCAL_PROVIDERS, LLMSettings
 from jarvis.kernel.errors import ProviderError
-from jarvis.llm.base import CompletionRequest, CompletionResponse, Role, StopReason, Usage
-from jarvis.llm.providers._http import post_json
+from jarvis.llm.base import (
+    CompletionRequest,
+    CompletionResponse,
+    ModelListing,
+    Role,
+    StopReason,
+    Usage,
+)
+from jarvis.llm.providers._http import get_json, post_json
 
 _STOP_REASONS: Final[dict[str, StopReason]] = {
     "stop": StopReason.END_TURN,
@@ -86,6 +93,27 @@ class OpenAICompatibleProvider:
             stop_reason=_STOP_REASONS.get(str(first.get("finish_reason")), StopReason.OTHER),
             raw_stop_reason=first.get("finish_reason"),
             model=str(body.get("model", self._settings.model)),
+        )
+
+    async def list_models(self) -> ModelListing:
+        """Return the models this endpoint offers (`ModelCatalog`).
+
+        The `/models` half of the same contract the five vendors share, so one
+        implementation covers all of them — including the two local ones, where
+        it answers the question that matters most in practice: whether the model
+        the operator configured has actually been pulled onto this machine.
+
+        Reported complete because this contract returns the whole list in one
+        response and carries no continuation field. A vendor that grows one
+        would make that untrue silently, which is the risk `complete` exists to
+        carry — so if a listing here is ever seen truncated, this is the line
+        that is wrong, not the caller.
+        """
+        body = await get_json(self._client, "/models", provider=self.name)
+        entries: list[dict[str, Any]] = body.get("data") or []
+        return ModelListing(
+            ids=tuple(str(entry["id"]) for entry in entries if entry.get("id")),
+            complete=True,
         )
 
     async def aclose(self) -> None:

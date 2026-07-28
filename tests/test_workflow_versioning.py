@@ -84,6 +84,9 @@ TODAY = 739_900
 
 WORKFLOW_SOURCE = pathlib.Path("jarvis/manager/workflow.py").read_text(encoding="utf-8")
 WORKFLOW_TREE = ast.parse(WORKFLOW_SOURCE)
+ACTIVITIES_SOURCE = pathlib.Path("jarvis/manager/activities.py").read_text(encoding="utf-8")
+"""The other side of the boundary. Read here because M9-7's change is entirely
+on it — which is the whole of the argument that it needs no version gate."""
 
 FIXTURES = pathlib.Path(__file__).parent / "fixtures"
 HISTORIES = {
@@ -321,6 +324,25 @@ def _completions(name: str, activity: str) -> list[dict[str, Any]]:
     return out
 
 
+def _inputs(name: str, activity: str) -> list[dict[str, Any]]:
+    """Return every payload ``activity`` was *given* in one captured history.
+
+    The mirror of `_completions` above, and the side that matters for a change
+    which reads an existing field rather than adding a command: what a fresh
+    worker would send has to be compared against what these histories recorded
+    being sent.
+    """
+    out: list[dict[str, Any]] = []
+    for event in _events(name):
+        if _activity_name(event) != activity:
+            continue
+        attrs = event["activityTaskScheduledEventAttributes"]
+        decoded = json.loads(base64.b64decode(attrs["input"]["payloads"][0]["data"]).decode())
+        assert isinstance(decoded, dict)
+        out.append(decoded)
+    return out
+
+
 def _activity_name(event: dict[str, Any]) -> str:
     attrs = event.get("activityTaskScheduledEventAttributes")
     if not isinstance(attrs, dict):
@@ -455,6 +477,114 @@ def test_no_captured_history_ever_continued_as_new(name: str) -> None:
     assert "workflow.continue_as_new(state.continued())" in WORKFLOW_SOURCE, (
         "the ordinal resets where the generation does"
     )
+
+
+# ── M9-7: the failed round now notifies, and why that is not a boundary ────
+
+
+def test_a_captured_history_does_hold_a_failed_cycle() -> None:
+    """Read off the record, because the packet's premise said otherwise.
+
+    M9-7 was dispatched believing neither fixture held a `FAILED` cycle and
+    asked for that to be verified. It is false: the Finance history's first
+    recorded round is `outcome: failed` — the M7-F20 credential failure, whose
+    exhausted `plan_cycle` is already pinned above — so `_end_in_failure` is
+    not a branch that only fresh executions reach. It is a branch a captured,
+    replayed history takes.
+
+    That makes the "no new command" claim below load-bearing rather than
+    convenient: if M9-7 had put one more `execute_activity` on this path, this
+    fixture is what would have caught it.
+    """
+    outcomes = [payload["outcome"] for payload in _inputs("finance", "record_cycle_decision")]
+    assert "failed" in outcomes
+    assert "failed" not in [
+        payload["outcome"] for payload in _inputs("affiliate", "record_cycle_decision")
+    ], "one history on each side of the branch, so neither claim is about a single shape"
+
+
+@pytest.mark.parametrize("name", sorted(HISTORIES))
+def test_the_unfinished_round_notice_reads_a_field_these_histories_already_sent(
+    name: str,
+) -> None:
+    """Why M9-F118's notice needs no version gate (D-033's own rule).
+
+    The notice is raised *inside* `record_cycle_decision`, off the `outcome`
+    the payload has carried since the activity existed — asserted here per
+    fixture rather than assumed. So the workflow issues exactly the commands it
+    issued before: same activity, same call site, same arguments. There is no
+    changed command for a `PATCH_*` id to gate, and a patch that guards nothing
+    is the failure this file exists to prevent.
+
+    The recorded-result side holds too, and in the direction that matters. A
+    replayed history does not re-run its activities, so no captured round
+    raises a notice on replay — an operator is not told today about a round
+    that failed in June. A *running* Manager, though, gains the notice on its
+    next real failure rather than at its next continuation, which is the point:
+    the three live Managers that were silent on the morning of M9-F118 are the
+    ones this has to reach.
+    """
+    payloads = _inputs(name, "record_cycle_decision")
+    assert payloads, "a history with no decision entries would make this vacuous"
+    for payload in payloads:
+        assert "outcome" in payload
+    assert 'payload["outcome"]' in ACTIVITIES_SOURCE, (
+        "the notice is chosen from the recorded outcome, not from a new field"
+    )
+
+
+def test_the_decision_record_s_result_is_not_read() -> None:
+    """Why the activity may now return a pair instead of an id (spec §11).
+
+    `record_cycle_decision` returns what the park's does — the decision id and
+    whether an operator was told — where it used to return a bare string. Every
+    captured history holds the old shape, and a replay hands the recorded
+    result straight back to the workflow. That is safe for exactly one reason,
+    pinned here: the call site discards it. A workflow that parsed this result
+    would be reading a string where it now expects a mapping, on the histories
+    of the three Managers this change exists for.
+    """
+    record = next(
+        node
+        for node in ast.walk(WORKFLOW_TREE)
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == "_record"
+    )
+    scheduled = [
+        node
+        for node in ast.walk(record)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "execute_activity"
+    ]
+    assert len(scheduled) == 1, "one command, the one this helper exists to issue"
+    assert not [node for node in ast.walk(record) if isinstance(node, ast.Assign | ast.Return)], (
+        "the recorded result is discarded, which is what makes its shape free to change"
+    )
+
+
+def test_the_failed_round_path_issues_no_command_of_its_own() -> None:
+    """The structural half of the claim above, on the source rather than a history.
+
+    `_end_in_failure` records through `_record`, the same helper every healthy
+    outcome uses, and takes no `workflow.patched` decision of its own. Pinned
+    because the tempting version of this change — a second activity beside the
+    entry, or a version gate around it — is exactly what would have split one
+    cohort of histories in two, and the Finance fixture above proves there is a
+    cohort here to split.
+    """
+    failure_path = next(
+        node
+        for node in ast.walk(WORKFLOW_TREE)
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == "_end_in_failure"
+    )
+    calls = [
+        node.func.attr
+        for node in ast.walk(failure_path)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+    ]
+    assert "execute_activity" not in calls
+    assert "patched" not in calls
+    assert "_record" in calls
 
 
 def test_the_two_fixtures_straddle_d_021_s_own_hinge() -> None:

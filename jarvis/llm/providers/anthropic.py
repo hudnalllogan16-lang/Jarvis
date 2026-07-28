@@ -12,10 +12,18 @@ import httpx
 
 from jarvis.kernel.config import LLMSettings
 from jarvis.kernel.errors import ProviderError
-from jarvis.llm.base import CompletionRequest, CompletionResponse, StopReason, Usage
-from jarvis.llm.providers._http import post_json
+from jarvis.llm.base import CompletionRequest, CompletionResponse, ModelListing, StopReason, Usage
+from jarvis.llm.providers._http import get_json, post_json
 
 ANTHROPIC_VERSION = "2023-06-01"
+
+MODEL_PAGE_LIMIT = 1000
+"""How many catalog entries one listing request asks for.
+
+The endpoint's documented maximum, so the ordinary case is one page and a
+complete list. It is a ceiling rather than a promise: `has_more` decides
+whether the list this returns is complete, and the caller refuses to reject a
+model on an incomplete one."""
 
 
 _STOP_REASONS: Final[dict[str, StopReason]] = {
@@ -82,6 +90,26 @@ class AnthropicProvider:
             stop_reason=_STOP_REASONS.get(str(body.get("stop_reason")), StopReason.OTHER),
             raw_stop_reason=body.get("stop_reason"),
             model=str(body.get("model", self._settings.model)),
+        )
+
+    async def list_models(self) -> ModelListing:
+        """Return the models this account may call (`ModelCatalog`).
+
+        Read at worker startup so a configured model that this provider does
+        not serve is refused before any company tries to think with it
+        (M9-F118). One page, asked for at the endpoint's maximum, and the
+        provider's own `has_more` is carried through rather than paged after:
+        the caller treats an incomplete list as "cannot tell", so a second
+        request would buy a stronger claim than the check is allowed to make
+        anyway.
+        """
+        body = await get_json(
+            self._client, "/v1/models", provider=self.name, params={"limit": MODEL_PAGE_LIMIT}
+        )
+        entries: list[dict[str, Any]] = body.get("data") or []
+        return ModelListing(
+            ids=tuple(str(entry["id"]) for entry in entries if entry.get("id")),
+            complete=not body.get("has_more", False),
         )
 
     async def aclose(self) -> None:

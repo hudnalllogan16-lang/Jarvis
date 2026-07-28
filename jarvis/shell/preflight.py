@@ -154,7 +154,16 @@ async def check_temporal(kernel: PlatformKernel) -> ComponentHealth:
 
 
 def check_llm(kernel: PlatformKernel) -> ComponentHealth:
-    """Check LLM configuration without spending a token."""
+    """Check LLM configuration without spending a token, or leaving the process.
+
+    Shape only: is there a key, is a model named. Whether the named model is one
+    the provider actually serves is M9-F118's question and is deliberately *not*
+    asked here — this function runs on every `/api/health` poll, and a live
+    catalog read per poll would put an outbound request behind the one surface
+    an operator watches while the provider is down. That check belongs to
+    startup, runs once, and lives in `jarvis/llm/validation.py`; the worker
+    (`jarvis/runtime/worker.py`) is what acts on its verdict.
+    """
     try:
         kernel.settings.llm.require_api_key()
     except Exception as exc:

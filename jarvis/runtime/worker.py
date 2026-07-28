@@ -24,7 +24,9 @@ from temporalio.worker import Worker
 from jarvis.executive.runner import run_executive_tick
 from jarvis.kernel.config import Settings
 from jarvis.kernel.container import PlatformKernel
+from jarvis.kernel.errors import ConfigurationError
 from jarvis.kernel.logging import get_logger
+from jarvis.llm.validation import ModelVerdict, verify_configured_model
 from jarvis.manager.activities import all_manager_activities
 from jarvis.manager.workflow import BusinessManagerWorkflow
 from jarvis.runtime.activities import all_activities
@@ -36,10 +38,46 @@ logger = get_logger(__name__)
 async def run_worker(kernel: PlatformKernel) -> None:
     """Run the Jarvis worker until cancelled.
 
+    Refuses to start against a model the configured provider does not offer
+    (M9-F118). The verdict is `jarvis/llm/validation.py`'s; what a verdict does
+    to startup is decided here, because that is a fact about this topology
+    rather than about the provider — this process is the one that runs
+    companies, and a company that cannot think cannot do anything else either.
+
+    **A rejection stops this part and nothing else.** Under the launcher the
+    worker is a supervised part (`jarvis/shell/supervisor.py`): raising here
+    shows the operator "Company runner — restarting" with a crash count in the
+    health banner, logs the reason once per attempt at a backoff that caps at a
+    minute, and leaves the dashboard, the activity feed and the approvals queue
+    serving throughout. That is the loud-but-contained failure the incident
+    asked for — the silent alternative is what M9-F118 was.
+
+    An unverifiable model is a warning and the worker starts. A provider that
+    is down is exactly when an operator most needs the read surfaces, and
+    refusing to run companies because a *catalog* could not be read would
+    manufacture an outage out of a failed diagnostic.
+
     Args:
         kernel: Initialised Platform Kernel.
+
+    Raises:
+        ConfigurationError: If the provider's own list says it does not serve
+            the configured model.
     """
     settings = kernel.settings
+    check = await verify_configured_model(kernel.llm, settings.llm.model)
+    if check.verdict is ModelVerdict.REJECTED:
+        logger.error(
+            "refusing to start: the configured model is not one this provider offers",
+            extra={"context": {"provider": settings.llm.provider.value, "detail": check.detail}},
+        )
+        raise ConfigurationError(check.detail, operator_message=check.summary)
+    if check.verdict is ModelVerdict.UNVERIFIED:
+        logger.warning(
+            "could not confirm the configured model; starting anyway",
+            extra={"context": {"provider": settings.llm.provider.value, "detail": check.detail}},
+        )
+
     # Every payload crossing the workflow/activity boundary is a pydantic model
     # (jarvis/manager/types.py). Temporal's default converter cannot encode one —
     # it fails on the first Decimal field — so a worker on the default converter
