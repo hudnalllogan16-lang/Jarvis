@@ -29,14 +29,31 @@ FORBIDDEN_ROOTS = frozenset({"llm", "manager", "capabilities"})
 package that spends money on a model call (design Part 1)."""
 
 ALLOWED_ROOTS = frozenset(
-    {"registry", "budget", "kpi", "observability", "notifications", "kernel", "domain"}
+    {
+        "registry",
+        "budget",
+        "kpi",
+        "observability",
+        "notifications",
+        "kernel",
+        "domain",
+        "executive",
+    }
 )
 """D-038's five, plus `kernel` and `domain` — the milestone-1 primitives (typed
 ids, errors, the Standard Business Contract, the lifecycle enum) that every one
 of the five permitted packages already depends on themselves. Excluding them
 here would not narrow what the Executive can reach — `registry.get_contract`
 already returns a `BusinessContract` on every permitted call — it would only
-make this package's own function signatures untyped."""
+make this package's own function signatures untyped.
+
+Plus `executive` itself, from M9-1b: `alerts.py` reads `PortfolioRollup` off
+`rollup.py` rather than aggregating the same ledger rows a second time (design
+Part 12's sequencing note, "A before C"). D-038's rule is about which *other*
+packages the deterministic Executive may reach, so a module of this package
+importing its sibling crosses no boundary — and the alternative, a relative
+import, would pass this scan by being invisible to it rather than by being
+permitted, which is a worse property for a boundary test to have."""
 
 
 def _imported_roots(source: str) -> set[str]:
@@ -130,11 +147,13 @@ def test_a_permitted_import_is_not_flagged() -> None:
     synthetic = """
 from jarvis.registry.registry import BusinessRegistry
 from jarvis.budget.ledger import BudgetLedger
+from jarvis.budget.breaker import CircuitBreaker
 from jarvis.kpi.engine import KpiEngine
 from jarvis.observability.decision_log import DecisionLog
 from jarvis.notifications.service import NotificationService
 from jarvis.kernel.ids import BusinessId
 from jarvis.domain.lifecycle import LifecycleState
+from jarvis.executive.rollup import PortfolioRollup
 """
     found = _imported_roots(synthetic)
     assert found & FORBIDDEN_ROOTS == set()
