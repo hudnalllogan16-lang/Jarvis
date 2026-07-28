@@ -267,6 +267,35 @@ PARAMETER_ENTRIES: tuple[ParameterEntry, ...] = (
             "flow establishes one, which is why this is not APPROVED_CONFIG today."
         ),
     ),
+    # ── ANNOUNCING — scheduler correctness (design OPERATIONAL-RUNTIME.md Part
+    #    4.6/5.4, M9-F92/M10-F5/M10-F9, packet P0-E) ──
+    ParameterEntry(
+        name="settings.scheduler.sweep_interval_seconds",
+        param_class=ParameterClass.ANNOUNCING,
+        origin=Origin.APPROVED_CONFIG,
+        current_source="approved config (Settings; owner-adjustable)",
+        location="jarvis.kernel.config:SchedulerSettings.sweep_interval_seconds",
+        note=(
+            "Known since M9 (M9-F92) as a bare default on run_scheduler's own "
+            "signature; now read from Settings exactly as "
+            "executive.tick_interval_seconds already is (design Part 4.6/M10-F5). "
+            "A cadence, not a gate."
+        ),
+    ),
+    ParameterEntry(
+        name="settings.heartbeat.part_failing_after_crashes",
+        param_class=ParameterClass.ANNOUNCING,
+        origin=Origin.APPROVED_CONFIG,
+        current_source="approved config (Settings; owner-adjustable)",
+        location="jarvis.kernel.config:HeartbeatSettings.part_failing_after_crashes",
+        note=(
+            "The crash-loop honesty rule's own threshold (design Part 5.4): at this "
+            "many consecutive crashes a part's state becomes 'failing' rather than "
+            "'restarting'. Relabels only — the Supervisor keeps restarting the part "
+            "either way (D-017) — so it paces what the platform SAYS, not what it "
+            "DOES, and gates no permission."
+        ),
+    ),
 )
 """Every row, in registration order. The source of truth; :data:`PARAMETER_REGISTER`
 is a lookup view over it."""
