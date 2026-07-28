@@ -2120,3 +2120,18 @@ surfaces keep serving, restart-loop is loud and self-heals on fix (M9-F154 postu
 ratified). M9-F152 pinned a real rollback inversion. M9-F155 (api/app.py preflight
 duplication blocks banner wiring) joins M8-F44''s unification note. The M9-F118 incident''s
 fix pair is COMPLETE; recurrence is now loud, not silent.
+
+## M9-F160 … M9-F165 + G1 COMPLETE — the governance enforcement is live (1222 on main)
+
+The Action Registry (24 actions, four closed sets, cross-constraints AT IMPORT, L4/L5
+reserved-empty), namespace enforcement (M9-F116 closed), inheritance layers 1-2, the ratchet
+with its owner sign-off marker (docs/AUTHORITY-SIGNOFF.md — a VISIBILITY control, stated in
+the file, M9-F164), the parameter register + provenance heads, and graduation_eligible
+default False (M9-F115 — safe now, legitimate only when the owner blesses; stays on the
+remediation table). M9-F127 closed (single asserted graduated=True writer). Ratified: the
+registry lives in jarvis/domain (conservative, shared-file-avoidance; a jarvis/governance
+package is a recorded alternative); the g1a/g1b two-directions resolution incl. correcting
+two silently-stale owner-facing statements. Honest limits recorded: M9-F160 (in-module new
+actions unratcheted — ties M9-F134), M9-F165 (four L3 rows enforced by non-existence),
+the remediation-table value-drift gap (presence-checked, not value-checked). D-043/D-048/
+D-049-family mechanisms now EXIST; their D-entries land with the ratification package.
