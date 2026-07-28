@@ -2168,3 +2168,33 @@ value pins; exclusion sentences). 1239 tests. Milestone report docs/reports/M9.m
 The ratification package awaiting the owner: spec §15-family amendments (governance doc
 Part 8), the M9-F130 remediation table, the cap-window resolution (Reserve states), platform-
 scoped approvals, Confidence visibility, publish_post eligibility, L3 attribution.
+
+---
+
+## Runtime Orchestration Audit (owner-commissioned) — merged; M10-F1…F9 opened
+
+docs/reports/RUNTIME-AUDIT.md is authoritative. Central finding: three composition roots
+that do not compose the same runtime; the ONLY supervised topology (launcher) cannot run
+unattended (lifetime bound to a desktop window); the headless topologies are unsupervised
+(worker: bare gather) or zero-autonomy (api-only). **Classification: (4) milestone planning
+oversight** — nine milestones of autonomy machinery with no supported unattended posture.
+Nothing is disabled; sequencing within each topology is correct; boot reconcile latency is
+seconds. Companies are never auto-created (verified — operator-only); dispatch has no kill
+switch (the template toggles are easy to misread as one — doc note owed).
+
+- **M10-F1 (regression, verified in-process):** create_app''s /api/health permanently
+  shadows the launcher''s parts-aware route (registration order) — M9-7''s promised
+  "restarting" banner is FALSE AS SHIPPED; the pinning test asserts parts==[] without
+  testing the launcher route. Fix is small; joins the preflight-unification thread
+  (M8-F44/M9-F155).
+- **M10-F4 (blocks M10 market hours):** schedule_cron flattens any cron to 3600/86400s from
+  wherever the Manager parked — "0 9 * * *" never fires at 09:00; independently corroborates
+  the incident''s wake spread. Fix needs D-033 versioning.
+- Plan separation recorded: one-liner (M9-F92 interval); docs-only (README/SETUP stale to
+  the point of naming the zero-autonomy topology as THE way to run, and "there is no
+  scheduler"); M10-needs (headless supervised entrypoint + OS restart policy + worker-
+  staleness liveness — closes M9-F118''s deferred posture); genuine code (F1, F2, F4, F9).
+  Docker stack was DOWN at audit time (live reads skipped honestly).
+
+All M10-F work is gated on the owner''s M10 approval per the standing directive; the audit
+and plan travel with the m9-baseline recommendation package.
