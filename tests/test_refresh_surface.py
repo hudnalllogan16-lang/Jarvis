@@ -184,15 +184,69 @@ async def test_an_uncomputable_plan_gets_the_one_honest_line_not_silence(
     )
 
 
-async def test_pending_update_is_not_on_the_default_card(
+async def test_the_cheap_marker_is_on_the_card_but_the_full_view_stays_drill_down(
     kernel: PlatformKernel, api: httpx.AsyncClient
 ) -> None:
-    """§12.5: drill-down loads only when the operator opens it — the card
-    list must not carry it, the same rule `goals` already follows."""
+    """M9-1d (M9-F100…F104): the roster now carries a presence-only boolean —
+    the grid marker's cheap existence check, `PlatformKernel.has_pending_
+    update` — but never the full `ContractRefreshPlan`-derived view
+    `_pending_update` builds for the drill-down. §12.5's drill-down-only rule
+    still holds for the *rich* object, the same rule `goals` already follows;
+    only a bare `true`/`false` reaches the card list now."""
     await _create(kernel, AFFILIATE, "Weekend Reviews")
     companies = (await api.get("/api/companies")).json()
 
-    assert "pending_update" not in companies[0]
+    assert companies[0]["pending_update"] is False
+    assert "headline" not in companies[0]
+    assert "changes" not in companies[0]
+
+
+async def test_a_stale_company_shows_the_cheap_marker_on_the_default_card(
+    kernel: PlatformKernel, api: httpx.AsyncClient
+) -> None:
+    """The same Trailhead Gear Reviews shape `test_a_stale_company_shows_a_
+    real_pending_update_on_its_detail_route` exercises through the Details
+    route — read here off the roster's cheap check instead. The two describe
+    the same Band-B diff and must agree on whether one exists."""
+    await _stale_affiliate_company(kernel, "Trailhead Gear Reviews")
+    companies = (await api.get("/api/companies")).json()
+
+    assert companies[0]["pending_update"] is True
+
+
+async def test_a_declined_stale_company_shows_no_marker_on_the_default_card(
+    kernel: PlatformKernel, api: httpx.AsyncClient
+) -> None:
+    """M8-F102/M9-4, applied to the cheap check: a decline collapses
+    `plan_refresh` to empty, and the roster's marker must read the same way —
+    otherwise the card would light a marker the company's own Details page
+    denies having anything to show."""
+    business_id = await _stale_affiliate_company(kernel, "Trailhead Gear Reviews")
+    dismiss = await api.post(f"/api/companies/{business_id}/pending-update/dismiss")
+    assert dismiss.status_code == 200
+
+    companies = (await api.get("/api/companies")).json()
+    assert companies[0]["pending_update"] is False, (
+        "a declined offer must not relight the marker until re-versioned"
+    )
+
+
+async def test_an_uncomputable_marker_reads_as_no_marker_on_the_default_card(
+    kernel: PlatformKernel, api: httpx.AsyncClient
+) -> None:
+    """The cheap check's own honesty limit (`PlatformKernel.has_pending_
+    update` returns `None`): a company whose installed type row is gone
+    cannot be answered at all, and the roster's correct response is silence —
+    never a marker that might be wrong, the same posture `_pending_update`
+    already takes for its own uncertain case on the Details route."""
+    await _create(kernel, AFFILIATE, "Orphaned Template Co")
+    async with kernel.services() as svc:
+        row = await svc.registry.installed_type(BusinessTypeName(AFFILIATE.name))
+        assert row is not None
+        await svc.session.delete(row)
+
+    companies = (await api.get("/api/companies")).json()
+    assert companies[0]["pending_update"] is False
 
 
 # ── consent routes: a current company genuinely has nothing to consent to ──

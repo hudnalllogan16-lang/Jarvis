@@ -94,8 +94,21 @@ genuinely has no value; a zero that means zero renders `0`).
 
 **Rules.** Every tile maps to a served field. The four shipped tiles are backed by
 `/api/summary` (`companies`, `running`, `waiting_on_you`, `spent_today`, `spend_limit`,
-`spending_paused`) and `/api/health`. A tile whose number has no endpoint does not ship —
-the concept image's "milestone status" tile is exactly this case and was dropped, not faked.
+`spending_paused`, `spending_paused_reason`, `census`) and `/api/health`. A tile whose number
+has no endpoint does not ship — the concept image's "milestone status" tile is exactly this
+case and was dropped, not faked.
+
+**The census tile (M9-1d, design EXECUTIVE-LAYER.md Part 3/8, D-039).** "Needs a look" no
+longer counts `health_band !== 'healthy'` client-side — `never_measured` cannot be told apart
+from `healthy` on the card alone (D-027.4's grace period bands a young, unmeasured company
+`healthy`, correctly, for that company), so the count comes from `/api/summary`'s `census`
+object (`healthy`, `watch`, `at_risk`, `never_measured`, `worst_company`), a direct read of
+`PortfolioHealth`. The context line states counts per band, `never_measured` on its own, and
+names the worst company as a link into its own workspace — the same `#/companies/<id>` route
+the card's own "Details" link opens, styled `.btn--link` like any other in-prose affordance
+(the company card's own "more in Details"). **Never a portfolio score.** Averaging comparable
+per-company scores produces a number comparable to nothing (design Part 3) — this tile has no
+value that is not one of the four counts above or a company's own name.
 
 The context line is where scale lives. A tile reading `$1.82` with no context is a number
 without a denominator; `of $500.00 today` makes it a measurement.
@@ -149,12 +162,14 @@ operator meets the same mark at both levels.
   from the surface would cost one `/api/companies/{id}` fetch per company — the exact price
   `12-application-shell.md` refused a cross-company Goals workspace for.
 
-**Dormant as shipped.** `/api/companies` does not carry `pending_update`; only
-`/api/companies/{id}` does. The component, its styles and its render path are complete and emit
-**nothing** until the list payload gains the field — the same discipline as the persona
-components (`11-persona-components.md`), applied to a marker rather than a whole component, and
-for the same reason: the data does not exist yet, so the mark must not appear yet. The exact
-field addition is named in the M9-2c report.
+**Lit at M9-1d.** `/api/companies` now carries a presence-only `pending_update` boolean on every
+card, from a cheap existence check (`PlatformKernel.has_pending_update`) that compares the
+installed type's Band B digest against the stored contract's and the operator's own decline
+record — never the full `ContractRefreshPlan` the company's own Details page still builds for
+the drill-down, and never one `/api/companies/{id}` fetch per company across the roster. A
+company the check cannot answer honestly (its type is no longer installed, or the refreshed
+contract would be invalid) reads `false`, the same silence Details already keeps for its own
+uncertain case — a marker that might be wrong is worse than one that says nothing.
 
 ### Meter — `.meter`
 

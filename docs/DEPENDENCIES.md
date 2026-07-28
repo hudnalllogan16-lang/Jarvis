@@ -129,7 +129,7 @@ roadmap revision 2.
 | `KpiEngine.health`, per-company only — no aggregation across companies (§3, COO) | M3 | M9-1a — `jarvis.executive.health.compute_portfolio_health` | Retired |
 | `BudgetLedger.business_spend`/`platform_spend_24h` — enforcement only, no rollup (§3, CFO) | M2 | M9-1a — `jarvis.executive.rollup.compute_portfolio_rollup` | Retired |
 | `CircuitBreaker.trip()` — writes §12.5's halt narrative; nothing in `jarvis/` calls it (§9) | M2 | M9-1b — `jarvis.executive.alerts.record_platform_halt` | Retired |
-| `DecisionLog.record_platform_decision` / `platform_feed` — writer exists, no reader (§11.5) | M1 | pending — packet E, operator-surface lane (design Part 8) | Open |
+| `DecisionLog.record_platform_decision` / `platform_feed` — writer exists, no reader (§11.5) | M1 | M9-1d — `jarvis.api.app._platform_halt_reason` | Retired |
 | `NotificationKind.SPENDING` — declared kind, zero writers, zero readers (§3, CFO) | M3 | M9-1b — `jarvis.executive.alerts.raise_spend_alerts` | Retired |
 | `jarvis/executive/` — rollup, census, cap alerts and the halt narrative; nothing runs them on a timer yet (§3, D-041) | M9-1a…M9-1b | M9-1c — `run_executive`, composed at `runtime/worker.py` | Retired |
 
@@ -178,6 +178,13 @@ fourth `Supervisor` part beside the worker and the scheduler (D-016/D-017) — n
 supervision mechanism itself, one more part added to it exactly as the scheduler already is. Every
 row this milestone's Part 0 census opened is now Retired except `platform_feed`'s, which stays
 Open for packet E on its own stated terms above.
+
+**Retired at M9-1d.** `_platform_halt_reason` (`jarvis/api/app.py`) is that reader: it reads
+`platform_feed`, matches the halt entry by its structured `action_type` (never a ref shown to the
+operator — M9-F76), and launders `entry.rationale` through the same `render_operator_text`
+boundary `activity_feed`'s own entries pass through, surfaced on `/api/summary` as
+`spending_paused_reason` and rendered in the Command Center's "Spent today" tile. Every row this
+milestone's Part 0 census opened is now Retired.
 
 **Deferred at M5.** `CredentialManager` was scheduled to gain a caller here through generic tool
 execution. Building it found the plan self-defeating: a tool-execution layer with no concrete tool
