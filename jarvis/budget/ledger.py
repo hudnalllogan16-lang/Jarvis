@@ -82,6 +82,15 @@ one."""
 
 LOCK_NAMESPACE = "jarvis.budget.reservation"
 
+PLATFORM_SPEND_WINDOW = timedelta(hours=24)
+"""The window `platform_spend_24h` aggregates over (spec §9).
+
+Named rather than inlined because a second caller now has to agree with it:
+`jarvis.executive.alerts` records the §12.5 halt narrative once per halt, and
+"once" is defined against exactly this window. A literal `24` in two modules is
+how two numbers that must agree stop agreeing (design EXECUTIVE-LAYER.md
+Part 12's sequencing note, applied to a duration rather than a dollar figure)."""
+
 _PLATFORM_SCOPE = "platform"
 
 
@@ -469,7 +478,7 @@ class BudgetLedger:
 
     @staticmethod
     async def _platform_spend_24h(session: AsyncSession, *, now: datetime | None = None) -> Decimal:
-        cutoff = (now or datetime.now(UTC)) - timedelta(hours=24)
+        cutoff = (now or datetime.now(UTC)) - PLATFORM_SPEND_WINDOW
         stmt = (
             select(func.coalesce(func.sum(BudgetLedgerRow.amount_usd), 0))
             .where(BudgetLedgerRow.recorded_at >= cutoff)

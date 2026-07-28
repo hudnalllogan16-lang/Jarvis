@@ -76,7 +76,12 @@ class NotificationService:
             title: Short headline in operator language.
             body: One or two sentences of plain consequence language.
             business_id: Owning company, or None for platform-wide notices.
-            link_ref: Approval or dead-letter id the operator can act on.
+            link_ref: Approval or dead-letter id the operator can act on — or,
+                for a repeating notice whose *variant* matters, a ref naming
+                which variant this one announced (see :meth:`has_unread`). It is
+                an internal handle either way: `/api/notifications` returns
+                title, body, kind and time, and never this field, so a ref that
+                names no clickable thing cannot reach the operator's surface.
 
         Returns:
             The notification id.
@@ -137,7 +142,9 @@ class NotificationService:
         )
         return (await self._session.scalars(stmt)).all()
 
-    async def has_unread(self, business_id: BusinessId, *, kind: NotificationKind) -> bool:
+    async def has_unread(
+        self, business_id: BusinessId, *, kind: NotificationKind, link_ref: str | None = None
+    ) -> bool:
         """Return whether this company already has an unread notice of ``kind``.
 
         Asked before raising a repeatable notice, so a condition that recurs on
@@ -154,21 +161,36 @@ class NotificationService:
         same reconciliation posture :meth:`unread` takes — the queue reflects
         what is still outstanding, not what has ever happened.
 
+        ``link_ref`` narrows the check to notices carrying that exact ref, for
+        a recurring condition whose *variant* is the state rather than its mere
+        presence. The spend bands of design `EXECUTIVE-LAYER.md` 2.3 are the
+        first: a company that crossed 50% of its limit and then crosses 80% has
+        to be told again, and a bare per-kind check would let the still-unread
+        50% notice swallow the 80% one. That is the same information loss
+        `WAITING_ON_RESUME` exists to prevent, arriving through the
+        deduplication instead of through a shared kind — so it is closed the
+        same way, by making the thing that differs part of what is compared,
+        and it needs no new table because the row already records which variant
+        it announced.
+
         Args:
             business_id: The company to check.
             kind: Which category of notice.
+            link_ref: Optional. When given, only notices carrying this exact ref
+                count; when omitted, any unread notice of ``kind`` does.
 
         Returns:
-            True if at least one unread notification of that kind exists.
+            True if at least one matching unread notification exists.
         """
         stmt = (
             select(NotificationRow.notification_id)
             .where(NotificationRow.business_id == business_id)
             .where(NotificationRow.kind == kind.value)
             .where(NotificationRow.read.is_(False))
-            .limit(1)
         )
-        return await self._session.scalar(stmt) is not None
+        if link_ref is not None:
+            stmt = stmt.where(NotificationRow.link_ref == link_ref)
+        return await self._session.scalar(stmt.limit(1)) is not None
 
     async def mark_read(self, notification_id: str) -> None:
         """Mark one notification as read (an operator's explicit dismissal)."""

@@ -24,6 +24,18 @@ from jarvis.observability.decision_log import DecisionLog
 
 logger = get_logger(__name__)
 
+PLATFORM_HALT_ACTION_TYPE = "platform.circuit_breaker"
+"""`action_type` on the platform Decision Log entry :meth:`CircuitBreaker.trip`
+writes.
+
+Exported because the caller that finally arrived (`jarvis.executive.alerts`,
+design EXECUTIVE-LAYER.md 2.4) has to recognise its own prior entry to record
+one halt rather than one per scheduled pass, and recognising it by a literal
+copied into another module would make the identity of the entry depend on two
+strings staying equal. A structured column, never the prose beside it: design
+Part 4 forbids reading the Decision Log's sentences as a fact source, and this
+is the escape hatch that makes obeying it possible."""
+
 
 class CircuitBreaker:
     """Platform-wide dispatch halt on aggregate 24h spend (spec §9)."""
@@ -76,6 +88,17 @@ class CircuitBreaker:
         single business, but it is the event most likely to prompt "why did
         everything stop?", and §11.5 requires that be answerable without reading
         raw logs.
+
+        **This records; it never cancels.** D-003 rule 4 forbids killing an
+        in-flight invocation on a ceiling breach, and nothing here touches one:
+        the refusal of *new* dispatch is :meth:`assert_closed` at the pool
+        boundary and was already wired. Deliberately separate from that check —
+        a check that writes is no longer a check, and the pool boundary runs per
+        dispatch, so recording there would write one entry per refused
+        invocation instead of one per halt (design EXECUTIVE-LAYER.md 2.4).
+        Calling this more than once per halt is therefore the caller's error to
+        avoid, not this method's: it appends unconditionally, as an append-only
+        log must.
         """
         detail = (
             f" The last company to spend was {triggering_business}." if triggering_business else ""
@@ -88,7 +111,7 @@ class CircuitBreaker:
                 f"daily limit of ${self._ceiling}. No new work will start until the limit "
                 f"resets or you raise it.{detail}"
             ),
-            action_type="platform.circuit_breaker",
+            action_type=PLATFORM_HALT_ACTION_TYPE,
             inputs_considered={"spend_usd": str(spend_usd), "ceiling_usd": str(self._ceiling)},
         )
         logger.warning("circuit breaker tripped", extra={"context": {"spend": str(spend_usd)}})

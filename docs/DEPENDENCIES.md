@@ -127,9 +127,10 @@ roadmap revision 2.
 | `AutonomyCounterRow.plugin_major_version` — A-003's major-version graduation reset (§8) | M3 | M8-8 — `BusinessRegistry._reset_graduation_on_major_bump` | Retired |
 | `KpiEngine.health`, per-company only — no aggregation across companies (§3, COO) | M3 | M9-1a — `jarvis.executive.health.compute_portfolio_health` | Retired |
 | `BudgetLedger.business_spend`/`platform_spend_24h` — enforcement only, no rollup (§3, CFO) | M2 | M9-1a — `jarvis.executive.rollup.compute_portfolio_rollup` | Retired |
-| `CircuitBreaker.trip()` — writes §12.5's halt narrative; nothing in `jarvis/` calls it (§9) | M2 | pending — packet C (design 2.4, M9-F2) | Open |
+| `CircuitBreaker.trip()` — writes §12.5's halt narrative; nothing in `jarvis/` calls it (§9) | M2 | M9-1b — `jarvis.executive.alerts.record_platform_halt` | Retired |
 | `DecisionLog.record_platform_decision` / `platform_feed` — writer exists, no reader (§11.5) | M1 | pending — packet E, operator-surface lane (design Part 8) | Open |
-| `NotificationKind.SPENDING` — declared kind, zero writers, zero readers (§3, CFO) | M3 | pending — packet C (design 2.3) | Open |
+| `NotificationKind.SPENDING` — declared kind, zero writers, zero readers (§3, CFO) | M3 | M9-1b — `jarvis.executive.alerts.raise_spend_alerts` | Retired |
+| `jarvis/executive/` — rollup, census, cap alerts and the halt narrative; nothing runs them on a timer yet (§3, D-041) | M9-1a…M9-1b | pending — packet D, the scheduled runner composed at `runtime/worker.py` | Open |
 
 **The entry this ledger missed.** `KpiEngine.record` was written in M3 and had no caller for four
 milestones — it was never listed here, so the debt accrued invisibly and was found by a live run
@@ -155,6 +156,19 @@ and B) — the cap-tracking alerts, the breaker's missing caller, and `platform_
 reader are packets C and E, not built here. Recording the row when the debt is found, per this
 ledger's own rule, means recording it before the caller exists too — an **Open** status is not a
 gap in the bookkeeping, it is the bookkeeping.
+
+**Two of the three retired at M9-1b**, leaving `platform_feed` deliberately Open. That row is
+about the *reader*, and it still has none: M9-1b gave `record_platform_decision` its first real
+writer (the halt narrative finally reaches the log), and reads the feed only to recognise its own
+prior entry so one halt produces one explanation. The operator-facing reader design Part 8 names
+is packet E, and the row stays Open until it lands — retiring it on the strength of a
+deduplication read would be the ledger recording a caller it did not get.
+
+**And one added, by the same rule that retired those two.** M9-1a and M9-1b built the entire
+deterministic Executive — rollup, census, cap alerts, halt narrative — and D-041 puts its caller
+on a timer that packet D has not written yet. Four functions that nothing invokes is exactly the
+shape of the two worked examples above, and the honest moment to write the row is now, not when
+somebody later notices the Executive has never run.
 
 **Deferred at M5.** `CredentialManager` was scheduled to gain a caller here through generic tool
 execution. Building it found the plan self-defeating: a tool-execution layer with no concrete tool
