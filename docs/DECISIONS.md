@@ -2000,3 +2000,19 @@ no honest triggering_business supplier yet); M9-F76 → packet E (link_ref must 
 M9-F81 (a lifetime breach never settles — joins the owner cap-window escalation as evidence);
 M9-F83 (§9 ceiling has no warning band — packet D candidate); M9-F84 (Executive dormant
 until packet D — ledger row). M9-F82 fixed in-lane (detector self-root).
+
+## UI Phase 3 gate: PROCEED — and the M9-F85…F89 record (late, per the gate''s process catch)
+
+Trend round (merged at 1050): .trend with 7 documented rules — single reading renders
+relation-without-magnitude at a fixed offset (M9-F85''s fix, ratified); M9-F86 null-plotting
+fixed by probe; M9-F87 detector-cries-wolf note; M9-F88 poll partly repaid via the D-021
+freshness key (coupling documented); M9-F89 trend copy owed. The Manager failed to record
+this round before the gate ran — the reviewer caught it; recorded now, lesson noted (the
+rolling model does not excuse the recording step).
+
+Gate verdict PROCEED. Findings → packet M9-2c (warm continuation): **M9-F100** the note line
+carries the relation ("on/ahead of/short of target") — closes both the glance ambiguity and
+the aria gap; **M9-F101** measurement() implements fixed decimals, not its promised
+significant figures — 0.0005 renders "0"; fix to the contract. Gate rulings adopted:
+**M9-F27 grid-level pending-update indicator required before Phase 4** (in M9-2c);
+M9-F26/F88 during Phase 4; M9-F72 acceptable; copy passes last.
