@@ -45,7 +45,10 @@ from jarvis.kernel.container import PlatformKernel
 from jarvis.kernel.ids import BusinessTypeName
 from jarvis.kpi.engine import KpiEngine
 from jarvis.notifications.service import NotificationService
+from jarvis.observability.audit import AuditLog
 from jarvis.observability.decision_log import DecisionLog
+from jarvis.observability.heartbeat import HeartbeatStore
+from jarvis.observability.poller import UNREACHABLE_POLLER_READING
 from jarvis.persistence.models import Base
 from jarvis.registry.registry import BusinessRegistry
 
@@ -77,7 +80,13 @@ def _collaborators(session: AsyncSession, *, ceiling: Decimal = CEILING) -> dict
         "notifications": NotificationService(session),
         "breaker": CircuitBreaker(ledger, decisions, ceiling_usd=ceiling),
         "decisions": decisions,
+        "heartbeat": HeartbeatStore(session),
+        "audit": AuditLog(session),
+        "poller": UNREACHABLE_POLLER_READING,
         "platform_ceiling_usd": ceiling,
+        "heartbeat_stale_after_seconds": 45,
+        "poller_stale_after_seconds": 300,
+        "part_failing_after_crashes": 10,
     }
 
 
@@ -136,7 +145,12 @@ async def test_dedup_and_once_per_halt_survive_across_separate_ticks(
     Sequence:
       1. Spend reaches $26 of a $50 company cap (52%) against a $28 platform
          ceiling (92.86%) -> company band 50 and platform band 80 both fire.
-      2. Same state, a second tick -> both suppressed (still unread).
+         With no heartbeat rows and the poller unreachable, the liveness
+         verdict also reads `outage=True` for the first time -> its own
+         once-per-transition notice fires too.
+      2. Same state, a second tick -> everything above is suppressed (the two
+         band notices are still unread; the liveness verdict is unchanged
+         from tick 1, so its transition detector writes nothing).
       3. Spend reaches the $28 ceiling exactly (100%) -> the halt narrative
          fires for the first time; the platform band stays silent (breach is
          its territory, not the warning bands').
@@ -147,19 +161,24 @@ async def test_dedup_and_once_per_halt_survive_across_separate_ticks(
     await _install_and_register(registry, contract)
     ceiling = Decimal("28.00")
 
-    # Tick 1 — cross the first company band and the first platform band.
+    # Tick 1 — cross the first company band and the first platform band; the
+    # liveness verdict also transitions into outage for the first time.
     ledger = BudgetLedger(session, platform_ceiling_usd=ceiling)
     await ledger.reserve(contract=contract, amount_usd=Decimal("26.00"))
     tick1 = await _tick(session, registry, ceiling=ceiling)
     assert [a.band for a in tick1.spend_alerts] == [50]
     assert [a.band for a in tick1.platform_alerts] == [80]
     assert tick1.halted is False
+    assert tick1.liveness.outage_started is True
 
-    # Tick 2 — unchanged state, fresh collaborators: nothing new.
+    # Tick 2 — unchanged state, fresh collaborators: nothing new, including
+    # the liveness verdict, which was already `outage=True` as of tick 1.
     tick2 = await _tick(session, registry, ceiling=ceiling)
     assert tick2.spend_alerts == ()
     assert tick2.platform_alerts == ()
     assert tick2.halted is False
+    assert tick2.liveness.outage_started is False
+    assert tick2.liveness.outage_recovered is False
 
     # Tick 3 — spend reaches the ceiling exactly: the halt narrative fires,
     # the platform band does not (it is at breach, not merely close to it).
@@ -181,7 +200,9 @@ async def test_dedup_and_once_per_halt_survive_across_separate_ticks(
     decisions = DecisionLog(session)
     assert len(await decisions.platform_feed()) == 1  # explained exactly once
     notifications = NotificationService(session)
-    assert await notifications.unread_count() == 2  # the two tick-1 notices, still unread
+    # The two tick-1 band notices, plus the liveness verdict's one tick-1
+    # outage-start notice — all three still unread, none repeated.
+    assert await notifications.unread_count() == 3
 
 
 # ── ExecutiveSettings: the interval this timer reads ────────────────────────
@@ -216,10 +237,16 @@ class _StubProvider:
 
 @pytest_asyncio.fixture
 async def kernel() -> AsyncIterator[PlatformKernel]:
-    """A real Kernel over one shared in-memory connection, no Temporal or LLM
-    reachable — `run_executive` touches neither, so nothing here needs the
-    `_CapturingTemporalClient` workaround `test_reservation_reconcile.py`
-    documents for `Scheduler.sweep` (which does)."""
+    """A real Kernel over one shared in-memory connection, no LLM reachable.
+
+    `run_executive` now also asks `kernel.temporal_client()` for the poller
+    probe (packet P0-C) — unlike `Scheduler.sweep`
+    (`test_reservation_reconcile.py`'s `_CapturingTemporalClient` workaround),
+    this needs no special handling either way: `temporal_client()` already
+    degrades to `None` on any connection failure, and `probe_task_queue_pollers`
+    degrades a `None` client to `UNREACHABLE_POLLER_READING` before it ever
+    reaches `run_executive_tick` — a real or absent Temporal both leave this
+    fixture's tests exercising the same contained-failure path either way."""
     engine = create_async_engine(
         "sqlite+aiosqlite:///:memory:",
         poolclass=StaticPool,
@@ -339,3 +366,99 @@ async def test_no_overlap_ticks_run_strictly_one_after_another(
 
     assert in_flight["max"] == 1
     assert len(sleeps) == 3
+
+
+# ── probe_task_queue_pollers: pure conversion over a fake client (packet P0-C) ──
+
+
+class _FakeWorkflowService:
+    """Stands in for `Client.workflow_service`, returning scripted responses
+    keyed by queue type — no live Temporal in the loop."""
+
+    def __init__(self, responses: dict[object, object]) -> None:
+        self._responses = responses
+
+    async def describe_task_queue(self, request: object, **_: object) -> object:
+        return self._responses[request.task_queue_type]  # type: ignore[attr-defined]
+
+
+class _FakeClient:
+    def __init__(self, responses: dict[object, object]) -> None:
+        self.namespace = "default"
+        self.workflow_service = _FakeWorkflowService(responses)
+
+
+def _describe_response(*pollers: object) -> object:
+    import temporalio.api.workflowservice.v1 as wsv1
+
+    return wsv1.DescribeTaskQueueResponse(pollers=list(pollers))
+
+
+def _poller(*, last_access_at: object | None = None) -> object:
+    import temporalio.api.taskqueue.v1 as tqv1
+
+    if last_access_at is None:
+        return tqv1.PollerInfo(identity="p")
+    from google.protobuf.timestamp_pb2 import Timestamp
+
+    ts = Timestamp()
+    ts.FromDatetime(last_access_at)
+    return tqv1.PollerInfo(identity="p", last_access_time=ts)
+
+
+async def test_probe_reads_pollers_from_both_queue_types() -> None:
+    from datetime import UTC, datetime
+
+    import temporalio.api.enums.v1 as enums
+
+    older = datetime(2026, 7, 28, 11, 0, 0, tzinfo=UTC)
+    newer = datetime(2026, 7, 28, 12, 0, 0, tzinfo=UTC)
+    client = _FakeClient(
+        {
+            enums.TaskQueueType.TASK_QUEUE_TYPE_WORKFLOW: _describe_response(
+                _poller(last_access_at=older)
+            ),
+            enums.TaskQueueType.TASK_QUEUE_TYPE_ACTIVITY: _describe_response(
+                _poller(last_access_at=newer), _poller(last_access_at=older)
+            ),
+        }
+    )
+
+    reading = await worker.probe_task_queue_pollers(client, "jarvis-platform")
+
+    assert reading.reachable is True
+    assert reading.workflow_pollers == 1
+    assert reading.activity_pollers == 2
+    assert reading.newest_last_access_at == newer
+
+
+async def test_probe_reads_as_unreachable_when_no_pollers_reported() -> None:
+    import temporalio.api.enums.v1 as enums
+
+    client = _FakeClient(
+        {
+            enums.TaskQueueType.TASK_QUEUE_TYPE_WORKFLOW: _describe_response(),
+            enums.TaskQueueType.TASK_QUEUE_TYPE_ACTIVITY: _describe_response(),
+        }
+    )
+
+    reading = await worker.probe_task_queue_pollers(client, "jarvis-platform")
+
+    assert reading.reachable is True  # the probe itself succeeded
+    assert reading.workflow_pollers == 0
+    assert reading.activity_pollers == 0
+    assert reading.newest_last_access_at is None
+
+
+async def test_probe_degrades_to_unreachable_on_any_failure() -> None:
+    class _RaisingService:
+        async def describe_task_queue(self, request: object, **_: object) -> object:
+            raise RuntimeError("boom — the queue could not be reached")
+
+    class _RaisingClient:
+        namespace = "default"
+        workflow_service = _RaisingService()
+
+    reading = await worker.probe_task_queue_pollers(_RaisingClient(), "jarvis-platform")
+
+    assert reading is worker.UNREACHABLE_POLLER_READING

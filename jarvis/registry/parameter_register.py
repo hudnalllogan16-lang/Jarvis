@@ -238,6 +238,36 @@ PARAMETER_ENTRIES: tuple[ParameterEntry, ...] = (
             "permission. Parameter Register row (design OPERATIONAL-RUNTIME.md Part 3.4)."
         ),
     ),
+    # ── ANNOUNCING — the two-signal verdict ──
+    # (design OPERATIONAL-RUNTIME.md Part 3.2/5.4/7.2, packet P0-C)
+    ParameterEntry(
+        name="settings.heartbeat.poller_stale_after_seconds",
+        param_class=ParameterClass.ANNOUNCING,
+        origin=Origin.APPROVED_CONFIG,
+        current_source="approved config (Settings; owner-adjustable)",
+        location="jarvis.kernel.config:HeartbeatSettings.poller_stale_after_seconds",
+        note=(
+            "Paces the workers health read and the liveness verdict's Signal 2; gates no "
+            "permission. Parameter Register row (design OPERATIONAL-RUNTIME.md Part 7.2)."
+        ),
+    ),
+    ParameterEntry(
+        name="settings.heartbeat.part_failing_after_crashes",
+        param_class=ParameterClass.ANNOUNCING,
+        origin=Origin.APPROVED_CONFIG,
+        current_source="approved config (Settings; owner-adjustable)",
+        location="jarvis.kernel.config:HeartbeatSettings.part_failing_after_crashes",
+        note=(
+            "Design 5.4's crash-loop honesty threshold, read by two consumers "
+            "(HeartbeatSettings' own docstring): the Supervisor (packet P0-E) relabels "
+            "the part 'failing' rather than 'restarting' for /api/health's parts array — "
+            "restart behaviour is unchanged (D-017) — and the Executive (packet P0-C, "
+            "D-038 layering) reads the same threshold to raise the operator notice the "
+            "Supervisor itself cannot (jarvis.shell is outside D-038's import list). "
+            "Paces what the platform SAYS in both places, not what it DOES; gates no "
+            "permission. Parameter Register row (design OPERATIONAL-RUNTIME.md Part 7.2)."
+        ),
+    ),
     # ── ANNOUNCING — wall-clock cron (design OPERATIONAL-RUNTIME.md Part 4, packet P0-D) ──
     ParameterEntry(
         name="wake_conditions.schedule_cron",
@@ -268,7 +298,7 @@ PARAMETER_ENTRIES: tuple[ParameterEntry, ...] = (
         ),
     ),
     # ── ANNOUNCING — scheduler correctness (design OPERATIONAL-RUNTIME.md Part
-    #    4.6/5.4, M9-F92/M10-F5/M10-F9, packet P0-E) ──
+    #    4.6, M9-F92/M10-F5/M10-F9, packet P0-E) ──
     ParameterEntry(
         name="settings.scheduler.sweep_interval_seconds",
         param_class=ParameterClass.ANNOUNCING,
@@ -280,20 +310,6 @@ PARAMETER_ENTRIES: tuple[ParameterEntry, ...] = (
             "signature; now read from Settings exactly as "
             "executive.tick_interval_seconds already is (design Part 4.6/M10-F5). "
             "A cadence, not a gate."
-        ),
-    ),
-    ParameterEntry(
-        name="settings.heartbeat.part_failing_after_crashes",
-        param_class=ParameterClass.ANNOUNCING,
-        origin=Origin.APPROVED_CONFIG,
-        current_source="approved config (Settings; owner-adjustable)",
-        location="jarvis.kernel.config:HeartbeatSettings.part_failing_after_crashes",
-        note=(
-            "The crash-loop honesty rule's own threshold (design Part 5.4): at this "
-            "many consecutive crashes a part's state becomes 'failing' rather than "
-            "'restarting'. Relabels only — the Supervisor keeps restarting the part "
-            "either way (D-017) — so it paces what the platform SAYS, not what it "
-            "DOES, and gates no permission."
         ),
     ),
 )

@@ -22,6 +22,7 @@ succeeds cannot describe the caller failing.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 from typing import Any
@@ -35,6 +36,22 @@ from jarvis.persistence.engine import session_scope
 from jarvis.persistence.models import AuditLogRow
 
 logger = get_logger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class PlatformAuditEntry:
+    """One platform-level (``business_id IS NULL``) audit row, decoupled from
+    the ORM.
+
+    Returned by :meth:`AuditLog.latest_platform_entry` rather than the raw
+    `AuditLogRow` so a caller outside `jarvis.observability` never needs
+    `jarvis.persistence` in scope to read it — `jarvis.executive` is the
+    reason this exists (D-038's import list has no room for `persistence`),
+    but the same shape suits any caller occupying a package this restricted.
+    """
+
+    payload: dict[str, Any]
+    recorded_at: datetime
 
 
 class AuditLog:
@@ -207,6 +224,41 @@ class AuditLog:
             .limit(1)
         )
         return await self._session.scalar(stmt)
+
+    async def latest_platform_entry(self, event_type: str) -> PlatformAuditEntry | None:
+        """Return the most recent platform-level entry of ``event_type``, or None.
+
+        The read half of a transition detector for a caller with no "current
+        state" table of its own (D-046: "current state is re-derived on read,
+        never stored"). `jarvis.executive.liveness.raise_runtime_liveness_alerts`
+        is the first caller (packet P0-C): comparing this call's result against
+        a freshly computed verdict is how a two-signal outage is told apart
+        from a still-ongoing one, without a second, separately-maintained
+        "current state" column that could drift out of sync with this log.
+
+        Platform-scoped (``business_id IS NULL``) for the same reason
+        `DecisionLog.platform_feed` is: an outage or a crash-looping part
+        belongs to no single company (spec §3.1, §9).
+
+        Args:
+            event_type: Dotted event name to look up the newest record of.
+
+        Returns:
+            The newest matching entry, or None if this event type has never
+            been recorded at the platform level.
+        """
+        stmt = (
+            select(AuditLogRow.payload, AuditLogRow.recorded_at)
+            .where(AuditLogRow.business_id.is_(None))
+            .where(AuditLogRow.event_type == event_type)
+            .order_by(AuditLogRow.recorded_at.desc())
+            .limit(1)
+        )
+        row = (await self._session.execute(stmt)).first()
+        if row is None:
+            return None
+        payload, recorded_at = row
+        return PlatformAuditEntry(payload=payload, recorded_at=recorded_at)
 
     async def for_business(
         self, business_id: BusinessId, *, limit: int = 100

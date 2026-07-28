@@ -492,6 +492,24 @@ _ENTRIES: Final[tuple[ActionEntry, ...]] = (
         ),
     ),
     _entry(
+        "runtime.liveness_verdict",
+        _L.L1,
+        _R.NONE,
+        {_A.AUDIT, _A.NOTIFY_ON_TRANSITION},
+        module="jarvis/executive/liveness.py",
+        symbol="raise_runtime_liveness_alerts",
+        note=(
+            "Design OPERATIONAL-RUNTIME.md 7.1, ratified with the Phase 0 design "
+            "(D-055..D-061). L1 by the level's own definition: the whole behaviour is a "
+            "comparison of stored values against owner-set thresholds — a heartbeat's age "
+            "and a poller reading against settings.heartbeat's own thresholds — firing and "
+            "announcing without asking. Mirrors spending.platform_band_notice exactly and "
+            "invents no vocabulary. One emit site consumes both design 3.2 signals and "
+            "design 5.4's crash-loop condition rather than splitting into further rows "
+            "(design 1.6, 7.1: 'this packet adds no L2, L3, L4 or L5 entry')."
+        ),
+    ),
+    _entry(
         "capability.dispatch",
         _L.L1,
         _R.NONE,
@@ -618,9 +636,9 @@ _ENTRIES: Final[tuple[ActionEntry, ...]] = (
 
 
 ACTION_REGISTRY: Final[Mapping[str, ActionEntry]] = {e.action_type: e for e in _ENTRIES}
-"""The platform-wide matrix. Twenty-four actions: 4 L0, 13 L1, 1 L2-tactical, 6 L3.
+"""The platform-wide matrix. Twenty-five actions: 4 L0, 14 L1, 1 L2-tactical, 6 L3.
 
-Sixteen of the twenty-four are rule execution or deterministic computation
+Seventeen of the twenty-five are rule execution or deterministic computation
 against one live judgment action — the platform is overwhelmingly a
 rule-executing system, which is the right shape and worth knowing (design 1.4).
 """
@@ -640,6 +658,7 @@ MODULE_AUTHORITY: Final[Mapping[str, AuthorityLevel]] = {
     "jarvis/budget/ledger.py": AuthorityLevel.L1,
     "jarvis/budget/breaker.py": AuthorityLevel.L1,
     "jarvis/executive/alerts.py": AuthorityLevel.L1,
+    "jarvis/executive/liveness.py": AuthorityLevel.L1,
     "jarvis/approvals/service.py": AuthorityLevel.L1,
     "jarvis/registry/registry.py": AuthorityLevel.L1,
     "jarvis/manager/activities.py": AuthorityLevel.L1,

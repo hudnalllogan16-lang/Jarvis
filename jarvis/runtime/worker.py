@@ -27,7 +27,12 @@ The composition-root exemption this module keeps is for the Executive tick
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC
+from typing import Any
 
+from temporalio.api.enums.v1 import TaskQueueType
+from temporalio.api.taskqueue.v1 import TaskQueue
+from temporalio.api.workflowservice.v1 import DescribeTaskQueueRequest
 from temporalio.client import Client
 from temporalio.contrib.pydantic import pydantic_data_converter
 from temporalio.worker import Worker
@@ -39,6 +44,8 @@ from jarvis.kernel.logging import get_logger
 from jarvis.llm.validation import ModelVerdict, verify_configured_model
 from jarvis.manager.activities import all_manager_activities
 from jarvis.manager.workflow import BusinessManagerWorkflow
+from jarvis.observability.heartbeat import HeartbeatStore
+from jarvis.observability.poller import UNREACHABLE_POLLER_READING, PollerReading
 from jarvis.runtime.activities import all_activities
 from jarvis.scheduler.service import Scheduler
 
@@ -171,6 +178,77 @@ async def run_scheduler(kernel: PlatformKernel, *, interval_seconds: int | None 
         await asyncio.sleep(interval)
 
 
+async def probe_task_queue_pollers(client: Any, task_queue: str) -> PollerReading:
+    """Read design 3.2's Signal 2 — `DescribeTaskQueue` for both queue types.
+
+    The probe design 3.3 says is "built by the composition root and handed
+    to the Executive tick as a value" — this is that function, and its
+    result is the value. It is also importable by `jarvis/api/app.py` (M3,
+    earlier than nothing this file touches — an ordinary backward import,
+    no composition-root exemption needed) for `/api/health`'s `workers`
+    component, so both readers of Signal 2 share one implementation rather
+    than two copies of a protobuf-shaped comparison drifting apart.
+
+    Two requests, not one: `DescribeTaskQueueRequest.task_queue_type` is
+    singular, and design 3.2 asks for "the workflow and activity queue
+    types" — the legacy per-type shape every Temporal SDK version speaks,
+    rather than the newer plural `task_queue_types` field this platform's
+    pinned SDK version may or may not report pollers for identically.
+
+    **Never raises.** Any failure here — including a Temporal that answers
+    but does not recognise the queue — reads as `UNREACHABLE_POLLER_READING`
+    (design 3.2: unreachable is `unknown`, never `zero`), so one bad probe
+    cannot take an entire Executive tick down with it (the same contained-
+    failure posture `run_scheduler`/`run_executive` already hold their own
+    loops to).
+
+    Args:
+        client: A connected `temporalio.client.Client` (or any object
+            exposing the same `workflow_service.describe_task_queue`, for
+            tests — never type-imported as `Client` here so a caller does
+            not have to construct a real one to satisfy a signature).
+        task_queue: `settings.temporal.task_queue`.
+
+    Returns:
+        A reading covering both queue types, or the unreachable sentinel.
+    """
+    try:
+        workflow_response = await client.workflow_service.describe_task_queue(
+            DescribeTaskQueueRequest(
+                namespace=client.namespace,
+                task_queue=TaskQueue(name=task_queue),
+                task_queue_type=TaskQueueType.TASK_QUEUE_TYPE_WORKFLOW,
+                report_pollers=True,
+            )
+        )
+        activity_response = await client.workflow_service.describe_task_queue(
+            DescribeTaskQueueRequest(
+                namespace=client.namespace,
+                task_queue=TaskQueue(name=task_queue),
+                task_queue_type=TaskQueueType.TASK_QUEUE_TYPE_ACTIVITY,
+                report_pollers=True,
+            )
+        )
+    except Exception:
+        logger.warning("could not probe task queue pollers; liveness reads as unknown")
+        return UNREACHABLE_POLLER_READING
+
+    newest = None
+    for poller in (*workflow_response.pollers, *activity_response.pollers):
+        if not poller.HasField("last_access_time"):
+            continue
+        at = poller.last_access_time.ToDatetime(tzinfo=UTC)
+        if newest is None or at > newest:
+            newest = at
+
+    return PollerReading(
+        reachable=True,
+        workflow_pollers=len(workflow_response.pollers),
+        activity_pollers=len(activity_response.pollers),
+        newest_last_access_at=newest,
+    )
+
+
 async def run_executive(kernel: PlatformKernel, *, interval_seconds: int | None = None) -> None:
     """Run the Executive Layer's deterministic tick on a loop (D-041, packet D).
 
@@ -201,6 +279,14 @@ async def run_executive(kernel: PlatformKernel, *, interval_seconds: int | None 
     same shape `run_scheduler` already uses. Nothing here schedules a second
     tick while the first is still running.
 
+    **The poller probe, read once per tick (design 3.3, packet P0-C).**
+    `kernel.temporal_client()` is the same cached client `/api/health`'s
+    `workflows` component already uses — a second connection is not opened
+    here. `None` (Temporal unreachable) reads as `UNREACHABLE_POLLER_READING`
+    rather than skipping the probe, so the verdict still runs and correctly
+    renders "unknown" (design 3.2) instead of silently omitting Signal 2 for
+    this tick.
+
     Args:
         kernel: Initialised Platform Kernel.
         interval_seconds: Overrides `Settings.executive.tick_interval_seconds`
@@ -214,6 +300,11 @@ async def run_executive(kernel: PlatformKernel, *, interval_seconds: int | None 
     )
     while True:
         try:
+            client = await kernel.temporal_client()
+            if client is None:
+                poller = UNREACHABLE_POLLER_READING
+            else:
+                poller = await probe_task_queue_pollers(client, kernel.settings.temporal.task_queue)
             async with kernel.services() as services:
                 await run_executive_tick(
                     registry=services.registry,
@@ -222,7 +313,13 @@ async def run_executive(kernel: PlatformKernel, *, interval_seconds: int | None 
                     notifications=kernel.build_notifications(services),
                     breaker=kernel.build_breaker(services),
                     decisions=services.decisions,
+                    heartbeat=HeartbeatStore(services.session),
+                    audit=services.audit,
+                    poller=poller,
                     platform_ceiling_usd=kernel.settings.budget.platform_rolling_24h_usd,
+                    heartbeat_stale_after_seconds=kernel.settings.heartbeat.heartbeat_stale_after_seconds,
+                    poller_stale_after_seconds=kernel.settings.heartbeat.poller_stale_after_seconds,
+                    part_failing_after_crashes=kernel.settings.heartbeat.part_failing_after_crashes,
                 )
         except Exception:
             logger.exception("executive tick failed; retrying next tick")

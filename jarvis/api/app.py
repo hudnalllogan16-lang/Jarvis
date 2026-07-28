@@ -48,8 +48,10 @@ from jarvis.kernel.logging import get_logger
 from jarvis.kpi.engine import KpiEngine
 from jarvis.notifications.service import NotificationService
 from jarvis.observability.heartbeat import HeartbeatStore, summarise_runtime_health
+from jarvis.observability.poller import UNREACHABLE_POLLER_READING, summarise_worker_health
 from jarvis.persistence.models import DeadLetterRow
 from jarvis.registry.registry import LIFECYCLE_TRANSITION_ACTION_TYPE
+from jarvis.runtime.worker import probe_task_queue_pollers
 
 logger = get_logger(__name__)
 
@@ -1138,9 +1140,7 @@ def create_app(
         # half of liveness, read from `runtime_heartbeat` rather than from a
         # local Supervisor — this is what lets a console-only attach (Mode 4,
         # no Supervisor of its own) answer "is anything running" at all,
-        # closing M10-F2 for every topology at once. `workers` (the
-        # DescribeTaskQueue half) is packet P0-C's: it needs the Temporal
-        # poller probe, which lands with the liveness verdict that consumes it.
+        # closing M10-F2 for every topology at once.
         try:
             async with kernel.services() as svc:
                 heartbeat_rows = await HeartbeatStore(svc.session).rows()
@@ -1167,6 +1167,31 @@ def create_app(
                     "remedy": "",
                 }
             )
+
+        # design OPERATIONAL-RUNTIME.md Part 3.2 Signal 2 / 3.4, packet P0-C:
+        # the external half of liveness — reuses the same client `workflows`
+        # already connected above rather than opening a second one, and
+        # `client is None` (Temporal unreachable) reads as the unknown
+        # reading rather than skipping this component, closing the gap
+        # `workers` left open since P0-B.
+        poller = (
+            await probe_task_queue_pollers(client, kernel.settings.temporal.task_queue)
+            if client is not None
+            else UNREACHABLE_POLLER_READING
+        )
+        workers_status, workers_summary = summarise_worker_health(
+            poller,
+            now=datetime.now(UTC),
+            poller_stale_after_seconds=kernel.settings.heartbeat.poller_stale_after_seconds,
+        )
+        components.append(
+            {
+                "name": "workers",
+                "status": workers_status,
+                "summary": workers_summary,
+                "remedy": "",
+            }
+        )
 
         return {
             "ok": all(c["status"] == "ok" for c in components),

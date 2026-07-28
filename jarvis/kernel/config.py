@@ -119,14 +119,17 @@ class BudgetSettings(BaseModel):
 class HeartbeatSettings(BaseModel):
     """Runtime self-report cadence (design OPERATIONAL-RUNTIME.md Part 3.2, D-058).
 
-    Paces the Supervisor's `runtime_heartbeat` writes and the staleness read
-    `/api/health`'s `runtime` component (and, later, the Executive's liveness
-    verdict, packet P0-C) apply against those writes. None of the three
-    values here gate a permission decision — a slower cadence only delays how
-    quickly a stalled part is *noticed*, and the crash threshold below only
-    relabels a part the Supervisor was already going to keep restarting — so
-    all three are ANNOUNCING parameters (Parameter Register, Part 3.3),
-    unlike `platform_rolling_24h_usd`'s ENFORCING ceiling beside them.
+    Paces the Supervisor's `runtime_heartbeat` writes, the staleness reads
+    `/api/health`'s `runtime` and `workers` components apply against those
+    writes and against the Temporal poller probe, and the Executive's own
+    two-signal liveness verdict (packet P0-C) reads the same two staleness
+    margins again rather than a third copy of either. None of the four
+    values here gate a permission decision — a slower cadence only delays
+    how quickly a stalled part is *noticed*, and the crash threshold below
+    only relabels a part the Supervisor was already going to keep
+    restarting (packet P0-E) — so all four are ANNOUNCING parameters
+    (Parameter Register, Part 3.3), unlike `platform_rolling_24h_usd`'s
+    ENFORCING ceiling beside them.
     """
 
     heartbeat_interval_seconds: int = Field(default=15, gt=0)
@@ -142,20 +145,37 @@ class HeartbeatSettings(BaseModel):
     GC pause) does not flip a healthy part to "down" on its own.
     """
 
-    part_failing_after_crashes: int = Field(default=10, gt=0)
-    """Consecutive crashes at which a supervised part's state becomes
-    `failing` rather than `restarting` (design OPERATIONAL-RUNTIME.md Part
-    5.4, the crash-loop honesty rule; packet P0-E). Ten minutes of failure at
-    the capped 60s backoff by default.
+    poller_stale_after_seconds: int = Field(default=300, gt=0)
+    """Signal 2's own staleness margin (design OPERATIONAL-RUNTIME.md Part
+    3.2/7.2, D-058, packet P0-C): a task queue's newest `last_access_time`
+    older than this reads as `degraded` rather than `ok`.
 
-    Changes nothing about *what happens*: Tier 1 never gives up on a part
-    (D-017) and the Supervisor keeps restarting it exactly as before — this
-    only changes the *word* `/api/health` and the heartbeat rows use, so a
-    part that has been "restarting" for six hours stops being described as
-    if it were still coping. Read by `jarvis/shell/supervisor.py`'s
-    `Supervisor`, threaded in from `jarvis/shell/service.py::build_supervisor`
-    rather than imported directly, matching how every other supervised-part
-    knob reaches the Supervisor."""
+    A wider margin than the heartbeat's own — Temporal's own poll loop is
+    not tuned to this platform's 15s cadence, and 300s tolerates a slow
+    provider round trip inside one poll without flipping the `workers`
+    component on a delay that self-corrects. Owner-adjustable, like every
+    other cadence here."""
+
+    part_failing_after_crashes: int = Field(default=10, gt=0)
+    """Design 5.4's crash-loop honesty threshold, at this many consecutive
+    crashes of one part — ten minutes of failure at the Supervisor's own
+    capped 60s backoff, by design. Two readers, deliberately sharing one
+    value rather than two copies of it:
+
+    - `jarvis/shell/supervisor.py`'s `Supervisor` (packet P0-E), threaded in
+      from `jarvis/shell/service.py::build_supervisor`, relabels the part's
+      own state `failing` rather than `restarting` for `/api/health`'s
+      `parts` array. Changes nothing about *what happens* — Tier 1 never
+      gives up on a part (D-017) and keeps restarting it exactly as before
+      — only the word used to describe it.
+    - `jarvis/executive/liveness.py` (packet P0-C, D-038 layering) reads the
+      same threshold against `consecutive_crashes` on the heartbeat rows
+      `Supervisor` already writes, and is what actually tells the operator
+      once a part has crossed it — the Supervisor itself cannot notify
+      (`jarvis.shell` is outside D-038's import list).
+
+    Mirrors `PartStatus.consecutive_crashes`, already tracked and already
+    capped; this is only the point at which silence becomes a defect."""
 
 
 class TemporalSettings(BaseModel):

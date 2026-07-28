@@ -510,7 +510,7 @@ NOT_AN_ACTION = "publish_post"
 
 # ── Guard 4: the pin, and the ratchet (design 9.2 guard 4, 9.5) ─────────────
 
-REGISTRY_DIGEST_PIN = "1cf445eeeef8a3bcc265dda54df1b9266dad43f3e9b101e628c6f157e379a109"
+REGISTRY_DIGEST_PIN = "f0cc9d26cd73cd97b95faeab39ac3e4e19030e5fc3ed45fc32397c2ba4cb28f1"
 """SHA-256 over every governance-relevant field of the registry and the module
 authority table. Updating this line is the visible, reviewable, single-line diff
 that cannot be mistaken for anything else."""
@@ -545,6 +545,14 @@ AUTONOMY_PIN: dict[str, tuple[str, str, int | None, bool | None]] = {
     "portfolio.compute_census": ("L0", "NONE", None, None),
     "portfolio.compute_rollup": ("L0", "NONE", None, None),
     "reservation.reconcile": ("L1", "NONE", None, None),
+    # New surface, not a loosened rule: P0-C's two-signal liveness verdict,
+    # ratified with the Phase 0 design (DECISIONS, "Phase 0 design merged" —
+    # two new L1 actions, D-055..D-061). A newly registered action is not an
+    # autonomy increase by `_increases_autonomy`'s own definition, so the pin
+    # moves without a sign-off row and this comment is the reviewable
+    # statement of why (the same pattern business.late_wake_notice's own
+    # comment above/below records for P0-D's row).
+    "runtime.liveness_verdict": ("L1", "NONE", None, None),
     "spending.company_band_notice": ("L1", "NONE", None, None),
     "spending.platform_band_notice": ("L1", "NONE", None, None),
 }
