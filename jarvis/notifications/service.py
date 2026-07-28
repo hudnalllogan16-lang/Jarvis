@@ -70,6 +70,22 @@ class NotificationKind(StrEnum):
     behind this notice has already been decided, so it would be filtered out of
     the operator's queue the moment it was written."""
 
+    MISSED_ROUND = "missed_round"
+    """A scheduled round was skipped because its period had ended (design 4.4).
+
+    Its own kind, for the reason the two above are: one outage produces several
+    of these conditions at once. A runtime that was down overnight comes back to
+    companies whose rounds were missed (*this*), companies whose rounds failed
+    against a provider that is still unreachable (`UNFINISHED_ROUND`), and
+    Managers that cannot read their setup yet (`STUCK`) — and under
+    :meth:`has_unread` a shared kind means whichever notice landed first
+    silences the others. Three different situations, three different sentences,
+    three different things the operator might do.
+
+    Deduplicated per company with no ref, like `STUCK`: every skipped round has
+    the same cause and the same (absent) action, so a second notice adds
+    nothing the audit log does not already hold."""
+
 
 class NotificationService:
     """Creates and reads operator notifications."""

@@ -8,6 +8,7 @@ does not belong in the workflow.
 
 from __future__ import annotations
 
+from datetime import datetime
 from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -32,7 +33,55 @@ class CycleContext(BaseModel):
     dispatchable: bool
     """False when the business is paused, retiring, or retired (D-008 I-4)."""
 
+    next_fire_at_utc: datetime | None = None
+    """When this business's schedule next fires, as an absolute UTC instant.
+
+    Computed in the activity (design OPERATIONAL-RUNTIME.md 4.2) because the
+    workflow may not read a clock (D-004) and because resolving a timezone is
+    file-backed I/O that has no business inside the workflow sandbox. The
+    workflow parks to it: ``delay = max(next_fire_at_utc - workflow.now(),
+    MINIMUM_PARK)``, which is replay-safe on both sides — the instant is a
+    recorded activity result and `workflow.now()` replays identically.
+
+    `None` means one of two things and the workflow treats them the same way:
+    this business has no schedule at all (it wakes on events), or this context
+    was recorded before M10 and carries :attr:`schedule_interval_seconds`
+    instead. The second is the compatibility hinge (spec §11) — see that
+    field."""
+
+    period_ends_at_utc: datetime | None = None
+    """When the schedule fires *again* after :attr:`next_fire_at_utc`.
+
+    The end of the period the next wake belongs to, which is the whole of what
+    4.4's rule needs: "a schedule period admits at most one cycle". A wake
+    served before this instant runs, with its lateness recorded; a wake still
+    unserved when it passes is skipped and announced, because a worker down
+    thirteen hours must never restart into thirteen hours of billable backlog
+    and the content of a missed 09:00 planning cycle is worthless at 22:00.
+
+    Carried rather than recomputed after the wake, because it is a fact about
+    the period the Manager *parked into* — recomputing it from the far side of
+    an outage would answer a different question. It is second value the
+    activity returns rather than a duration, because cron periods are not
+    uniform: ``"0 9,16 * * *"`` has a seven-hour period and a seventeen-hour
+    one, and a single "period length" would be wrong for both."""
+
     schedule_interval_seconds: int | None = None
+    """The pre-M10 shape: a flat interval in seconds.
+
+    No longer written — `load_cycle_context` returns :attr:`next_fire_at_utc`
+    instead — and kept because a *running* execution's history holds contexts
+    that carry it (D-033). A Manager parked on a timer when this shipped
+    replays the old branch of `_await_wake`, and that branch reads this field
+    off its own recorded payload. Deleting it would make exactly the three live
+    parked executions unreplayable, which is the failure the version gate
+    exists to prevent.
+
+    It is also the fallback for the one seam between the two: a history that
+    ends between a context load and the park takes the new branch with an old
+    payload, and reading "no schedule" there would silently turn a scheduled
+    company into one that only wakes on events."""
+
     max_cycles_per_day: int = 48
     wake_cycle_ceiling_usd: Decimal = Decimal("1.00")
     day_ordinal: int = 0

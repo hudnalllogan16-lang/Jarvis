@@ -238,6 +238,35 @@ PARAMETER_ENTRIES: tuple[ParameterEntry, ...] = (
             "permission. Parameter Register row (design OPERATIONAL-RUNTIME.md Part 3.4)."
         ),
     ),
+    # ── ANNOUNCING — wall-clock cron (design OPERATIONAL-RUNTIME.md Part 4, packet P0-D) ──
+    ParameterEntry(
+        name="wake_conditions.schedule_cron",
+        param_class=ParameterClass.ANNOUNCING,
+        origin=Origin.PLATFORM_DEFAULT,
+        current_source='code default ("0 9 * * *", jarvis/businesses/definition.py)',
+        location="jarvis.domain.contract:WakeConditions.schedule_cron",
+        note=(
+            "Paces when a company reasons; gates no permission, so ANNOUNCING and a "
+            "recordable origin is enough. Recorded honestly rather than dressed up: "
+            "nobody authorised '0 9 * * *'. It earns a row it did not have because "
+            "P0-D changes what the value MEANS — five real fields instead of a "
+            "flattening to 3600/86400 (M10-F4/M10-F13) — and a parameter whose "
+            "semantics move must be visible in the register on the day they move."
+        ),
+    ),
+    ParameterEntry(
+        name="wake_conditions.schedule_timezone",
+        param_class=ParameterClass.ANNOUNCING,
+        origin=Origin.PLATFORM_DEFAULT,
+        current_source='code default ("UTC")',
+        location="jarvis.domain.contract:WakeConditions.schedule_timezone",
+        note=(
+            "New field (design 4.3). UTC is the platform's clock of record, so the "
+            "default states what every live contract already did. A type may REQUEST "
+            "another zone in its definition; only the owner's creation or refresh "
+            "flow establishes one, which is why this is not APPROVED_CONFIG today."
+        ),
+    ),
 )
 """Every row, in registration order. The source of truth; :data:`PARAMETER_REGISTER`
 is a lookup view over it."""

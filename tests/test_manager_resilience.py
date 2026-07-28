@@ -33,6 +33,11 @@ rather than queued, and the drop is now reported. The workflow half is in
 it produces are here, beside the park's, for the same reason the park's are —
 they need a company with a name.
 
+**P0-D (design 4.4) — what an outage skips.** A scheduled round whose period
+ended before the wake was served is skipped rather than replayed, and announced.
+Same split for the same reason: the decision is a workflow one and version-gated,
+the two records it produces need a contract to name the company.
+
 All of it is proved the same way: the defect is kept as an executable test
 beside its fix, because a fix whose defect nobody can still reproduce is a fix
 nobody can check.
@@ -65,6 +70,9 @@ from jarvis.manager.activities import (
     DROPPED_WAKE_COPY,
     DROPPED_WAKE_DEFAULT,
     DROPPED_WAKE_EVENT,
+    LATE_WAKE_BODY,
+    LATE_WAKE_EVENT,
+    LATE_WAKE_TITLE,
     MANAGER_PARKED_SUMMARY,
     ManagerActivities,
 )
@@ -1187,6 +1195,144 @@ async def test_a_paused_company_does_not_fill_the_queue(
 
     assert len(await _notices(kernel)) == 1, "one unanswered notice per company"
     assert len(await _audited_drops(kernel)) == 3, "the record keeps every one of them"
+
+
+# ── design 4.4's records, for the round an outage skipped ──────────────────
+
+
+async def _audited_skips(kernel: PlatformKernel) -> list[AuditLogRow]:
+    async with kernel.services() as svc:
+        return list(
+            (
+                await svc.session.scalars(
+                    select(AuditLogRow).where(AuditLogRow.event_type == LATE_WAKE_EVENT)
+                )
+            ).all()
+        )
+
+
+async def test_a_skipped_round_reaches_the_operator_and_the_record(
+    kernel: PlatformKernel, company: BusinessId
+) -> None:
+    """Design 4.4: an operator notification and an audit entry, per skipped period.
+
+    Both, because they answer different questions. The audit entry is the
+    forensic account — which company, how late, on what schedule — and it is the
+    only place a "wakes have been getting later all week" trend can be read
+    from. The notification is what reaches the operator without their looking,
+    and it is what turns "my company did nothing this morning" from a mystery
+    into a sentence.
+    """
+    await as_business(
+        company,
+        ManagerActivities(kernel).record_late_wake,
+        {"business_id": company, "wake_lateness_seconds": "27240"},
+    )
+
+    audited = await _audited_skips(kernel)
+    notices = await _notices(kernel)
+
+    assert len(audited) == 1
+    assert audited[0].payload["wake_lateness_seconds"] == "27240"
+    assert audited[0].payload["schedule_cron"] == "0 9 * * *"
+    assert audited[0].payload["schedule_timezone"] == "UTC"
+    assert [n.kind for n in notices] == [NotificationKind.MISSED_ROUND.value]
+    assert notices[0].title == LATE_WAKE_TITLE.format(name="Summit Trail Gear")
+    assert notices[0].body == LATE_WAKE_BODY
+
+
+async def test_a_long_outage_does_not_fill_the_queue(
+    kernel: PlatformKernel, company: BusinessId
+) -> None:
+    """§12.5's "no permanent accumulation", against an outage of several days.
+
+    Every skipped round has the same cause and the same (absent) action, so one
+    unanswered notice says everything the operator can act on; seven of them are
+    the accumulation §12.5 forbids. The count lives in the audit log, which is
+    asserted in the same breath so that "deduplicated" cannot quietly become
+    "lost".
+    """
+    activities = ManagerActivities(kernel)
+    for lateness in ("3600", "90000", "176400"):
+        await as_business(
+            company,
+            activities.record_late_wake,
+            {"business_id": company, "wake_lateness_seconds": lateness},
+        )
+
+    assert len(await _notices(kernel)) == 1, "one unanswered notice per company"
+    assert len(await _audited_skips(kernel)) == 3, "the record keeps every one of them"
+
+
+async def test_the_skip_notice_does_not_share_a_kind_with_a_failed_round(
+    kernel: PlatformKernel, company: BusinessId
+) -> None:
+    """The trap the new kind exists to avoid, made executable.
+
+    One outage produces both conditions in the same minute: rounds that were
+    missed while the platform was down (this), and rounds that failed against a
+    provider that is still unreachable when it comes back (`UNFINISHED_ROUND`).
+    A shared kind would let whichever landed first silence the other under
+    `has_unread` — and the operator would be told about one of the two things
+    that happened to their company, with no way to know there was a second.
+    """
+    await as_business(
+        company,
+        ManagerActivities(kernel).record_cycle_decision,
+        {
+            "business_id": company,
+            "cycle_id": "cyc_outage",
+            "summary": "Summit Trail Gear couldn't finish this round of work.",
+            "rationale": "Something it needed didn't respond.",
+            "outcome": "failed",
+            "spend_usd": "0",
+            "wake_lateness_seconds": "0",
+        },
+    )
+    await as_business(
+        company,
+        ManagerActivities(kernel).record_late_wake,
+        {"business_id": company, "wake_lateness_seconds": "27240"},
+    )
+
+    assert {row.kind for row in await _notices(kernel)} == {
+        NotificationKind.UNFINISHED_ROUND.value,
+        NotificationKind.MISSED_ROUND.value,
+    }
+
+
+async def test_every_round_files_its_lateness_with_its_decision(
+    kernel: PlatformKernel, company: BusinessId
+) -> None:
+    """4.4's trending half, at the row an operator's history is built from.
+
+    Recorded on a healthy round too, which is the whole point: a number that
+    only appears when something is wrong has no baseline to be read against. A
+    history captured before the field replays its own payload, so the read is
+    defensive and the absent case records zero rather than raising inside an
+    activity (spec §11).
+    """
+    payload = {
+        "business_id": company,
+        "cycle_id": "cyc_ontime",
+        "summary": "Summit Trail Gear finished a round of work.",
+        "rationale": "It did what it planned.",
+        "outcome": "completed",
+        "spend_usd": "0.12",
+    }
+    await as_business(
+        company,
+        ManagerActivities(kernel).record_cycle_decision,
+        payload | {"wake_lateness_seconds": "27240"},
+    )
+    await as_business(
+        company,
+        ManagerActivities(kernel).record_cycle_decision,
+        payload,  # a caller from before the field, e.g. a replayed history
+    )
+
+    entries = await _round_entries(kernel)
+    assert [e.inputs_considered["wake_lateness_seconds"] for e in entries] == ["27240", "0"]
 
 
 async def test_it_does_not_share_a_kind_with_the_notice_that_paused_it(

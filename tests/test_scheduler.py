@@ -124,15 +124,55 @@ async def test_notifications_carry_no_technical_language(
 
 
 @pytest.mark.parametrize(
-    ("cron", "expected"),
-    [("0 9 * * *", 86400), ("0 * * * *", 3600), (None, None), ("bad", None)],
+    ("cron", "fires_at", "period_ends"),
+    [
+        ("0 9 * * *", "2026-07-28T09:00:00+00:00", "2026-07-29T09:00:00+00:00"),
+        ("0 * * * *", "2026-07-27T23:00:00+00:00", "2026-07-28T00:00:00+00:00"),
+        # The sharper edge the ratification review measured: a legitimate
+        # twice-daily schedule that `_interval_seconds` turned into an hourly
+        # one — twelve times the intended cycles, every one of them billable,
+        # bounded only by `max_cycles_per_day` (M10-F4).
+        ("0 9,16 * * *", "2026-07-28T09:00:00+00:00", "2026-07-28T16:00:00+00:00"),
+        (None, None, None),
+    ],
 )
-def test_supported_schedule_subset(cron: str | None, expected: int | None) -> None:
-    """v1 supports daily and hourly only.
+def test_the_schedule_is_read_as_a_calendar_not_an_interval(
+    cron: str | None, fires_at: str | None, period_ends: str | None
+) -> None:
+    """M10-F4/M10-F13's fix, at the seam the Manager actually reads (design 4.2).
 
-    §14 asks us not to expand speculatively; a schedule this cannot express is
-    the demonstrated need that would justify a fuller cron implementation.
+    Until M10 this function's ancestor (`_interval_seconds`) reduced every
+    five-field expression to 3600 or 86400 seconds, so the stored value did not
+    mean what it said and — worse — that interval was re-anchored on every park,
+    which is how a daily schedule drifted 22:40 -> 06:14 in a single incident.
+
+    The anchor is 22:40 on the 27th deliberately: it is the instant M10-F13
+    measured, and the daily row asserts the next fire is 09:00 the following
+    morning rather than 22:40 the following night. That one comparison is the
+    drift, ended.
     """
-    from jarvis.manager.activities import _interval_seconds
+    from jarvis.domain.contract import WakeConditions
+    from jarvis.manager.activities import _schedule_instants
 
-    assert _interval_seconds(cron) == expected
+    anchor = datetime(2026, 7, 27, 22, 40, 31, tzinfo=UTC)
+    next_fire, period_end = _schedule_instants(WakeConditions(schedule_cron=cron), anchor)
+
+    assert next_fire == (datetime.fromisoformat(fires_at) if fires_at else None)
+    assert period_end == (datetime.fromisoformat(period_ends) if period_ends else None)
+
+
+def test_an_expression_the_platform_cannot_keep_is_refused_not_flattened() -> None:
+    """The other half of 4.2, and the half that used to be silent.
+
+    `_interval_seconds("bad")` returned `None`, which the workflow reads as
+    "this company has no schedule at all" — so a typo in a cron expression
+    turned a scheduled company into one that only ever woke on events, with
+    nothing anywhere saying so. The expression is now refused where a person can
+    still fix it: at contract validation.
+    """
+    from pydantic import ValidationError
+
+    from jarvis.domain.contract import WakeConditions
+
+    with pytest.raises(ValidationError):
+        WakeConditions(schedule_cron="bad")
