@@ -102,7 +102,8 @@ earlier** — with exactly three exceptions.
 
 - `jarvis/kernel/container.py` — the DI container constructs everything, so by definition it
   imports everything.
-- `jarvis/runtime/worker.py` — the entrypoint registers the workflow and the scheduler.
+- `jarvis/runtime/worker.py` — the entrypoint registers the workflow, the scheduler, and (M9-1c,
+  D-041) the Executive Layer's own deterministic tick.
 
 All three are composition roots: they wire the graph rather than sit in it. Every *other* module must
 import backward only. `tests/test_layering.py` asserts this, because the failure mode is gradual
@@ -130,7 +131,7 @@ roadmap revision 2.
 | `CircuitBreaker.trip()` — writes §12.5's halt narrative; nothing in `jarvis/` calls it (§9) | M2 | M9-1b — `jarvis.executive.alerts.record_platform_halt` | Retired |
 | `DecisionLog.record_platform_decision` / `platform_feed` — writer exists, no reader (§11.5) | M1 | pending — packet E, operator-surface lane (design Part 8) | Open |
 | `NotificationKind.SPENDING` — declared kind, zero writers, zero readers (§3, CFO) | M3 | M9-1b — `jarvis.executive.alerts.raise_spend_alerts` | Retired |
-| `jarvis/executive/` — rollup, census, cap alerts and the halt narrative; nothing runs them on a timer yet (§3, D-041) | M9-1a…M9-1b | pending — packet D, the scheduled runner composed at `runtime/worker.py` | Open |
+| `jarvis/executive/` — rollup, census, cap alerts and the halt narrative; nothing runs them on a timer yet (§3, D-041) | M9-1a…M9-1b | M9-1c — `run_executive`, composed at `runtime/worker.py` | Retired |
 
 **The entry this ledger missed.** `KpiEngine.record` was written in M3 and had no caller for four
 milestones — it was never listed here, so the debt accrued invisibly and was found by a live run
@@ -164,11 +165,19 @@ prior entry so one halt produces one explanation. The operator-facing reader des
 is packet E, and the row stays Open until it lands — retiring it on the strength of a
 deduplication read would be the ledger recording a caller it did not get.
 
-**And one added, by the same rule that retired those two.** M9-1a and M9-1b built the entire
-deterministic Executive — rollup, census, cap alerts, halt narrative — and D-041 puts its caller
-on a timer that packet D has not written yet. Four functions that nothing invokes is exactly the
-shape of the two worked examples above, and the honest moment to write the row is now, not when
-somebody later notices the Executive has never run.
+**And one added, by the same rule that retired those two — then retired itself two packets later.**
+M9-1a and M9-1b built the entire deterministic Executive — rollup, census, cap alerts, halt
+narrative — and D-041 put its caller on a timer packet D had not yet written. Four functions that
+nothing invoked was exactly the shape of the two worked examples above, and the honest moment to
+write the row was the one that found it, not the one that later noticed the Executive had never
+run.
+
+**Retired at M9-1c.** `run_executive` (`jarvis/executive/runner.py`) is that caller, composed at
+`runtime/worker.py` on its own asyncio timer (D-041) and, in the developer Shell, registered as a
+fourth `Supervisor` part beside the worker and the scheduler (D-016/D-017) — no change to the
+supervision mechanism itself, one more part added to it exactly as the scheduler already is. Every
+row this milestone's Part 0 census opened is now Retired except `platform_feed`'s, which stays
+Open for packet E on its own stated terms above.
 
 **Deferred at M5.** `CredentialManager` was scheduled to gain a caller here through generic tool
 execution. Building it found the plan self-defeating: a tool-execution layer with no concrete tool

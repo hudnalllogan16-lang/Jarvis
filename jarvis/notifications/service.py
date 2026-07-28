@@ -143,9 +143,14 @@ class NotificationService:
         return (await self._session.scalars(stmt)).all()
 
     async def has_unread(
-        self, business_id: BusinessId, *, kind: NotificationKind, link_ref: str | None = None
+        self, business_id: BusinessId | None, *, kind: NotificationKind, link_ref: str | None = None
     ) -> bool:
         """Return whether this company already has an unread notice of ``kind``.
+
+        ``business_id=None`` checks a platform-wide notice instead of a
+        company's — the same meaning :meth:`notify` already gives the
+        argument (design EXECUTIVE-LAYER.md 2.3's per-company dedup and the
+        platform ceiling's own warning bands, M9-F83, share this one check).
 
         Asked before raising a repeatable notice, so a condition that recurs on
         a timer produces one entry in the operator's queue rather than one per
@@ -174,7 +179,7 @@ class NotificationService:
         it announced.
 
         Args:
-            business_id: The company to check.
+            business_id: The company to check, or None for a platform-wide notice.
             kind: Which category of notice.
             link_ref: Optional. When given, only notices carrying this exact ref
                 count; when omitted, any unread notice of ``kind`` does.

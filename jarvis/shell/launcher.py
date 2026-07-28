@@ -6,9 +6,9 @@ meets a dead process. With the ``desktop`` extra installed, the dashboard opens
 in a native window and closing it quits Jarvis; otherwise the browser opens.
 
 One command, one process, everything running: preflight, service auto-start,
-migrations, the operator API and dashboard, the Temporal worker, and the
-scheduler sweep — with clear degradation when a dependency is missing rather
-than a stack trace.
+migrations, the operator API and dashboard, the Temporal worker, the
+scheduler sweep, and the Executive's own budget/health tick (D-041) — with
+clear degradation when a dependency is missing rather than a stack trace.
 
 **Topology, not architecture.** Production keeps the worker and API as separate
 processes; the architecture's boundaries are unchanged. This module is a third
@@ -148,6 +148,13 @@ async def _run_scheduler(kernel: PlatformKernel) -> None:
     await run_scheduler(kernel)
 
 
+async def _run_executive(kernel: PlatformKernel) -> None:
+    """Run the Executive Layer's deterministic tick (D-041)."""
+    from jarvis.runtime.worker import run_executive
+
+    await run_executive(kernel)
+
+
 async def _watch_stop(stop: threading.Event) -> None:
     """End the run when the main thread signals shutdown (D-017).
 
@@ -212,6 +219,7 @@ async def launch(
     supervisor.add("api", "Dashboard", lambda: _serve_api(kernel, supervisor, settings.api_port))
     supervisor.add("worker", "Company runner", lambda: _run_worker_when_possible(kernel))
     supervisor.add("scheduler", "Timers and reminders", lambda: _run_scheduler(kernel))
+    supervisor.add("executive", "Budget and health checks", lambda: _run_executive(kernel))
 
     # Signal readiness only once the port is actually bound. Opening a window or a
     # browser tab before then shows a connection error as the operator's first

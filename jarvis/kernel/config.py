@@ -124,6 +124,22 @@ class TemporalSettings(BaseModel):
     task_queue: str = "jarvis-platform"
 
 
+class ExecutiveSettings(BaseModel):
+    """The Executive Layer's deterministic cadence (spec §3, D-041)."""
+
+    tick_interval_seconds: int = Field(default=60, gt=0)
+    """How often rollup -> census -> alerts -> the halt narrative runs as one
+    pass (design EXECUTIVE-LAYER.md Part 7).
+
+    Its own setting, not the scheduler's `interval_seconds` (300s, un-configured
+    today): Part 7's second argument is that the two cadences are "genuinely
+    different" — the sweep is tuned to §9's approval timers (24h re-notify, 7d
+    expire), while a company can cross both its 50% and 80% spend bands inside
+    a single working session (design 2.3) and is owed a tighter check. 60s is
+    chosen for that reason, not derived from any other constant, and is
+    owner-adjustable like every other cadence and ceiling here."""
+
+
 def _lowercase_keys(raw: Mapping[str, Any]) -> dict[str, Any]:
     """Return ``raw`` with lowercased keys.
 
@@ -164,6 +180,7 @@ class Settings(BaseSettings):
     llm: LLMSettings
     budget: BudgetSettings = Field(default_factory=BudgetSettings)
     temporal: TemporalSettings = Field(default_factory=TemporalSettings)
+    executive: ExecutiveSettings = Field(default_factory=ExecutiveSettings)
 
     credentials: dict[str, SecretStr] = Field(default_factory=dict)
     """Credential handle -> secret, from the secrets manager (spec §10).

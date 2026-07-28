@@ -200,6 +200,30 @@ async def test_unlinked_notification_is_unaffected_by_reconciliation(
     assert notification_id in unread_ids
 
 
+async def test_has_unread_checks_a_platform_wide_notice_with_business_id_none(
+    session: AsyncSession, contract: BusinessContract
+) -> None:
+    """`business_id=None` means "platform-wide" for :meth:`has_unread` exactly
+    as it already does for :meth:`notify` (design EXECUTIVE-LAYER.md 2.3's
+    platform ceiling bands, M9-F83, are the first caller to need this)."""
+    service = NotificationService(session)
+    assert await service.has_unread(None, kind=NotificationKind.SPENDING) is False
+
+    await service.notify(
+        notification_id=new_notification_id(),
+        kind=NotificationKind.SPENDING,
+        title="Spending across every company is close to the daily limit",
+        body="...",
+        business_id=None,
+        link_ref="platform-spend-band:80",
+    )
+
+    assert await service.has_unread(None, kind=NotificationKind.SPENDING) is True
+    # A company's own notice must not satisfy a platform-wide check, or the
+    # two dedup namespaces would leak into each other.
+    assert await service.has_unread(contract.business_id, kind=NotificationKind.SPENDING) is False
+
+
 async def test_resolve_for_still_clears_eagerly_alongside_the_read_path_filter(
     session: AsyncSession, contract: BusinessContract
 ) -> None:
