@@ -96,34 +96,33 @@ def _apply_migrations() -> None:
     command.upgrade(Config("alembic.ini"), "head")
 
 
+def _supervisor_parts(supervisor: Supervisor) -> list[dict[str, object]]:
+    """Render the Supervisor's live part statuses for `/api/health`'s `parts`
+    field (M10-F1). A crashed part therefore shows as "restarting" in the
+    dashboard's health banner rather than the operator meeting a dead
+    terminal — the claim `run_worker`'s docstring makes (`worker.py:47-53`)."""
+    return [
+        {
+            "name": part.operator_label,
+            "state": part.state.value,
+            "restarts": part.consecutive_crashes,
+        }
+        for part in supervisor.statuses()
+    ]
+
+
 async def _serve_api(kernel: PlatformKernel, supervisor: Supervisor, port: int) -> None:
-    """Serve the operator API and dashboard on ``port`` (`Settings().api_port`)."""
-    app = create_app(kernel)
+    """Serve the operator API and dashboard on ``port`` (`Settings().api_port`).
 
-    @app.get("/api/health")
-    async def health() -> dict[str, object]:  # pyright: ignore[reportUnusedFunction]
-        """Live health for the dashboard banner: external dependencies from
-        preflight plus the supervised parts of the app itself, so a crashed
-        part shows as "restarting" in the UI rather than a dead terminal.
-
-        Registered on the app by the ``@app.get`` decorator above, not called
-        by name from this module — pyright's dead-code check does not model
-        FastAPI's decorator-based routing, so it sees no reference after
-        definition. It is genuinely live: the dashboard polls it directly
-        (``jarvis/api/static/index.html``'s ``get('/api/health')`` calls).
-        """
-        report = await run_preflight(kernel)
-        payload = report.to_payload()
-        payload["parts"] = [
-            {
-                "name": part.operator_label,
-                "state": part.state.value,
-                "restarts": part.consecutive_crashes,
-            }
-            for part in supervisor.statuses()
-        ]
-        return payload
-
+    `create_app` owns the single `/api/health` route for every topology
+    (M10-F1). This module used to register a *second* route at the same path
+    to add Supervisor part statuses — Starlette's first-match routing meant
+    `create_app`'s own route always won and this one was permanently dead
+    code, so `parts` was `[]` here too even though a real Supervisor exists.
+    Fixed by handing `create_app` a `parts_provider` closure instead of
+    competing with its route.
+    """
+    app = create_app(kernel, parts_provider=lambda: _supervisor_parts(supervisor))
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
     await server.serve()
 

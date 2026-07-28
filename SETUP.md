@@ -227,9 +227,15 @@ uv run python -m jarvis.api.server
 
 Then open <http://localhost:8000>.
 
-You'll see an empty state: "No companies yet". That's correct — companies arrive in Milestone 4.
+You'll see an empty state: "No companies yet" — because none have been created in this
+database yet, not because the feature doesn't exist (companies have existed since Milestone 4/5).
 The page is doing real work regardless: it polls for anything needing your OK, and the top strip
 shows spending against your daily limit.
+
+Note this step runs `jarvis.api.server` on its own: API and dashboard only, no worker, no
+scheduler, no Executive. A company created here reaches "running" but nothing will ever wake it
+up — that requires Step 7 below, or (the supported way to run Jarvis day to day) `uv run python
+-m jarvis` in place of Steps 6 and 7 combined, which supervises all of it in one process.
 
 The API is browsable at <http://localhost:8000/api/docs> if you want to poke at it directly.
 
@@ -243,11 +249,16 @@ Leave this running in its own terminal.
 uv run python -m jarvis.runtime.worker
 ```
 
-Expected output: a JSON log line saying `kernel initialised`, then `worker starting`. Then
-nothing.
+Expected output: a JSON log line saying `kernel initialised`, then `worker starting`. Then, if you
+have no companies yet, quiet — this process also runs the scheduler sweep and the Executive tick
+(§9 timers, D-041), so it is not idle, it simply has nothing to do yet. Create a company through
+the Step 6 dashboard while this is running and it reaches `ACTIVE`, the next sweep starts its
+Business Manager workflow within seconds, and it runs on its own from there.
 
-**That silence is correct.** No workflows are registered yet — the Business Manager arrives in
-Milestone 4. The worker exists now so the activity boundary has a running host. It will sit idle.
+This topology (worker + scheduler + Executive as a bare `asyncio.gather`, no process supervision
+— see `docs/reports/RUNTIME-AUDIT.md` M10-F6/F7) is not the supported way to run Jarvis
+unattended; a crash here does not restart itself. `uv run python -m jarvis` runs the same three
+loops, plus the API, under one supervisor that does restart crashed parts.
 
 Confirm it registered at http://localhost:8233 under the `jarvis-platform` task queue.
 
@@ -317,11 +328,14 @@ them, read what they did and why, and drill into full detail when you want it. T
 hierarchy refuses spend that would breach a ceiling, and the autonomy ladder graduates routine
 actions after a clean streak — with an easy undo.
 
-**Can't:** run a company autonomously. There is no Business Manager and no scheduler, so nothing
-wakes up on its own. Every action is still one you invoke.
+**Can, as of Milestone 4/5 (the current repo is at Milestone 9):** run a company autonomously —
+the Business Manager and scheduler wake it up on its own, on the Manager's own Temporal timer,
+with no action from you required. This requires running the worker/scheduler (Step 7) or the
+launcher (`uv run python -m jarvis`) — `jarvis.api.server` alone (Step 6) does not start them,
+so a company created under that process alone will sit `ACTIVE` and never act.
 
-Milestone 4 adds the scheduler and the Business Manager, then the Affiliate Business — the first
-point where Jarvis does something without you asking.
+**Genuinely can't yet:** trade live (Trading Analysis ships in a later milestone), and a few G2/G3
+governance mechanisms are recorded deferrals — see `docs/reports/M9.md`.
 
 ---
 
@@ -333,8 +347,8 @@ docker compose down                     # stop (keeps data)
 docker compose down -v                  # stop and wipe data
 uv run pytest -q                        # tests
 uv run alembic upgrade head             # apply migrations
-uv run python -m jarvis                  # everything, one process (dev)
-uv run python -m jarvis.api.server       # dashboard only
-uv run python -m jarvis.runtime.worker  # worker + scheduler only (prod topology)
+uv run python -m jarvis                  # supported topology: everything, one process, supervised
+uv run python -m jarvis.api.server       # dashboard only — read-only, no autonomy (no worker/scheduler)
+uv run python -m jarvis.runtime.worker  # worker + scheduler + executive, unsupervised (no auto-restart)
 docker compose logs -f temporal         # tail Temporal
 ```
