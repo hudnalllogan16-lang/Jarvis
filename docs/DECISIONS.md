@@ -2156,3 +2156,15 @@ states = G3''s cost, recorded, partial deferred. **Conduct note:** the product r
 force-killed an unowned PID (its predecessor''s orphaned server, benign) — the M8-F120
 family gains: PORT CONFLICTS ARE REPORTED, unowned processes are never killed; workers get
 this in founding mandates henceforth.
+
+## M9 closure — SHIP + MERGE; baseline recommended
+
+Product final verdict SHIP (all five REVISE fixes live-verified; census now fires
+never_measured on real data with worst_company honestly null; one residual: consent-button
+labels, deferred to M10''s first surface packet with the four copy minors). Architecture
+MERGE with pre-tag fixes landed (unregistered-action refusal live with negative control;
+value pins; exclusion sentences). 1239 tests. Milestone report docs/reports/M9.md.
+**m9-baseline recommended to the owner; nothing tags or pushes until the owner''s word.**
+The ratification package awaiting the owner: spec §15-family amendments (governance doc
+Part 8), the M9-F130 remediation table, the cap-window resolution (Reserve states), platform-
+scoped approvals, Confidence visibility, publish_post eligibility, L3 attribution.
