@@ -2285,3 +2285,15 @@ P0-D merges alone. **Owner question (non-blocking, gates only container-mode val
 M10-F11 — Docker Desktop is per-user; NSSM mode is unaffected and primary.** Named limit
 recorded: in-band alerting cannot report its own host''s death — outages become
 impossible-to-miss afterwards, with a duration.
+
+## P0-A merged (1264 tests) — jarvis-run exists; escalation resolved (a)
+
+The one part table is real and AST-enforced (constructed AND injected supervisors); the
+headless platform (`jarvis-run`, signals, postures, root resolution) is written; the
+unsupervised topology is DELETED; the launcher attaches to a running platform instead of
+fighting it (design 6.3 — ratified though absent from Part 11''s row). Escalation resolved
+option (a): the governance rows belong to their owning packets (P0-C/D) — the Manager''s
+packet line over-specified against Part 11, and the registry integrity tests correctly
+refused stubs. Residual recorded: all-parts-exit-cleanly → process exit 0 → OS restarter
+stays stopped (no part does this today; P0-F names the case or records why not).
+`serve_headless` carries an Open ledger row until P0-F/G start it as a real process.
