@@ -155,9 +155,21 @@ opaque colours. That is what lets one banner style work on `--surface-page` and
 
 ## What this system does not have yet, deliberately
 
-- **A data-visualisation categorical palette.** Trends and charts arrive with the Business
-  Workspaces (Phase 3). A categorical ramp invented now, with no series to colour, would be
-  decoration that lies. When it comes it extends this file.
+- **A data-visualisation categorical palette.** Phase 3 arrived and this is *still* not needed,
+  which is the useful half of the answer. The trend component (`06-components.md`, M9-2b) draws
+  one series per chart against one target, so there is nothing to tell apart by hue. It is drawn
+  in **ink, not in colour** — `--text-secondary` for the readings, `--text-primary` for the
+  latest one, `--border-strong` dashed for the target.
+
+  That is a decision, not an omission. Rule 2 above says one meaning per surface, and on a
+  company page colour already means health; a series coloured by attainment would be a second
+  meaning competing with the meter beside it, and it would restate as a hue what the health
+  parts already give as a number. A categorical ramp becomes due when one chart has to carry
+  two series at once — and it extends this file when it does.
+
+  The three tokens are contrast-measured as *text* already; used as **graphics** they are a new
+  usage class, so they are measured again in `09-accessibility.md`, "Non-text contrast".
+  Minimum 3.25:1 (dark `--border-strong` on `--surface-page`) against a 3:1 requirement.
 - **A brand colour distinct from the accent.** Jarvis's identity is currently carried by
   typography and restraint. If a brand hue is introduced it is an owner decision, not a
   design-system one.

@@ -73,6 +73,11 @@ read, it leaves.
 - **No number roll-ups.** A health score animating from 0 to 73 is a lie for 200ms. Values
   change in place; tabular figures (`03-typography.md`) make that legible without motion.
 - **No parallax, no hover-tilt, no gradient drift.**
+- **No draw-on for the trend line** (`.trend`, M9-2b). A sparkline that strokes itself into place
+  over 600ms is the number roll-up above wearing a different shape: the readings did not arrive
+  gradually, and animating them says they did. The chart appears complete, in one frame, like
+  every other value on the page. It carries no transition at all, so there is nothing for the
+  reduced-motion rule below to have to switch off.
 - **No theme-swap animation.** Switching Dark/Light/Match your device (Settings, M9-3) snaps
   instantly. It is the operator's own action, already reported by the control they just used —
   letting every element's own hover/colour transition fire on its own timing for the same repaint

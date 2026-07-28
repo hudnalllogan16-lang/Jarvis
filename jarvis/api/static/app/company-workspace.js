@@ -9,15 +9,20 @@
 // used to open it are links to `#/companies/<id>`.
 //
 // Everything on this page is backed by a field the API already serves; the
-// table of which field, from which endpoint, is in the design document. The
-// one thing the page deliberately does NOT draw is a trend — `kpi_values` is a
-// real series but no route serves it, and a line through one point is not a
-// trend (reserved, with the shape it needs, in 13-company-workspace.md).
+// table of which field, from which endpoint, is in the design document.
+//
+// The trend was the one element this document RESERVED, from M8-2 to M9-2,
+// because no route served `kpi_values`. `/api/companies/{id}/kpi-series`
+// shipped at M9-2a and the reservation is released here. What it protected is
+// still the live situation: every real series holds exactly one reading
+// (M9-F72), which `app/trend.js` draws as one dot and says so, rather than as
+// a line it would have had to invent the other end of.
 
 import { get } from './api.js';
 import { esc, money, ago, humanizeAction, measurement } from './format.js';
 import { meter } from './companies.js';
 import { tile } from './tiles.js';
+import { trendMark } from './trend.js';
 import { region, setWorkspaceTitle } from './shell.js';
 
 /** The health band as a word. Colour never carries a state alone
@@ -46,7 +51,7 @@ function goalLine(g) {
   return `<div class="entry"><p>${esc(g.label)}</p>
      <p class="entry__why">${esc(measurement(g.measured))} ${esc(g.unit)} &middot; goal is ${goal} ${esc(
        measurement(g.target),
-     )} ${esc(g.unit)}</p></div>`;
+     )} ${esc(g.unit)}</p>${trendMark(g)}</div>`;
 }
 
 // When every target is still unmeasured, one clean sentence replaces what
@@ -67,6 +72,73 @@ function goalsSection(goals) {
         : goalLine(g),
     )
     .join('');
+}
+
+/** One company's KPI series, with the freshness key it was fetched at.
+ *
+ *  One company, not a map: an operator moving back and forth between two
+ *  companies is refetching a read they are actively looking at, which is the
+ *  case a cache is not for, and a map would keep readings alive long after the
+ *  operator left the company they belong to. */
+let cache = { id: null, key: null, rows: null };
+
+/** The newest thing this company has recorded.
+ *
+ *  KPI observations are written by the wake cycle, and D-021 makes every
+ *  completed cycle write exactly one Decision Log entry — so this timestamp
+ *  moves exactly when a new reading could exist. It costs nothing: the detail
+ *  payload the page just fetched already carries it.
+ *
+ *  The coupling is to D-021 rather than to the readings themselves, and it is
+ *  stated in docs/design/13-company-workspace.md so a future change to cycle
+ *  recording knows it has a reader here. */
+function freshnessKey(c) {
+  const feed = c.activity || [];
+  return feed.length ? feed[0].when : '';
+}
+
+/** Give a series entry the `measured` field the goals section reads.
+ *
+ *  Derived from the last point rather than fetched a second time:
+ *  `KpiEngine.series` orders oldest-first and `KpiEngine.latest` is the newest
+ *  row of that same query, so this is the same value by construction — and
+ *  reading it here means the two numbers cannot disagree across a cycle
+ *  boundary the way two separate fetches could. It reads a row; it does not
+ *  recompute anything (the design document's arithmetic rule). */
+function withLatest(s) {
+  const points = Array.isArray(s.points) ? s.points : [];
+  return {
+    ...s,
+    points,
+    measured: points.length ? points[points.length - 1].value : null,
+  };
+}
+
+/** The series for this company, fetched only when a new reading could exist.
+ *
+ *  This page is already the most expensive poll on the surface (M9-F26);
+ *  adding a second unconditional per-company fetch to the 15-second cycle
+ *  would have doubled exactly the wrong thing. Full policy and its one
+ *  accepted consequence: docs/design/13-company-workspace.md, "Fetching the
+ *  series without paying for it every cycle".
+ *
+ *  Returns null when the read is unavailable and nothing is cached, which is
+ *  the caller's signal to fall back to the detail payload's own goals — the
+ *  page then renders exactly as it did before this component existed. */
+async function seriesFor(c) {
+  const key = freshnessKey(c);
+  const cached = cache.id === c.id && cache.rows ? cache.rows : null;
+  // A first paint and a cache miss always fetch: a page showing real data is
+  // not conditional on the browser calling this tab foreground. Only the
+  // "something may have changed" case is, because a hidden tab has nobody
+  // reading it and can wait for the repaint after it comes back.
+  if (cached && (key === cache.key || document.visibilityState !== 'visible')) {
+    return cached;
+  }
+  const rows = await get(`/api/companies/${encodeURIComponent(c.id)}/kpi-series`);
+  if (!Array.isArray(rows)) return cached;
+  cache = { id: c.id, key, rows: rows.map(withLatest) };
+  return cache.rows;
 }
 
 // A pending template update (design PLUGIN-FRAMEWORK.md Part 4/6, D-030).
@@ -96,9 +168,13 @@ function pendingUpdateCard(id, u) {
  *  Health takes the healthy tone or none. It deliberately does NOT escalate a
  *  `watch` band to the attention tone: `watch` means worth a look, and
  *  spending the risk colour on it leaves nothing louder for a company that is
- *  actually at risk. */
-function tiles(c, approvals) {
-  const goals = c.goals || [];
+ *  actually at risk.
+ *
+ *  `goals` is the one list the whole page reads — the series when it is
+ *  available, the detail payload's own readings when it is not. Passed in
+ *  rather than taken off `c` so the tile and the goals section below it can
+ *  never be counting two different arrays. */
+function tiles(c, approvals, goals) {
   const measured = goals.filter((g) => g.measured !== null).length;
   const waiting = approvals.length;
   const oldest = waiting
@@ -145,7 +221,7 @@ function tiles(c, approvals) {
 /** Identity, state, the one control that changes it, and the summary band.
  *  Painted separately from the body so it keeps refreshing while the body is
  *  held for an open disclosure. */
-function headMarkup(c, approvals) {
+function headMarkup(c, approvals, goals) {
   return `<a class="ws-back" href="#/companies"><span aria-hidden="true">&lsaquo;</span>
       All companies</a>
     <header class="co-head${c.running ? '' : ' co-head--paused'}">
@@ -166,7 +242,7 @@ function headMarkup(c, approvals) {
           data-running="${c.running ? 'yes' : 'no'}">${c.running ? 'Pause' : 'Start'}</button>
       </div>
     </header>
-    <div class="tile-row">${tiles(c, approvals)}</div>
+    <div class="tile-row">${tiles(c, approvals, goals)}</div>
     ${pendingUpdateCard(c.id, c.pending_update)}
     ${
       c.pending_update_note
@@ -225,7 +301,7 @@ function feedSection(c) {
  *  right. "/100" is explicit on every health part rather than three bare
  *  numbers sitting a line above a dollar amount that could be mistaken for the
  *  same kind of figure (M7-5b item 2). */
-function bodyMarkup(c) {
+function bodyMarkup(c, goals) {
   const parts = Object.entries(c.health_parts || {})
     .map(
       ([label, val]) =>
@@ -237,7 +313,7 @@ function bodyMarkup(c) {
     <div class="co-layout__main">
       ${stuckSection(c)}
       <h2 class="section-head">Hitting its goals</h2>
-      ${goalsSection(c.goals)}
+      ${goalsSection(goals)}
       <h2 class="section-head">What ${esc(c.name)} is doing</h2>
       ${feedSection(c)}
       <details id="fullDetails"><summary>Full details</summary>
@@ -300,9 +376,17 @@ export async function paintCompany(id, approvals) {
   }
 
   setWorkspaceTitle(c.name);
-  head.innerHTML = headMarkup(c, approvals);
+
+  // One list for the whole page. The series is the better source — it carries
+  // the history AND the latest reading, so nothing has to be matched up by
+  // label — and the detail payload's own `goals` is the fallback when that
+  // read is unavailable, which lands the page exactly where it was before the
+  // trend existed.
+  const goals = (await seriesFor(c)) || c.goals || [];
+
+  head.innerHTML = headMarkup(c, approvals, goals);
   if (readingInDepth()) return;
-  body.innerHTML = bodyMarkup(c);
+  body.innerHTML = bodyMarkup(c, goals);
 
   // Raw detail is fetched only when the operator opens it. Drill-down is
   // opt-in per §12.5, and loading it eagerly would make it part of the default

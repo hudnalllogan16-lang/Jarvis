@@ -1034,6 +1034,72 @@
   margin-left: auto;
 }
 
+/* ── Trend — docs/design/06-components.md, ".trend" ───────────────────────
+   One metric's recorded history, inside the goal entry it belongs to. A DATA
+   mark, not an icon: it renders values and disappears when they do.
+
+   Drawn in INK — no status hue anywhere in this block. Colour on a company
+   page already means health, and a series coloured by attainment would put a
+   second meaning on it right beside the meter that owns the first
+   (docs/design/02-color.md, "one meaning per surface"). All three marks are
+   contrast-measured as graphics in docs/design/09-accessibility.md; the
+   quietest of them, the dashed target, is 3.25:1 against a 3:1 requirement.
+
+   No transition and no animation: a line that strokes itself into place says
+   the readings arrived gradually, and they did not (docs/design/08-motion.md). */
+.trend {
+  margin-top: var(--space-5);
+}
+
+/* Sized here, scaled uniformly from its own viewBox — which is what keeps the
+   latest-reading dot a circle. `height: auto` lets the intrinsic ratio do
+   that; a stretched `preserveAspectRatio` would have made it an ellipse. */
+.trend__chart {
+  width: 100%;
+  max-width: 220px;
+  height: auto;
+}
+
+/* One device pixel however wide the column is. Without this the stroke scales
+   with the box, and the same line reads heavier on a wide screen than on a
+   narrow one — a weight the data never asked for. */
+.trend__line,
+.trend__target {
+  fill: none;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.trend__line {
+  stroke: var(--text-secondary);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* The reference the readings are read AGAINST, so it is the quietest mark
+   here: dashed, and the one line the eye does not follow. */
+.trend__target {
+  stroke: var(--border-strong);
+  stroke-dasharray: 3 3;
+}
+
+/* The reading that is true right now — the one mark on the chart that is also
+   stated in words directly above it. */
+.trend__now {
+  fill: var(--text-primary);
+}
+
+/* Scoped to its own block to outrank `.entry p`, which sets a body size for
+   the goal lines this note sits under. It is the chart's accessible
+   equivalent rather than a caption: the <svg> is aria-hidden, so everything
+   the drawing says has to be said here. */
+.trend .trend__note {
+  font-family: var(--font-data);
+  font-size: var(--size-xs);
+  color: var(--text-muted);
+  margin-top: var(--space-2);
+}
+
 .stuck {
   background: var(--wash-risk);
   border-left: 3px solid var(--status-risk);

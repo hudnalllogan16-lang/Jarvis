@@ -108,18 +108,59 @@ metric's own unit and takes the aggregate from `health_parts` — server-compute
 Counting is not computing: "2 of 3 measured" counts array members and states no judgement about
 whether either number is good.
 
-## Reserved on this workspace
+## The reservation, and what happened to it
 
-`12-application-shell.md` reserves *destinations*; this reserves an *element*, for the same
-reason and at the same cost to the operator — none.
+`12-application-shell.md` reserves *destinations*; this document reserved an *element* — the
+trend — for the same reason and at the same cost to the operator, none:
 
-| Element | Why it does not ship | What would unblock it |
-|---|---|---|
-| **Trend indicator / sparkline** | `kpi_values` is a real append-only series since D-027, and `KpiEngine.series()` already reads it — but no route serves it. The page has `measured` (the latest reading) and nothing before it. A line drawn through one point is not a trend, and a trend drawn from anything else is invented. | A per-company KPI series read (shape in the M9-2 report) |
+> **Trend indicator / sparkline.** `kpi_values` is a real append-only series since D-027 and
+> `KpiEngine.series()` already reads it — but no route serves it. The page has `measured` (the
+> latest reading) and nothing before it. A line drawn through one point is not a trend, and a
+> trend drawn from anything else is invented. **Unblocked by:** a per-company KPI series read.
 
-The temptation this reservation exists to resist is specific: the goals section has a target, a
-current reading and a direction, which is *almost* enough to draw an arrow. It is not — a
-direction arrow needs a previous reading, and the surface does not have one.
+**Released at M9-2b.** `GET /api/companies/{id}/kpi-series` shipped at M9-2a and the component
+is `.trend` in `06-components.md`. Two things are worth keeping from how it went:
+
+- The reservation named its unblocking condition, and the endpoint that arrived satisfied it —
+  so the surface consumed a real read on the first attempt instead of negotiating a shape.
+- **The reservation's own worry turned out to be the live case.** Every real series on the
+  platform today holds exactly one reading (M9-F72). The temptation the reservation existed to
+  resist — "a target, a current reading and a direction is *almost* enough to draw an arrow" —
+  is still the whole of the data. The component answers it by rendering one point as one point:
+  a dot against the target line, and the sentence "one reading so far — a trend needs a second".
+
+Nothing else on this page is reserved.
+
+## Fetching the series without paying for it every cycle
+
+The workspace repaints every 15 seconds and `/api/companies/{id}` is already the most expensive
+read on the surface (M9-F26). Adding a second per-company fetch to that cycle unconditionally
+would have doubled exactly the wrong thing.
+
+**The series is refetched only when a new reading could exist.** KPI observations are written by
+the wake cycle, and D-021 makes every completed cycle write exactly one Decision Log entry — so
+`activity[0].when`, which this page already holds from the detail payload it just fetched, is a
+sound freshness key at zero extra cost. The cached series is reused until that timestamp moves.
+
+    fetch the series when   the route's company changed
+                     or     nothing is cached for it
+                     or     the newest activity timestamp differs from the cached one
+                            AND document.visibilityState === 'visible'
+
+The visibility condition guards the third case only. A hidden tab has nobody reading it and its
+series can wait for the repaint after it comes back; but a page painting for the first time must
+show real data whether or not the browser calls the tab foreground, and a cache miss has nothing
+to fall back on — so the first two conditions are unconditional.
+
+The cache holds **one** company, not a map. An operator moving back and forth between two
+companies refetches a read they are actively looking at, which is the case a cache is not for,
+and a map would keep a company's readings alive long after the operator left it.
+
+**The coupling to accept, stated rather than buried:** a reading recorded without any Decision
+Log entry would go unseen until the next cycle that writes one. D-021 makes that impossible
+today, and the staleness would be bounded by one cycle rather than unbounded — but the freshness
+key is tied to D-021, not to `kpi_values` itself, so a future change to cycle recording should
+know it has a reader here.
 
 ## Repaint rules
 
