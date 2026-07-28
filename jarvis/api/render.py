@@ -92,31 +92,56 @@ def _translate_lifecycle_words(text: str) -> str:
     return _LIFECYCLE_PATTERN.sub(lambda m: _RAW_LIFECYCLE_WORDS[m.group(1)], text)
 
 
-def render_operator_text(raw: str) -> str:
-    """Render one piece of live Decision Log prose for the operator surface.
+def render_operator_text(raw: str, *, platform_authored: bool = False) -> str:
+    """Render one piece of Decision Log or notification prose for the operator
+    surface.
 
     Args:
-        raw: The stored `summary` or `rationale`, written by a Manager cycle.
+        raw: The stored `summary`/`rationale`/`title`/`body`. Usually written
+            live by a Manager cycle — this module's whole reason for being
+            (see the module docstring) — but see `platform_authored` below.
+        platform_authored: True when `raw` is one of this platform's own
+            fixed-template sentences (an operator's pause/resume, a lifecycle
+            transition, a circuit-breaker halt — never a Manager's live
+            synthesis), rather than the model prose this boundary exists to
+            launder. Skips :func:`_translate_lifecycle_words` when set (M9-9
+            product REVISE item 4): that pass exists to catch a *raw* state
+            value leaking out of live synthesis ("moved from provisioning to
+            active"), and it cannot tell that apart from the same word used
+            correctly in ordinary English — found live as "You paused this
+            company." rendering as "You Paused by you this company.", because
+            `PAUSED`'s own D-007 label is "Paused by you" and the substitution
+            has no way to know the sentence in front of it already said the
+            right thing. Platform-authored text is reviewed copy, not
+            synthesis with a raw value hiding in it, so there is nothing here
+            for that pass to catch and no reason to risk it. `_strip_ids` and
+            the forbidden-vocabulary fallback below still run regardless —
+            neither has ever corrupted correct prose, and both stay as
+            defence in depth if a future template is ever careless.
 
     Returns:
         Text safe for the default view: platform ids removed, raw lifecycle
-        words translated (D-007), and — if the result still contains a §12.5
-        forbidden concept — replaced outright with :data:`NEUTRAL_FALLBACK`
-        rather than shown with the offending word cut out.
+        words translated (D-007) unless `platform_authored`, and — if the
+        result still contains a §12.5 forbidden concept — replaced outright
+        with :data:`NEUTRAL_FALLBACK` rather than shown with the offending
+        word cut out.
     """
-    cleaned = _translate_lifecycle_words(_strip_ids(raw))
+    cleaned = _strip_ids(raw)
+    if not platform_authored:
+        cleaned = _translate_lifecycle_words(cleaned)
     if contains_technical_language(cleaned):
         return NEUTRAL_FALLBACK
     return cleaned
 
 
-def render_doing_now(raw: str) -> str:
+def render_doing_now(raw: str, *, platform_authored: bool = False) -> str:
     """Render the company card's one-line "Latest update" summary.
 
-    Applies :func:`render_operator_text` and then caps the result to
-    :data:`DOING_NOW_LIMIT` characters with an ellipsis — the card is the
-    default view, not the drill-down, and §12.5 keeps the default view to one
-    sentence. Callers that need the full text (the activity feed) should call
+    Applies :func:`render_operator_text` (see its `platform_authored` for
+    what that does) and then caps the result to :data:`DOING_NOW_LIMIT`
+    characters with an ellipsis — the card is the default view, not the
+    drill-down, and §12.5 keeps the default view to one sentence. Callers
+    that need the full text (the activity feed) should call
     :func:`render_operator_text` directly instead.
 
     The cut backs up to the last word boundary at or before the limit (M7
@@ -125,7 +150,7 @@ def render_doing_now(raw: str) -> str:
     "word" longer than the whole budget — no space to back up to — falls back
     to a hard cut rather than returning nothing.
     """
-    text = render_operator_text(raw)
+    text = render_operator_text(raw, platform_authored=platform_authored)
     if len(text) <= DOING_NOW_LIMIT:
         return text
     truncated = text[:DOING_NOW_LIMIT]

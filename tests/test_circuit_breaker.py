@@ -66,6 +66,19 @@ async def test_trip_writes_an_operator_readable_explanation(
     assert "$500.00" in entry.rationale
 
 
+async def test_trip_rationale_never_promises_raising_the_limit(session: AsyncSession) -> None:
+    """M9-9 product REVISE item 5: the rationale used to end "...resets or you
+    raise it", and nothing on this surface exposes the platform ceiling
+    (`jarvis/kernel/config.py`) as an editable setting an operator can reach —
+    the recovery copy must say where the number lives, not imply a control
+    that isn't there."""
+    breaker, _ = _breaker(session, "500.00")
+    await breaker.trip(decision_id=DecisionId("dec_trip3"), spend_usd=Decimal("500.00"))
+
+    entry = (await DecisionLog(session).platform_feed())[0]
+    assert "raise" not in entry.rationale.lower()
+
+
 async def test_trip_can_name_the_triggering_company(session: AsyncSession) -> None:
     breaker, _ = _breaker(session, "500.00")
     await breaker.trip(

@@ -132,6 +132,20 @@ def test_the_alert_sentences_are_written_for_the_operator(band: int) -> None:
     assert title not in copy.consequence, "a body that restates its title says nothing new"
 
 
+@pytest.mark.parametrize("band", SPEND_BANDS)
+def test_the_consequence_never_names_an_action_this_surface_does_not_offer(band: int) -> None:
+    """M9-9 product REVISE item 5: the old copy said "raise the limit" /
+    "you raise it", and nothing on this surface lets an operator do that —
+    `business_cap_usd` is set once at creation (`newco.js`) and is never an
+    editable field afterward (design PLUGIN-FRAMEWORK.md Part 6: explicitly
+    excluded from every refresh band, "the operator's money"). Recovery copy
+    must say where the number came from, not imply a control that isn't
+    there."""
+    consequence = BAND_COPY[band].consequence.lower()
+    assert "raise" not in consequence
+    assert "you can" not in consequence
+
+
 def test_the_breach_band_keeps_d007s_own_sentence() -> None:
     """Design 2.3: the alert says what D-007 already promised, earlier — it
     does not introduce operator-visible behaviour beyond D-007's table."""
@@ -321,6 +335,17 @@ def test_the_platform_alert_sentences_are_written_for_the_operator(band: int) ->
     assert copy.title[0].isupper()
     assert copy.consequence.endswith(".")
     assert copy.title not in copy.consequence
+
+
+@pytest.mark.parametrize("band", PLATFORM_BANDS)
+def test_the_platform_consequence_never_names_an_action_this_surface_does_not_offer(
+    band: int,
+) -> None:
+    """M9-9 product REVISE item 5, the platform ceiling's own copy: nothing on
+    this surface exposes `platform_rolling_24h_usd` (`jarvis/kernel/
+    config.py`) as an editable setting an operator can reach."""
+    consequence = PLATFORM_BAND_COPY[band].consequence.lower()
+    assert "raise" not in consequence
 
 
 async def test_a_platform_ceiling_below_every_band_is_left_alone(

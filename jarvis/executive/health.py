@@ -19,6 +19,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from jarvis.budget.ledger import BudgetLedger
+from jarvis.domain.contract import BusinessContract
 from jarvis.domain.lifecycle import LifecycleState
 from jarvis.kernel.ids import BusinessId
 from jarvis.kpi.engine import KpiEngine
@@ -68,6 +69,46 @@ class PortfolioHealth:
     for the same cause as above."""
 
 
+async def _has_been_measured(
+    kpi: KpiEngine, contract: BusinessContract, business_id: BusinessId
+) -> bool:
+    """Whether this company has evidence of an actual measurement, for
+    `never_measured_count` (M9-9 product REVISE item 2).
+
+    A wake cycle's Decision Log entry — what `KpiEngine.completed_cycle_count`
+    counts — records only that a *round ran*, whatever its outcome
+    (`_completed_cycle_count`'s own docstring: "whatever its outcome"). A
+    company can run several rounds that each fail before dispatch and never
+    write a single `KpiValueRow`; gating `never_measured` on that count (the
+    original shape here) let such a company fall through to `watch`/`at_risk`
+    with a `zero_attainment_stall` reading — "Set goals but hasn't hit any of
+    them yet.", which reads as a tried-and-missed goal — and even be named the
+    census's `worst_company`, for a reason that never actually happened: it
+    was never measured, not measured and found wanting. Recounting on
+    recorded readings instead catches exactly that company, in both
+    directions: cycles with no reading still read `never_measured`, and a
+    company that has a genuine recorded observation is never swept in here
+    just because its work has since had a rough patch.
+
+    Mirrors `jarvis.api.app._ever_measured`'s per-target read (latest value
+    per key this company's own contract currently targets) rather than a bare
+    existence check across every key ever recorded for it — a target the
+    company no longer carries is not evidence about it today.
+
+    A company with no `kpi_targets` at all has no per-metric observation this
+    check could ever find — there is nothing to be missing — so it falls back
+    to the original cycle-count read for that one case: D-027.4's grace
+    period already treats a young, target-less company as fine until its
+    cycles say otherwise, and that reasoning does not change here.
+    """
+    if not contract.kpi_targets:
+        return await kpi.completed_cycle_count(business_id) > 0
+    for target in contract.kpi_targets:
+        if await kpi.latest(contract.business_id, target.key) is not None:
+            return True
+    return False
+
+
 async def compute_portfolio_health(
     registry: BusinessRegistry,
     ledger: BudgetLedger,
@@ -110,9 +151,8 @@ async def compute_portfolio_health(
         contract = await registry.get_contract(business_id)
         spend = await ledger.business_spend(business_id)
         score = await kpi.health(contract, spend_usd=spend)
-        cycles = await kpi.completed_cycle_count(business_id)
 
-        if cycles == 0 and score.stuck_count == 0:
+        if score.stuck_count == 0 and not await _has_been_measured(kpi, contract, business_id):
             never_measured += 1
             continue
 

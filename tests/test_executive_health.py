@@ -64,6 +64,15 @@ async def _add_completed_cycles(
     await session.flush()
 
 
+async def _record_zero_reading(session: AsyncSession, business_id: BusinessId) -> None:
+    """Record an actual (zero) observation against `_with_target`'s one KPI
+    target — a genuine measurement, as opposed to a company that merely ran
+    cycles. Value zero keeps attainment at zero (a real miss), the same
+    reading `_add_completed_cycles` alone was standing in for before M9-9
+    item 2 — see `test_a_stalled_company_is_named_worst`."""
+    await KpiEngine(session).record(business_id=business_id, key="revenue_mtd", value=Decimal("0"))
+
+
 async def test_all_healthy_and_measured_names_nobody(
     session: AsyncSession, registry: BusinessRegistry, contract: BusinessContract
 ) -> None:
@@ -87,7 +96,34 @@ async def test_a_stalled_company_is_named_worst(
     session: AsyncSession, registry: BusinessRegistry, contract: BusinessContract
 ) -> None:
     """D-020 amendment: sustained zero attainment reads as watch, and its
-    summary becomes the census's one reason."""
+    summary becomes the census's one reason — for a company that was actually
+    measured (M9-9 item 2: cycles alone are not evidence of a measurement)."""
+    await _install(registry)
+    with_target = _with_target(contract)
+    biz = await registry.register_instance(with_target)
+    await _add_completed_cycles(session, biz, 5, prefix="stalled")
+    await _record_zero_reading(session, biz)
+
+    census = await compute_portfolio_health(registry, _ledger(session), KpiEngine(session))
+
+    assert census.watch_count == 1
+    assert census.never_measured_count == 0
+    assert census.worst_company == with_target.display_name
+    assert census.reasons == ("Set goals but hasn't hit any of them yet.",)
+
+
+async def test_cycles_with_no_recorded_reading_is_never_measured_not_watch(
+    session: AsyncSession, registry: BusinessRegistry, contract: BusinessContract
+) -> None:
+    """M9-9 product REVISE item 2, the defect itself: `never_measured_count`
+    used to gate on completed *cycles*, and a Decision Log entry records only
+    that a round ran, whatever its outcome — a company can fail five rounds
+    before ever dispatching a measurement. That company was being counted as
+    `watch` with "Set goals but hasn't hit any of them yet." (a tried-and-
+    missed reading, and a candidate for `worst_company`) for a goal it never
+    actually got to try. Recounting on recorded readings catches it: the same
+    five cycles as the sibling test above, with no reading ever recorded,
+    now lands in `never_measured_count`, not `watch_count`."""
     await _install(registry)
     with_target = _with_target(contract)
     biz = await registry.register_instance(with_target)
@@ -95,9 +131,10 @@ async def test_a_stalled_company_is_named_worst(
 
     census = await compute_portfolio_health(registry, _ledger(session), KpiEngine(session))
 
-    assert census.watch_count == 1
-    assert census.worst_company == with_target.display_name
-    assert census.reasons == ("Set goals but hasn't hit any of them yet.",)
+    assert census.never_measured_count == 1
+    assert census.watch_count == 0
+    assert census.worst_company is None
+    assert census.reasons == ()
 
 
 async def test_a_never_measured_company_is_counted_separately_from_healthy(
@@ -200,6 +237,8 @@ async def test_worst_company_tiebreak_is_deterministic_not_read_order(
     biz_alpha = await registry.register_instance(alpha)
     await _add_completed_cycles(session, biz_zeta, 5, prefix="z")
     await _add_completed_cycles(session, biz_alpha, 5, prefix="a")
+    await _record_zero_reading(session, biz_zeta)
+    await _record_zero_reading(session, biz_alpha)
 
     census = await compute_portfolio_health(registry, _ledger(session), KpiEngine(session))
 
@@ -225,6 +264,7 @@ async def test_distinct_reasons_are_deduplicated_and_sorted(
     biz_stalled = await registry.register_instance(stalled)
     biz_stuck = await registry.register_instance(stuck)
     await _add_completed_cycles(session, biz_stalled, 5, prefix="stalled")
+    await _record_zero_reading(session, biz_stalled)
     for n in range(3):
         session.add(
             DeadLetterRow(

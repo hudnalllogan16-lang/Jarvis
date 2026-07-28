@@ -78,11 +78,18 @@ _MORPHOLOGICAL_VARIANTS: dict[str, tuple[str, ...]] = {
     # passing through as "woken" -- a plain substring/phrase check for "wake
     # cycle" never matches a wholly different word derived from the same
     # concept. "waking" is added as the same kind of gap before it is found
-    # live rather than after. Bare "wake"/"wakes" are deliberately left out:
-    # unlike "woken"/"waking", they collide with ordinary English ("wake up",
-    # "in the wake of") that this Manager-authored prose is not stretching to
-    # use technically, and no live failure has demonstrated otherwise.
-    "wake cycle": ("wake cycle", "wake cycles", "woken", "waking"),
+    # live rather than after. Bare "wake"/"wakes" were left out at first on
+    # the argument that they collide with ordinary English ("wake up", "in
+    # the wake of") that Manager-authored prose is not stretching to use
+    # technically -- reversed at M9-9 (product REVISE item 4): the argument
+    # was never "these forms are safe", only "no live failure demonstrated
+    # otherwise" yet, and a Manager narrating its own schedule has every
+    # reason to reach for the bare word ("it will wake again tomorrow")
+    # without ever saying "cycle" or an inflection this table already caught.
+    # Ordinary-English collisions remain the risk they always were; the
+    # judgment call is that leaking the platform's own scheduling vocabulary
+    # into an operator's feed is the worse failure of the two.
+    "wake cycle": ("wake cycle", "wake cycles", "woken", "waking", "wake", "wakes"),
     "temporal": ("temporal",),
     "event bus": ("event bus", "event buses"),
     "orchestration": ("orchestration", "orchestrated", "orchestrating"),

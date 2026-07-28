@@ -27,7 +27,8 @@ from jarvis.businesses.affiliate import AFFILIATE
 from jarvis.domain.contract import BusinessContract, KpiTarget
 from jarvis.kernel.config import BudgetSettings, LLMSettings, Settings
 from jarvis.kernel.container import PlatformKernel
-from jarvis.kernel.ids import new_decision_id
+from jarvis.kernel.ids import BusinessId, new_decision_id
+from jarvis.kpi.engine import KpiEngine
 from jarvis.persistence.models import Base, DecisionLogRow
 
 
@@ -106,6 +107,13 @@ async def test_census_names_nobody_when_the_portfolio_is_healthy_and_measured(
         business_id = str(
             await provisioning.create_company(definition=AFFILIATE, display_name="Weekend Reviews")
         )
+        # AFFILIATE's own type definition carries a `posts_published` target
+        # (design PLUGIN-FRAMEWORK.md), so "measured" (M9-9 product REVISE
+        # item 2: recorded readings, not completed cycles) needs an actual
+        # observation, not just the cycles below.
+        await KpiEngine(svc.session).record(
+            business_id=BusinessId(business_id), key="posts_published", value=Decimal("20")
+        )
     await _add_completed_cycles(kernel, business_id, 2)
 
     body = (await api.get("/api/summary")).json()
@@ -164,6 +172,14 @@ async def test_census_names_the_worst_company_with_an_id_the_roster_recognises(
         retargeted = BusinessContract.model_validate(payload)
         await svc.registry.refresh_contract(
             business_id, retargeted, audit_ref_payload={"reason": "test fixture"}
+        )
+        # A genuine (zero) observation — M9-9 product REVISE item 2: cycles
+        # alone are not evidence of a measurement, so a stalled company must
+        # have an actual recorded reading to land in `watch` rather than
+        # `never_measured` (`tests/test_executive_health.py`'s territory,
+        # mirrored here for this file's own worst-company id assertion).
+        await KpiEngine(svc.session).record(
+            business_id=BusinessId(str(business_id)), key="posts_published", value=Decimal("0")
         )
     await _add_completed_cycles(kernel, str(business_id), 5)
 
