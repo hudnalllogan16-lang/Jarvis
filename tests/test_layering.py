@@ -49,6 +49,7 @@ COMPOSITION_ROOTS = {
     pathlib.Path("jarvis/kernel/container.py"),
     pathlib.Path("jarvis/runtime/worker.py"),
     pathlib.Path("jarvis/shell/launcher.py"),
+    pathlib.Path("jarvis/shell/service.py"),
     pathlib.Path("jarvis/__main__.py"),
 }
 """Exempt: these construct the object graph rather than sitting in it.
@@ -56,8 +57,13 @@ COMPOSITION_ROOTS = {
 `__main__.py` is a three-line delegation to the launcher — an entrypoint by
 definition. The launcher was added deliberately as the third root (roadmap revision 3): it
 composes the development topology — API + worker + scheduler in one process —
-and holds no logic of its own. `test_composition_roots_hold_no_logic` keeps
+and holds no logic of its own. `test_entrypoint_roots_hold_no_logic` keeps
 that claim honest.
+
+`service.py` joins them at M10-P0-A (design OPERATIONAL-RUNTIME.md 1.3) by the
+same definition: it holds the platform's one part table and its bootstrap, and
+no logic. Being a root is not what makes it special — `test_one_part_table.py`
+is: a fifth entrypoint may exist, a second opinion about what runs may not.
 """
 
 SOURCES = sorted(pathlib.Path("jarvis").rglob("*.py"))
@@ -143,16 +149,18 @@ def test_documented_milestones_match_the_code() -> None:
 
 ENTRYPOINT_ROOTS = {
     pathlib.Path("jarvis/shell/launcher.py"),
+    pathlib.Path("jarvis/shell/service.py"),
     pathlib.Path("jarvis/__main__.py"),
 }
 """Roots that only *start* things. `container.py` legitimately defines the DI
 container class and `worker.py` hosts run loops; the entrypoints, by contrast,
 must stay free of behaviour — a launcher that grows classes is a service being
-written in the wrong file."""
+written in the wrong file. `service.py` is held to the same rule, which is why
+`Posture` lives in `jarvis/shell/preflight.py`."""
 
 
 def test_entrypoint_roots_hold_no_logic() -> None:
-    """The launcher and __main__ wire and start; they must not define classes."""
+    """The console, the service and __main__ wire and start; no classes."""
     import ast as _ast
 
     for root in ENTRYPOINT_ROOTS:

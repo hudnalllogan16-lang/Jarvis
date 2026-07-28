@@ -1,21 +1,30 @@
-"""The Jarvis launcher: ``python -m jarvis`` (decisions D-016, D-017).
+"""The Jarvis operator console: ``jarvis`` / ``python -m jarvis`` (D-016, D-017).
 
 Runs every part under the Supervisor: a crashed worker restarts with backoff
 and shows as "restarting" in the app's own health banner — the user never
 meets a dead process. With the ``desktop`` extra installed, the dashboard opens
 in a native window and closing it quits Jarvis; otherwise the browser opens.
 
-One command, one process, everything running: preflight, service auto-start,
-migrations, the operator API and dashboard, the Temporal worker, the
-scheduler sweep, and the Executive's own budget/health tick (D-041) — with
-clear degradation when a dependency is missing rather than a stack trace.
+**A console, not the platform (design OPERATIONAL-RUNTIME.md 1.2, packet
+P0-A).** The part table and the bootstrap sequence now live in
+`jarvis/shell/service.py` and this module adds exactly one thing to them: a
+window. It can no longer be a *different* runtime from the service, because
+there is only one part table and neither entrypoint writes its own.
 
-**Topology, not architecture.** Production keeps the worker and API as separate
-processes; the architecture's boundaries are unchanged. This module is a third
-composition root (with `kernel/container.py` and `runtime/worker.py`) that wires
-the same components into a single developer process. Nothing here holds logic —
-if a behaviour matters, it lives in the component and this file merely starts
-it. The layering test's exemption list names this file for exactly that reason.
+Two things stay this module's alone, and both are consequences of a human being
+present:
+
+- **The `REFUSE` posture.** A developer who typed a command is there to read
+  the ladder and fix it; a service that exits because Postgres was three
+  seconds late is a service that has outsourced dependency ordering to its
+  restarter (M10-F15).
+- **`docker compose up -d`.** Docker Desktop belongs to a user session, so a
+  service running as LocalSystem must never start it (M10-F11).
+
+When a runtime is already serving on the dashboard port — `jarvis-run` under a
+service manager, or a container — the console **attaches** to it and starts no
+parts (design 6.3). Closing the window then does nothing to the platform, which
+is the owner's criterion stated as a measurement.
 
 Degradation ladder:
 - Database down → try to start Docker services, re-check, and only then refuse
@@ -31,17 +40,13 @@ import asyncio
 import shutil
 import subprocess
 import threading
-from pathlib import Path
 
-import uvicorn
-
-from jarvis.api.app import create_app
 from jarvis.kernel.config import Settings
 from jarvis.kernel.container import PlatformKernel
 from jarvis.kernel.logging import get_logger
-from jarvis.shell import desktop
-from jarvis.shell.preflight import Status, run_preflight
-from jarvis.shell.supervisor import StartupOutcome, Supervisor
+from jarvis.shell import desktop, service
+from jarvis.shell.preflight import HealthReport, Posture, Status
+from jarvis.shell.supervisor import StartupOutcome
 
 logger = get_logger(__name__)
 
@@ -66,15 +71,17 @@ async def _try_start_services() -> bool:
     Runs the subprocess call off the event loop via `asyncio.to_thread`.
     `subprocess.run` blocks its calling thread until the process exits; called
     directly from a coroutine it freezes the *entire* event loop — including
-    Ctrl-C handling — for however long ``docker compose`` takes. Every other
-    blocking call in this module (`_apply_migrations`) was already offloaded
-    this way; this one was missed.
+    Ctrl-C handling — for however long ``docker compose`` takes.
+
+    The compose file is looked up under the installation root rather than the
+    working directory (M10-F10): the same probe returned False whenever the
+    console was started from anywhere but the repository.
     """
-    if shutil.which("docker") is None or not await asyncio.to_thread(
-        Path("docker-compose.yml").exists
-    ):
+    compose = service.installation_root() / "docker-compose.yml"
+    if shutil.which("docker") is None or not await asyncio.to_thread(compose.is_file):
         return False
     logger.info("starting services", extra={"context": {"via": "docker compose up -d"}})
+    print("  Waiting for services to come up...")
     try:
         await asyncio.to_thread(
             subprocess.run,
@@ -82,76 +89,26 @@ async def _try_start_services() -> bool:
             check=False,
             capture_output=True,
             timeout=120,
+            cwd=service.installation_root(),
         )
     except (subprocess.TimeoutExpired, OSError):
         return False
     return True
 
 
-def _apply_migrations() -> None:
-    """Apply migrations in-process. Idempotent; safe on every launch."""
-    from alembic import command
-    from alembic.config import Config
+def _print_ladder(report: HealthReport) -> None:
+    """Print the preflight ladder the way the console always has.
 
-    command.upgrade(Config("alembic.ini"), "head")
-
-
-def _supervisor_parts(supervisor: Supervisor) -> list[dict[str, object]]:
-    """Render the Supervisor's live part statuses for `/api/health`'s `parts`
-    field (M10-F1). A crashed part therefore shows as "restarting" in the
-    dashboard's health banner rather than the operator meeting a dead
-    terminal — the claim `run_worker`'s docstring makes (`worker.py:47-53`)."""
-    return [
-        {
-            "name": part.operator_label,
-            "state": part.state.value,
-            "restarts": part.consecutive_crashes,
-        }
-        for part in supervisor.statuses()
-    ]
-
-
-async def _serve_api(kernel: PlatformKernel, supervisor: Supervisor, port: int) -> None:
-    """Serve the operator API and dashboard on ``port`` (`Settings().api_port`).
-
-    `create_app` owns the single `/api/health` route for every topology
-    (M10-F1). This module used to register a *second* route at the same path
-    to add Supervisor part statuses — Starlette's first-match routing meant
-    `create_app`'s own route always won and this one was permanently dead
-    code, so `parts` was `[]` here too even though a real Supervisor exists.
-    Fixed by handing `create_app` a `parts_provider` closure instead of
-    competing with its route.
+    The console's, not the service's: `bootstrap` writes the same facts to the
+    log for a process with nobody watching it, and hands them here for one with
+    somebody watching.
     """
-    app = create_app(kernel, parts_provider=lambda: _supervisor_parts(supervisor))
-    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
-    await server.serve()
-
-
-async def _run_worker_when_possible(kernel: PlatformKernel) -> None:
-    """Run the Temporal worker, retrying until the runtime is reachable."""
-    from jarvis.runtime.worker import run_worker
-
-    while True:
-        client = await kernel.temporal_client()
-        if client is not None:
-            logger.info("workflow runtime reachable; worker starting")
-            await run_worker(kernel)
-            return
-        await asyncio.sleep(5)
-
-
-async def _run_scheduler(kernel: PlatformKernel) -> None:
-    """Run the §9 timer sweep and event wakes."""
-    from jarvis.runtime.worker import run_scheduler
-
-    await run_scheduler(kernel)
-
-
-async def _run_executive(kernel: PlatformKernel) -> None:
-    """Run the Executive Layer's deterministic tick (D-041)."""
-    from jarvis.runtime.worker import run_executive
-
-    await run_executive(kernel)
+    for component in report.components:
+        marker = {"ok": "  ✓", "degraded": "  ~", "down": "  ✗"}[component.status.value]
+        line = f"{marker} {component.summary}"
+        if component.remedy and component.status is not Status.OK:
+            line += f"  →  {component.remedy}"
+        print(line)
 
 
 async def _watch_stop(stop: threading.Event) -> None:
@@ -185,24 +142,13 @@ async def launch(
     settings = Settings()  # type: ignore[call-arg]
     kernel = PlatformKernel(settings)
 
-    report = await run_preflight(kernel)
-    if not report.can_serve and await _try_start_services():
-        print("  Waiting for services to come up...")
-        for attempt in range(24):  # up to ~2 minutes for first-time image pulls
-            await asyncio.sleep(5)
-            report = await run_preflight(kernel)
-            if report.can_serve:
-                break
-            if attempt % 3 == 2:  # a visible heartbeat every ~15s, not silence
-                print(f"  Still waiting ({(attempt + 1) * 5}s)...")
-
-    for component in report.components:
-        marker = {"ok": "  ✓", "degraded": "  ~", "down": "  ✗"}[component.status.value]
-        line = f"{marker} {component.summary}"
-        if component.remedy and component.status is not Status.OK:
-            line += f"  →  {component.remedy}"
-        print(line)
-
+    report = await service.bootstrap(
+        kernel,
+        on_unavailable=Posture.REFUSE,
+        recover=_try_start_services,
+        announce=print,
+        on_report=_print_ladder,
+    )
     if not report.can_serve:
         print("\n  Jarvis can't start without its database. Fix the above and rerun.")
         if startup is not None:
@@ -210,15 +156,8 @@ async def launch(
         await kernel.aclose()
         return
 
-    await asyncio.to_thread(_apply_migrations)
-    await kernel.ensure_builtin_types()
-
     print(_ready_banner(settings.api_port))
-    supervisor = Supervisor()
-    supervisor.add("api", "Dashboard", lambda: _serve_api(kernel, supervisor, settings.api_port))
-    supervisor.add("worker", "Company runner", lambda: _run_worker_when_possible(kernel))
-    supervisor.add("scheduler", "Timers and reminders", lambda: _run_scheduler(kernel))
-    supervisor.add("executive", "Budget and health checks", lambda: _run_executive(kernel))
+    supervisor = service.build_supervisor(kernel)
 
     # Signal readiness only once the port is actually bound. Opening a window or a
     # browser tab before then shows a connection error as the operator's first
@@ -266,11 +205,33 @@ def _launch_in_thread(startup: StartupOutcome, stop: threading.Event) -> threadi
     return thread
 
 
+def _attach(port: int) -> None:
+    """Open the console onto a runtime that is already serving (design 6.3).
+
+    Starts no parts, so closing the window is a no-op for the platform — the
+    owner's headline criterion, and what makes this an operator console rather
+    than the platform itself.
+
+    Args:
+        port: The dashboard port that already answered.
+    """
+    print(f"\n   Jarvis is already running. Opening the console on port {port}.\n")
+    if desktop.window_available():
+        desktop.run_window_blocking(port=port)
+    else:
+        desktop.open_browser(port=port)
+
+
 def main() -> None:
     """Console entrypoint: ``jarvis`` or ``python -m jarvis``.
 
-    Two topologies, chosen by whether a native window is available:
+    Three paths. The first is the one that makes this a console:
 
+    * **Attach** — something already answers on the dashboard port, so a
+      runtime is hosted elsewhere (`jarvis-run` under a service manager, or a
+      container). Show it; start nothing. Competing for the port would give the
+      operator a crash-looping API part and a *second* set of companies being
+      run (design 6.3).
     * **Window mode** — the main thread runs pywebview and the services run on a
       background thread. This ownership is forced by the platform: native GUI
       toolkits require the main thread, and pywebview raises if started anywhere
@@ -278,6 +239,16 @@ def main() -> None:
     * **Browser mode** — the services own the main thread as usual and the default
       browser is opened once the port is bound.
     """
+    # `launch()` builds its own `Settings()` on the services thread; this one is
+    # for the main thread, which never sees that instance. Settings reads only
+    # the environment and `.env`, so building it twice costs nothing and keeps
+    # this thread's view of the port consistent with the one that bound it.
+    port = Settings().api_port  # type: ignore[call-arg]
+
+    if desktop.dashboard_is_serving(port=port):
+        _attach(port)
+        return
+
     if not desktop.window_available():
         try:
             asyncio.run(launch())
@@ -302,11 +273,6 @@ def main() -> None:
         stop.set()
         return
 
-    # `launch()` already built its own `Settings()` on the services thread; this
-    # one is for the main thread, which never sees that instance. Settings reads
-    # only the environment and `.env`, so building it twice costs nothing and
-    # keeps this thread's view of the port consistent with the one that bound it.
-    port = Settings().api_port  # type: ignore[call-arg]
     try:
         desktop.run_window_blocking(port=port)
     except KeyboardInterrupt:

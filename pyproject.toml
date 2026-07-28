@@ -18,6 +18,7 @@ dependencies = [
 
 [project.scripts]
 jarvis = "jarvis.shell.launcher:main"
+jarvis-run = "jarvis.shell.service:serve_headless"
 
 [project.optional-dependencies]
 desktop = [

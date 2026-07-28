@@ -1,0 +1,485 @@
+"""The Jarvis runtime: one part table, one bootstrap, one headless entrypoint.
+
+Design OPERATIONAL-RUNTIME.md Parts 1-2, packet P0-A. The audit's central fact
+was three composition roots that each wrote their own part list, so the topology
+existed three times and nothing asserted the three agreed (M10-F19). The
+constraint this module accepts is narrower than "unify the entrypoints":
+
+    The set of supervised parts is written down exactly once. Every entrypoint
+    is a choice of which face to put on that one set, never a second opinion
+    about what the set is.
+
+So `build_supervisor` below is the only place in `jarvis/` that calls
+`Supervisor.add`, and `tests/test_one_part_table.py` is what keeps that a
+property rather than a convention.
+
+Three faces on one core:
+
+* `jarvis-run` -> `serve_headless` — the platform. Signals, exit codes, the
+  `WAIT` posture, no window and no browser ever. This is what every deployment
+  mode in the design's Part 6 actually runs.
+* `jarvis` -> `jarvis/shell/launcher.py` — the operator console. The same
+  `bootstrap` and the same `build_supervisor`, plus a window, under the
+  `REFUSE` posture.
+* `python -m jarvis.api.server` — a console-only attach, unchanged here.
+
+**This module holds no logic.** It constructs the object graph and starts it; if
+a behaviour matters it lives in the component being started. It is exempt in
+`tests/test_layering.py` for that reason and `test_entrypoint_roots_hold_no_logic`
+keeps the claim honest — which is also why `Posture` is defined in
+`jarvis/shell/preflight.py` rather than here.
+
+**Not yet written, and owed to the packets that follow.** The `waiting` and
+`stopped` heartbeat rows this design's Part 3 asks `bootstrap` and
+`serve_headless` to write need the `runtime_heartbeat` table, which is packet
+P0-B's. The places they belong are marked below rather than silently omitted.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import os
+import signal
+import threading
+from collections.abc import Awaitable, Callable
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+import uvicorn
+
+from jarvis.api.app import create_app
+from jarvis.kernel.config import Settings
+from jarvis.kernel.container import PlatformKernel
+from jarvis.kernel.errors import ConfigurationError
+from jarvis.kernel.logging import get_logger
+from jarvis.shell.preflight import HealthReport, Posture, run_preflight
+from jarvis.shell.supervisor import Supervisor
+
+if TYPE_CHECKING:  # imported for typing only; Alembic is a startup cost, not an import one
+    from alembic.config import Config
+
+logger = get_logger(__name__)
+
+EXIT_OK = 0
+"""Clean stop, operator-requested. An external supervisor must NOT restart."""
+
+EXIT_DEPENDENCY_UNAVAILABLE = 2
+"""A dependency failed past the waiting posture's own patience — the database
+disappeared while migrations were running, say. Restart, throttled."""
+
+EXIT_CONFIGURATION = 3
+"""Configuration cannot become valid: `Settings()` refused, or the installation
+root holds no migrations. Restart throttled, and the throttle *is* the alarm —
+an escalating gap between restarts is the visible signal (design 2.3)."""
+
+WAIT_RETRY_SECONDS = 5.0
+"""How often the `WAIT` posture re-runs preflight. Indefinitely: the service
+never gives up on a dependency that may still be starting."""
+
+WAIT_LOG_INTERVAL_SECONDS = 60.0
+"""After the first failure, how often waiting is restated. A log that repeats
+itself every five seconds is a log nobody reads."""
+
+DRAIN_SECONDS = 15.0
+"""Shutdown budget, matching the launcher's existing `services.join(timeout=15)`
+and NSSM's `AppStopMethodConsole` value in the design's Part 6.1."""
+
+
+def installation_root() -> Path:
+    """Return the absolute directory Jarvis is installed in (M10-F10).
+
+    `launcher.py` tested `Path("docker-compose.yml")` and built
+    `Config("alembic.ini")`, both relative to the process working directory. A
+    Windows service does not start with a useful one, so migrations would
+    silently target nothing. Resolved from this file's own location instead,
+    overridable by `JARVIS_HOME` for installations that relocate the package
+    away from the repository layout.
+
+    Returns:
+        The directory holding `alembic.ini` and `migrations/`.
+    """
+    override = os.environ.get("JARVIS_HOME", "").strip()
+    if override:
+        return Path(override).expanduser().resolve()
+    return Path(__file__).resolve().parents[2]
+
+
+def migration_config(root: Path | None = None) -> Config:
+    """Build an Alembic config with absolute paths (M10-F10).
+
+    Both path options Alembic resolves against the working directory are set
+    explicitly, so `alembic upgrade head` targets this installation's
+    migrations whatever directory the process was started in. `alembic.ini`
+    itself is required to exist: a service that "migrates" nothing and reports
+    success is the failure this whole packet exists to stop.
+
+    Args:
+        root: Installation root; defaults to `installation_root()`.
+
+    Returns:
+        An `alembic.config.Config` whose script location and sys.path entry are
+        both absolute.
+
+    Raises:
+        ConfigurationError: If the installation root holds no `alembic.ini`.
+    """
+    from alembic.config import Config
+
+    base = root if root is not None else installation_root()
+    ini = base / "alembic.ini"
+    if not ini.is_file():
+        raise ConfigurationError(
+            f"no alembic.ini under the installation root {base}",
+            operator_message="Jarvis can't find its own installation files.",
+        )
+    config = Config(str(ini))
+    config.set_main_option("script_location", str(base / "migrations"))
+    config.set_main_option("prepend_sys_path", str(base))
+    return config
+
+
+def apply_migrations(root: Path | None = None) -> None:
+    """Apply migrations in-process. Idempotent; safe on every launch.
+
+    Args:
+        root: Installation root; defaults to `installation_root()`.
+
+    Raises:
+        ConfigurationError: If the installation root holds no `alembic.ini`.
+    """
+    from alembic import command
+
+    command.upgrade(migration_config(root), "head")
+
+
+def _log_line(message: str) -> None:
+    """Default progress sink: the service's log, since it has no console."""
+    logger.info(message)
+
+
+def _log_report(report: HealthReport) -> None:
+    """Default settled-preflight sink. One line per component, so an operator
+    reading a service log file sees the same ladder the console prints."""
+    for component in report.components:
+        logger.info(
+            "preflight",
+            extra={
+                "context": {
+                    "component": component.name,
+                    "status": component.status.value,
+                    "summary": component.summary,
+                }
+            },
+        )
+
+
+async def bootstrap(
+    kernel: PlatformKernel,
+    *,
+    on_unavailable: Posture,
+    recover: Callable[[], Awaitable[bool]] | None = None,
+    announce: Callable[[str], None] = _log_line,
+    on_report: Callable[[HealthReport], None] = _log_report,
+    sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+) -> HealthReport:
+    """Preflight, wait or refuse, migrate, install builtin types.
+
+    The one behaviour the console and the service must not share is the
+    response to a missing dependency, and it is a parameter here rather than a
+    second copy of this function (M10-F15, design 1.4).
+
+    Under `WAIT` this returns only once the platform can serve; under `REFUSE`
+    it returns a report the caller must check, without having migrated
+    anything — refusing is the caller's to do, because a function that exits
+    the process cannot be called by a console that wants to show a window
+    first.
+
+    Args:
+        kernel: Initialised Platform Kernel.
+        on_unavailable: `REFUSE` (console) or `WAIT` (service).
+        recover: Console-only attempt to start local dependencies, awaited once
+            if the first preflight cannot serve. `docker compose up -d` is a
+            user-session concern and a service running as LocalSystem must not
+            do it (M10-F11), so the service passes nothing.
+        announce: Progress lines, for a caller with a console.
+        on_report: Called once with the settled report, before migrations, so
+            the ladder is shown while they run rather than after.
+        sleep: Injectable delay, so posture tests do not wait real seconds.
+
+    Returns:
+        The settled `HealthReport`. Under `WAIT` it always serves; under
+        `REFUSE` the caller must check `can_serve`.
+
+    Raises:
+        ConfigurationError: If the installation root holds no migrations.
+    """
+    report = await run_preflight(kernel)
+
+    if not report.can_serve and recover is not None and await recover():
+        for attempt in range(24):  # up to ~2 minutes for first-time image pulls
+            await sleep(WAIT_RETRY_SECONDS)
+            report = await run_preflight(kernel)
+            if report.can_serve:
+                break
+            if attempt % 3 == 2:  # a visible heartbeat every ~15s, not silence
+                announce(f"  Still waiting ({(attempt + 1) * 5}s)...")
+
+    if not report.can_serve and on_unavailable is Posture.WAIT:
+        report = await _wait_for_dependencies(kernel, report, sleep=sleep)
+
+    on_report(report)
+    if not report.can_serve:
+        return report
+
+    await asyncio.to_thread(apply_migrations)
+    await kernel.ensure_builtin_types()
+    return report
+
+
+async def _wait_for_dependencies(
+    kernel: PlatformKernel,
+    report: HealthReport,
+    *,
+    sleep: Callable[[float], Awaitable[None]],
+) -> HealthReport:
+    """Re-run preflight every `WAIT_RETRY_SECONDS` until the platform can serve.
+
+    Logs the first failure and then restates it every `WAIT_LOG_INTERVAL_SECONDS`,
+    so a long outage reads as ongoing rather than as one line at the start
+    followed by silence.
+
+    P0-B owes this loop a `runtime_heartbeat` row in state `waiting`, so the
+    console can say *what* the service is waiting for rather than only that
+    nothing is running.
+
+    Args:
+        kernel: Initialised Platform Kernel.
+        report: The failing report that started the wait.
+        sleep: Injectable delay.
+
+    Returns:
+        The first report that can serve.
+    """
+    waited = 0.0
+    logger.info("waiting for a dependency", extra={"context": _blockers(report)})
+    announced_at = 0.0
+    while not report.can_serve:
+        await sleep(WAIT_RETRY_SECONDS)
+        waited += WAIT_RETRY_SECONDS
+        report = await run_preflight(kernel)
+        if not report.can_serve and waited - announced_at >= WAIT_LOG_INTERVAL_SECONDS:
+            announced_at = waited
+            logger.info(
+                "still waiting for a dependency",
+                extra={"context": {"waited_seconds": waited, **_blockers(report)}},
+            )
+    logger.info("dependencies are available; starting", extra={"context": {"waited": waited}})
+    return report
+
+
+def _blockers(report: HealthReport) -> dict[str, object]:
+    """Name the components that are down, for the waiting log's context."""
+    return {"down": sorted(c.name for c in report.components if c.status.value == "down")}
+
+
+def _supervisor_parts(supervisor: Supervisor) -> list[dict[str, object]]:
+    """Render live part statuses for `/api/health`'s `parts` field (M10-F1).
+
+    A crashed part therefore shows as "restarting" in the dashboard's health
+    banner rather than the operator meeting a dead terminal.
+    """
+    return [
+        {
+            "name": part.operator_label,
+            "state": part.state.value,
+            "restarts": part.consecutive_crashes,
+        }
+        for part in supervisor.statuses()
+    ]
+
+
+async def _serve_api(kernel: PlatformKernel, supervisor: Supervisor, port: int) -> None:
+    """Serve the operator API and dashboard on ``port`` (`Settings().api_port`).
+
+    `create_app` owns the single `/api/health` route for every topology
+    (M10-F1); the Supervisor's part statuses reach it as a `parts_provider`
+    closure rather than as a competing route.
+    """
+    app = create_app(kernel, parts_provider=lambda: _supervisor_parts(supervisor))
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
+    await server.serve()
+
+
+async def _run_worker_when_possible(kernel: PlatformKernel) -> None:
+    """Run the Temporal worker, retrying until the runtime is reachable."""
+    from jarvis.runtime.worker import run_worker
+
+    while True:
+        client = await kernel.temporal_client()
+        if client is not None:
+            logger.info("workflow runtime reachable; worker starting")
+            await run_worker(kernel)
+            return
+        await asyncio.sleep(5)
+
+
+async def _run_scheduler(kernel: PlatformKernel) -> None:
+    """Run the section 9 timer sweep and event wakes."""
+    from jarvis.runtime.worker import run_scheduler
+
+    await run_scheduler(kernel)
+
+
+async def _run_executive(kernel: PlatformKernel) -> None:
+    """Run the Executive Layer's deterministic tick (D-041)."""
+    from jarvis.runtime.worker import run_executive
+
+    await run_executive(kernel)
+
+
+def build_supervisor(kernel: PlatformKernel, *, with_api: bool = True) -> Supervisor:
+    """Build the supervised runtime: the part table, in one place, once.
+
+    **The only call site of `Supervisor.add` in `jarvis/`.** A fifth entrypoint
+    may exist; a second opinion about what runs may not, which is the whole of
+    M10-F19 and is enforced by `tests/test_one_part_table.py`.
+
+    Args:
+        kernel: Initialised Platform Kernel.
+        with_api: Whether this process serves the operator API. False composes
+            the runtime for a deployment whose read surface is served
+            elsewhere (design Part 6, Mode 4's inverse) — the parts are
+            identical either way, which is the point.
+
+    Returns:
+        A Supervisor with its parts registered and running. The caller awaits
+        `run_until_stopped()`.
+    """
+    supervisor = Supervisor()
+    if with_api:
+        supervisor.add(
+            "api", "Dashboard", lambda: _serve_api(kernel, supervisor, kernel.settings.api_port)
+        )
+    supervisor.add("worker", "Company runner", lambda: _run_worker_when_possible(kernel))
+    supervisor.add("scheduler", "Timers and reminders", lambda: _run_scheduler(kernel))
+    supervisor.add("executive", "Budget and health checks", lambda: _run_executive(kernel))
+    return supervisor
+
+
+def install_signal_handlers(stop: threading.Event) -> None:
+    """Route every stop signal to one event (design 2.4).
+
+    `SIGBREAK` is included because Windows is the deployment host of record and
+    NSSM's `AppStopMethodConsole` delivers exactly that; it does not exist on
+    other platforms and is looked up rather than imported. `threading.Event` is
+    D-017's existing shutdown seam, reused as-is: a signal handler runs on the
+    main thread and cannot touch an asyncio primitive belonging to a loop it is
+    interrupting.
+
+    Args:
+        stop: Set by any of SIGINT, SIGTERM or SIGBREAK.
+    """
+
+    def _handler(_number: int, _frame: object) -> None:
+        stop.set()
+
+    for name in ("SIGINT", "SIGTERM", "SIGBREAK"):
+        number = getattr(signal, name, None)
+        if number is None:
+            continue
+        try:
+            signal.signal(number, _handler)
+        except (ValueError, OSError):  # not the main thread, or not supported here
+            logger.debug("could not install a handler for %s", name)
+
+
+async def _stopped(stop: threading.Event) -> None:
+    """Return once `stop` is set. Waits on a worker thread, because
+    `Event.wait()` blocks its caller and would otherwise freeze the loop."""
+    await asyncio.to_thread(stop.wait)
+
+
+async def _serve(settings: Settings, stop: threading.Event) -> int:
+    """Bootstrap in the waiting posture, run every part, drain on stop.
+
+    Args:
+        settings: Validated settings.
+        stop: Set by `install_signal_handlers`.
+
+    Returns:
+        A process exit code (design 2.3).
+    """
+    kernel = PlatformKernel(settings)
+    stopping = asyncio.ensure_future(_stopped(stop))
+    try:
+        booting = asyncio.ensure_future(bootstrap(kernel, on_unavailable=Posture.WAIT))
+        done, _ = await asyncio.wait({booting, stopping}, return_when=asyncio.FIRST_COMPLETED)
+        if booting not in done:
+            # Stopped while waiting for a dependency. Never a failure: the
+            # operator asked, and an external restarter must leave it stopped.
+            booting.cancel()
+            return EXIT_OK
+        booting.result()  # re-raises whatever bootstrap failed on
+
+        supervisor = build_supervisor(kernel)
+        running = asyncio.ensure_future(supervisor.run_until_stopped())
+        logger.info("runtime serving", extra={"context": {"port": settings.api_port}})
+        await asyncio.wait({running, stopping}, return_when=asyncio.FIRST_COMPLETED)
+        running.cancel()
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(running, return_exceptions=True), timeout=DRAIN_SECONDS
+            )
+        except TimeoutError:
+            logger.warning("parts did not stop within the drain budget")
+        # P0-B owes this path a final `runtime_heartbeat` row in state
+        # `stopped`: "stopped cleanly at 04:12" and "last seen at 04:12" are
+        # different operational facts and the platform can express neither yet.
+        return EXIT_OK
+    except ConfigurationError:
+        logger.exception("the runtime cannot start with this configuration")
+        return EXIT_CONFIGURATION
+    except Exception:
+        logger.exception("the runtime stopped: a dependency failed during startup")
+        return EXIT_DEPENDENCY_UNAVAILABLE
+    finally:
+        # Set before cancelling: `_stopped` blocks a pooled thread on
+        # `Event.wait()`, and `asyncio.run` waits for that pool at loop close.
+        # Cancelling the task alone would leave the thread parked forever and
+        # the process would hang on exit instead of stopping.
+        stop.set()
+        stopping.cancel()
+        await kernel.aclose()
+
+
+def serve_headless() -> int:
+    """Console entrypoint: ``jarvis-run``. The platform, with no window.
+
+    Never opens a window and never opens a browser — this module does not
+    import `jarvis.shell.desktop` and `tests/test_one_part_table.py` asserts it
+    stays that way. There is no window whose close event can end the runtime,
+    which is the difference between this and the console (design 1.2).
+
+    Returns:
+        A process exit code, which the generated console script passes to
+        `sys.exit`. 0 clean, 2 dependency-unavailable, 3 configuration-refused
+        (design 2.3) — the interface between the Supervisor's tier and the
+        operating system's.
+    """
+    try:
+        settings = Settings()  # type: ignore[call-arg]
+    except Exception:
+        logger.exception("configuration is invalid; not starting")
+        return EXIT_CONFIGURATION
+    try:
+        migration_config()  # fail fast on an installation that cannot migrate
+    except ConfigurationError:
+        logger.exception("the installation root holds no migrations; not starting")
+        return EXIT_CONFIGURATION
+
+    stop = threading.Event()
+    install_signal_handlers(stop)
+    try:
+        return asyncio.run(_serve(settings, stop))
+    except KeyboardInterrupt:  # Ctrl-C between signal delivery and the handler
+        return EXIT_OK

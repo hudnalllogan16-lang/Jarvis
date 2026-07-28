@@ -32,6 +32,31 @@ class Status(StrEnum):
     DOWN = "down"
 
 
+class Posture(StrEnum):
+    """What a caller does when preflight says the platform cannot serve (M10-F15).
+
+    An interactive command and an unattended service must answer a missing
+    database differently, and the difference is a parameter of one bootstrap
+    rather than a fork of it (design OPERATIONAL-RUNTIME.md 1.4): a developer
+    who typed a command is present to read the ladder and fix it, while a
+    service that exits because it started three seconds before Postgres has
+    outsourced a dependency-ordering problem to its restarter and every later
+    symptom gets reported as "the restart loop".
+
+    Lives here rather than beside `bootstrap` because `jarvis/shell/service.py`
+    is an entrypoint root: `tests/test_layering.py::test_entrypoint_roots_hold_no_logic`
+    keeps those files free of type definitions, and a posture is a value the
+    preflight result is interpreted against.
+    """
+
+    REFUSE = "refuse"
+    """Print the ladder and stop. The console (`jarvis`)."""
+
+    WAIT = "wait"
+    """Retry preflight indefinitely; a dependency that is still starting is not
+    a reason to give up. The service (`jarvis-run`)."""
+
+
 @dataclass(frozen=True, slots=True)
 class ComponentHealth:
     """One component's status with a plain-language diagnosis."""
