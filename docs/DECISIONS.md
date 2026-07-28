@@ -2135,3 +2135,24 @@ two silently-stale owner-facing statements. Honest limits recorded: M9-F160 (in-
 actions unratcheted — ties M9-F134), M9-F165 (four L3 rows enforced by non-existence),
 the remediation-table value-drift gap (presence-checked, not value-checked). D-043/D-048/
 D-049-family mechanisms now EXIST; their D-entries land with the ratification package.
+
+---
+
+## M9 final verdicts: architecture MERGE (pay-before-M10 list), product REVISE (M9-9 round)
+
+Audit MERGE: governance as-built matches as-written; import rule airtight; incident
+reasoning sound; F1 (unregistered action installs — governance violation) + F4 (no value
+pin) fixing pre-tag in M9-8; F2/F3 exclusion sentences ride along; pay-before-M10 list
+recorded verbatim in the audit (platform-approval ruling, sub-ceiling, refresh-in-or-out,
+F3 sentence, trading-name nuance). Product REVISE (M9-9): (1) "Running normally"/"All good"
+over failed last rounds — health_reason must not assert normality when the last recorded
+round didn''t complete (cheap partial of G2a, fixing now); (2) census never_measured counts
+CYCLES not READINGS — points at the wrong company; recount on recorded readings (D-039-
+consistent); (3) consent buttons say what they do + one success acknowledgment; (4) the
+§12.5 substitution corrupts first-party copy ("You Paused by you this company") — exempt
+platform-authored rationales; add bare "wake" to the list; (5) recovery copy must not name
+an action no surface offers (say where the limit lives); (6) authority-taught-only-in-empty-
+states = G3''s cost, recorded, partial deferred. **Conduct note:** the product reviewer
+force-killed an unowned PID (its predecessor''s orphaned server, benign) — the M8-F120
+family gains: PORT CONFLICTS ARE REPORTED, unowned processes are never killed; workers get
+this in founding mandates henceforth.
