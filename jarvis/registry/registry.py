@@ -49,6 +49,15 @@ from jarvis.persistence.models import (
 
 logger = get_logger(__name__)
 
+LIFECYCLE_TRANSITION_ACTION_TYPE = "platform.lifecycle_transition"
+"""`action_type` on the Decision Log entry :meth:`BusinessRegistry.transition`
+writes. Exported (the same shape as `jarvis.budget.breaker.
+PLATFORM_HALT_ACTION_TYPE`) so a reader elsewhere can recognise this entry by
+identifier rather than repeating the literal — `tests/test_action_registry.py`
+treats a second bare occurrence of a governed action string as an undeclared
+emit site, and `jarvis.api.app` needs to recognise this one to know its text
+is platform fixed-copy, never live synthesis (M9-9 product REVISE item 4)."""
+
 
 def _major(version: str) -> int:
     """Return the major component of a semantic version string (A-003)."""
@@ -539,7 +548,7 @@ class BusinessRegistry:
                 f"to {OPERATOR_LABELS[target]}."
             ),
             rationale=reason,
-            action_type="platform.lifecycle_transition",
+            action_type=LIFECYCLE_TRANSITION_ACTION_TYPE,
             audit_ref=audit_ref,
         )
         return effects

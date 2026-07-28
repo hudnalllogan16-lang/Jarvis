@@ -284,3 +284,69 @@ async def test_card_keeps_the_tried_and_missed_wording_for_a_real_zero(
 
     assert companies[0]["health_band"] == "watch"
     assert companies[0]["health_reason"] == "Set goals but hasn't hit any of them yet."
+
+
+# ── item 1 (M9-9 product REVISE): health_reason over a failed last round ───
+
+
+async def _add_cycle_with_outcome(
+    kernel: PlatformKernel, business_id: str, outcome: str, *, decision_id: str = "dec_last"
+) -> None:
+    """One Decision Log entry shaped like `record_cycle_decision`'s own write
+    (`jarvis/manager/activities.py`): `inputs_considered["outcome"]` carries
+    the `CycleOutcome` value, which is exactly what `app.py`'s health_reason
+    fix reads back."""
+    async with kernel.services() as svc:
+        svc.session.add(
+            DecisionLogRow(
+                decision_id=decision_id,
+                business_id=business_id,
+                cycle_id="cyc_last",
+                summary="A wake cycle finished.",
+                rationale="Nothing more to do this round.",
+                action_type="business.wake_cycle",
+                inputs_considered={"outcome": outcome, "spend_usd": "0"},
+            )
+        )
+        await svc.session.flush()
+
+
+async def test_health_reason_does_not_claim_normality_over_a_failed_last_round(
+    kernel: PlatformKernel, api: httpx.AsyncClient
+) -> None:
+    """M9-9 item 1 (cheap partial of G2a): `reliability` is blind to a round
+    that fails before it dispatches anything (M9-F118), so a company can be
+    fully healthy by every number the card shows and still have its most
+    recently recorded round end `FAILED`. "Running normally." asserts the
+    opposite of what the operator's own activity feed says one click away."""
+    business_id = await _create(kernel, AFFILIATE, "Weekend Reviews")
+    async with kernel.services() as svc:
+        await KpiEngine(svc.session).record(
+            business_id=BusinessId(business_id), key="posts_published", value=Decimal("20")
+        )
+    await _add_cycle_with_outcome(kernel, business_id, "failed")
+
+    companies = (await api.get("/api/companies")).json()
+
+    assert companies[0]["health_band"] == "healthy"
+    assert companies[0]["health_reason"] == "Its last round didn't finish — trying again next time."
+
+
+async def test_health_reason_keeps_running_normally_when_the_last_round_completed(
+    kernel: PlatformKernel, api: httpx.AsyncClient
+) -> None:
+    """Negative control, the other direction: a company in the same healthy
+    shape whose most recent round actually completed keeps the plain "Running
+    normally." — the fix must not fire on every recorded round, only an
+    unfinished one."""
+    business_id = await _create(kernel, AFFILIATE, "Weekend Reviews")
+    async with kernel.services() as svc:
+        await KpiEngine(svc.session).record(
+            business_id=BusinessId(business_id), key="posts_published", value=Decimal("20")
+        )
+    await _add_cycle_with_outcome(kernel, business_id, "completed")
+
+    companies = (await api.get("/api/companies")).json()
+
+    assert companies[0]["health_band"] == "healthy"
+    assert companies[0]["health_reason"] == "Running normally."

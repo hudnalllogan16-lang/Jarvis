@@ -50,6 +50,15 @@ RENOTIFY_AFTER = timedelta(hours=24)
 AUTO_PAUSE_AFTER = timedelta(days=7)
 """Spec §9: unresolved after 7 days MUST auto-pause, never auto-approve."""
 
+APPROVAL_EXPIRED_ACTION_TYPE = "platform.approval_expired"
+"""`action_type` on the Decision Log entry :meth:`ApprovalService.expire_stale`
+writes. Exported (the same shape as `jarvis.budget.breaker.
+PLATFORM_HALT_ACTION_TYPE`) so a reader elsewhere can recognise this entry by
+identifier rather than repeating the literal — `tests/test_action_registry.py`
+treats a second bare occurrence of a governed action string as an undeclared
+emit site, and `jarvis.api.app` needs to recognise this one to know its text
+is platform fixed-copy, never live synthesis (M9-9 product REVISE item 4)."""
+
 
 class ApprovalError(JarvisError):
     """An approval could not be created or decided."""
@@ -350,7 +359,7 @@ class ApprovalService:
                     "Jarvis never assumes yes. When a request waits seven days without an "
                     "answer, the company pauses until you decide."
                 ),
-                action_type="platform.approval_expired",
+                action_type=APPROVAL_EXPIRED_ACTION_TYPE,
             )
         return businesses
 

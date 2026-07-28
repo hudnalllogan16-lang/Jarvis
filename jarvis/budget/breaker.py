@@ -99,6 +99,16 @@ class CircuitBreaker:
         Calling this more than once per halt is therefore the caller's error to
         avoid, not this method's: it appends unconditionally, as an append-only
         log must.
+
+        **The rationale no longer says "or you raise it" (M9-9 product REVISE
+        item 5).** Nothing on this surface exposes the platform ceiling as an
+        editable setting an operator can reach — it lives in
+        `jarvis/kernel/config.py`, not in any Settings screen this platform
+        ships — so the old sentence named a recovery action the surface never
+        offered. `jarvis.executive.alerts.PLATFORM_BAND_COPY[80]`'s own
+        consequence sentence was fixed in the same round, in the same words,
+        for the reason its own docstring gives: an operator who reads the
+        80%-warning and then this halt should meet one sentence, not two.
         """
         detail = (
             f" The last company to spend was {triggering_business}." if triggering_business else ""
@@ -109,7 +119,8 @@ class CircuitBreaker:
             rationale=(
                 f"Total spending in the last 24 hours reached ${spend_usd}, which is the "
                 f"daily limit of ${self._ceiling}. No new work will start until the limit "
-                f"resets or you raise it.{detail}"
+                f"resets — this is Jarvis's own daily setting, not something changed from "
+                f"here.{detail}"
             ),
             action_type=PLATFORM_HALT_ACTION_TYPE,
             inputs_considered={"spend_usd": str(spend_usd), "ceiling_usd": str(self._ceiling)},

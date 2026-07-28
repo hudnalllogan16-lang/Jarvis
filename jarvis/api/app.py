@@ -32,7 +32,7 @@ from jarvis.approvals.rendering import (
     render_payload,
     render_request,
 )
-from jarvis.approvals.service import ApprovalError
+from jarvis.approvals.service import APPROVAL_EXPIRED_ACTION_TYPE, ApprovalError
 from jarvis.budget.breaker import PLATFORM_HALT_ACTION_TYPE
 from jarvis.budget.ledger import BudgetLedger
 from jarvis.domain.contract import BusinessContract
@@ -46,6 +46,7 @@ from jarvis.kernel.logging import get_logger
 from jarvis.kpi.engine import KpiEngine
 from jarvis.notifications.service import NotificationService
 from jarvis.persistence.models import DeadLetterRow
+from jarvis.registry.registry import LIFECYCLE_TRANSITION_ACTION_TYPE
 
 logger = get_logger(__name__)
 
@@ -61,6 +62,58 @@ UPDATE_CHECK_UNCERTAIN_NOTE = (
     "Jarvis couldn't check whether an update is ready for this company just now — "
     "it will try again on its own."
 )
+
+_ROUND_DID_NOT_FINISH_OUTCOMES = frozenset({"failed", "budget_exhausted"})
+"""The `CycleOutcome` values (`jarvis.manager.state.CycleOutcome`) a round can
+end on without finishing. Repeated as bare strings rather than imported: `api`
+is milestone 3 and `manager` is milestone 4 (docs/DEPENDENCIES.md layering),
+so this module cannot import that enum. `record_cycle_decision`
+(`jarvis/manager/activities.py`) writes exactly one of these two values, or
+`"completed"`/`"awaiting_approval"`/`"nothing_to_do"`, into the same Decision
+Log row's `inputs_considered["outcome"]` this reads back — a coupling on
+shape, not on the enum type."""
+
+_PLATFORM_AUTHORED_ACTION_TYPES = frozenset(
+    {
+        LIFECYCLE_TRANSITION_ACTION_TYPE,
+        APPROVAL_EXPIRED_ACTION_TYPE,
+        PLATFORM_HALT_ACTION_TYPE,
+    }
+)
+"""Decision Log `action_type`s whose `summary`/`rationale` are always this
+platform's own fixed-template sentences, never a live Manager cycle's
+synthesis (M9-9 product REVISE item 4). Read by :func:`_platform_authored` to
+tell :func:`render_operator_text`/:func:`render_doing_now` it is safe to skip
+the raw-lifecycle-word substitution — see that function's own docstring for
+why the substitution can otherwise corrupt correct prose ("You paused this
+company." -> "You Paused by you this company.", found live). Deliberately an
+explicit allow-list rather than a `"platform."` prefix test: `business.
+manager_parked`'s copy is equally fixed-template but does not carry that
+prefix, and `business.wake_cycle` does carry a "business." prefix while
+sometimes carrying genuine live prose (a completed cycle's own synthesis) — an
+allow-list says exactly what has been checked, a prefix would only guess."""
+
+
+def _platform_authored(action_type: str | None) -> bool:
+    """Whether a Decision Log entry's text is platform fixed-copy (see
+    :data:`_PLATFORM_AUTHORED_ACTION_TYPES`)."""
+    return action_type in _PLATFORM_AUTHORED_ACTION_TYPES
+
+
+LAST_ROUND_DID_NOT_FINISH_REASON = "Its last round didn't finish — trying again next time."
+"""M9-9 product REVISE item 1 (cheap partial of G2a): `KpiEngine.health`'s
+`reliability` figure is blind to a round that fails before it dispatches
+anything (M9-F118's own note) — three companies can fail their round within
+seconds of each other and every one reads `reliability=100`, so
+`_summarise`'s final "Running normally." branch can fire in the same instant
+the operator's most recent Decision Log entry says the opposite. The full
+fix is a reliability figure that counts failed rounds (M10, per M9-F118); this
+is the cheap read available today — the card already fetches its newest
+Decision Log entry for the "Latest update" line, and that entry's recorded
+`outcome` is enough to catch the one case where the summary would otherwise
+assert normality over a round that just failed. Every other `_summarise`
+branch already names a problem (stuck work, thin headroom, a stall) and is
+left alone."""
 """M9-3 surface backlog item 6 (M9-F45): 'up-to-date vs uncomputable both silent'. Both
 states used to render as nothing at all — see `_pending_update`'s own docstring
 — which is honest for one of them (design PLUGIN-FRAMEWORK.md Part 4.3's
@@ -327,6 +380,17 @@ def create_app(kernel: PlatformKernel) -> FastAPI:
             # are mutually exclusive (kpi/engine.py's `health()`), so this
             # never double-applies.
             health_reason = "Just getting started — nothing's been measured yet."
+        elif health_reason == "Running normally." and feed:
+            # M9-9 item 1: `feed` (this function's own "Latest update" read,
+            # limit=1, no new query) is the newest Decision Log entry — if it
+            # recorded a round that failed or hit its per-round ceiling, the
+            # catch-all "Running normally." would tell the operator the
+            # opposite of what they would read one click away. Every other
+            # branch above already names a problem; this is the one place a
+            # clean bill of health can coexist with an unfinished round.
+            last_outcome = feed[0].inputs_considered.get("outcome")
+            if last_outcome in _ROUND_DID_NOT_FINISH_OUTCOMES:
+                health_reason = LAST_ROUND_DID_NOT_FINISH_REASON
 
         # M9-1d: the grid marker's cheap existence check (M9-F100…F104) — a
         # presence-only boolean, never the full `ContractRefreshPlan`
@@ -358,8 +422,16 @@ def create_app(kernel: PlatformKernel) -> FastAPI:
             "per_round_limit": float(contract.budget.wake_cycle_ceiling_usd),
             # Live Manager prose, laundered at the render boundary (§12.5,
             # M6-5a item 4) and capped to one sentence — the card is the
-            # default view, not the drill-down.
-            "doing": render_doing_now(feed[0].summary) if feed else "Nothing yet.",
+            # default view, not the drill-down. `platform_authored` (M9-9
+            # item 4) covers the case where the newest entry is one of this
+            # platform's own fixed sentences rather than a cycle's synthesis.
+            "doing": (
+                render_doing_now(
+                    feed[0].summary, platform_authored=_platform_authored(feed[0].action_type)
+                )
+                if feed
+                else "Nothing yet."
+            ),
             "pending_update": bool(pending),
         }
 
@@ -423,9 +495,16 @@ def create_app(kernel: PlatformKernel) -> FastAPI:
                     "when": entry.decided_at.isoformat(),
                     # Full text here (unlike the card's capped "doing"): this
                     # is the drill-down §12.5 promises the truncated summary
-                    # a home in.
-                    "what": render_operator_text(entry.summary),
-                    "why": render_operator_text(entry.rationale),
+                    # a home in. `platform_authored` (M9-9 item 4): a pause/
+                    # resume/expiry/halt entry is this platform's own fixed
+                    # sentence, not a cycle's synthesis — see
+                    # `_PLATFORM_AUTHORED_ACTION_TYPES`.
+                    "what": render_operator_text(
+                        entry.summary, platform_authored=_platform_authored(entry.action_type)
+                    ),
+                    "why": render_operator_text(
+                        entry.rationale, platform_authored=_platform_authored(entry.action_type)
+                    ),
                 }
                 for entry in feed
             ]
@@ -879,7 +958,10 @@ def create_app(kernel: PlatformKernel) -> FastAPI:
         """
         for entry in await svc.decisions.platform_feed():
             if entry.action_type == PLATFORM_HALT_ACTION_TYPE:
-                return render_operator_text(entry.rationale)
+                # platform_authored=True (M9-9 item 4): this is always
+                # `CircuitBreaker.trip`'s own fixed rationale, never a live
+                # cycle's synthesis — see `_PLATFORM_AUTHORED_ACTION_TYPES`.
+                return render_operator_text(entry.rationale, platform_authored=True)
         return None
 
     @app.get("/api/summary")

@@ -125,12 +125,21 @@ export function registerCompanyActions() {
   });
 
   // Consent to a pending template update — never the approvals path (D-030).
+  //
+  // M9-9 product REVISE item 3: unlike Pause/Start, whose own label and dot
+  // flip is its result on screen, applying or dismissing this card makes the
+  // whole card vanish — which tells an operator "something happened" but not
+  // which of the two buttons they actually pressed. `res.status` is the one
+  // sentence the route already computed for exactly this ("Updated.",
+  // "Already up to date.", "Not now.") and, until `api.js` started reading a
+  // success body back, nothing on this surface ever showed it.
   action('apply-update', async ({ id }) => {
     const res = await post(`/api/companies/${id}/pending-update/apply`);
     if (!res.ok) {
       flash(res.message);
       return;
     }
+    flash(res.status || 'Updated.', 'note');
     refresh();
   });
 
@@ -140,6 +149,7 @@ export function registerCompanyActions() {
       flash(res.message);
       return;
     }
+    flash(res.status || 'Not now.', 'note');
     refresh();
   });
 }

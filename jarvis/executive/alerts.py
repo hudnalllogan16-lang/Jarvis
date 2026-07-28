@@ -110,17 +110,20 @@ BAND_COPY: dict[int, _BandCopy] = {
     50: _BandCopy(
         title="{name} has used half its spending limit",
         consequence=(
-            "Nothing has stopped. There is still time to raise the limit if you want this "
-            "company to keep going past it."
+            "Nothing has stopped. This is the limit you set when this company was created, "
+            "with room left before it's reached."
         ),
     ),
     80: _BandCopy(
         title="{name} is close to its spending limit",
-        consequence="When it reaches the limit this company stops, and only you can raise it.",
+        consequence=(
+            "When it reaches the limit this company stops — that is the limit you set when "
+            "it was created."
+        ),
     ),
     100: _BandCopy(
         title="{name} hit its spending limit",
-        consequence="It has stopped, and it will not start again until you raise the limit.",
+        consequence="It has stopped. This was the limit set for it when it was created.",
     ),
 }
 """D-007's own sentence for a reached cap — "[Company] hit its spending limit"
@@ -130,7 +133,19 @@ That is the whole operator-visible contribution of this packet, and it is why
 cap alerting adds no operator-facing behaviour beyond D-007's table: it changes
 *when* an existing sentence arrives, not what an operator is told exists
 (design 2.3). "Company", never "business" — D-007's own term, and one of the
-seventeen `tests/surface_sources.FORBIDDEN` words."""
+seventeen `tests/surface_sources.FORBIDDEN` words.
+
+**The consequence sentences no longer say "raise the limit" (M9-9 product
+REVISE item 5).** Nothing in this surface offers that action:
+`business_cap_usd` is set once, at creation (`newco.js`'s budget field), and
+is never exposed as an editable value anywhere an operator can reach it
+afterward (design PLUGIN-FRAMEWORK.md Part 6's own table marks it "the
+operator's money", explicitly excluded from every refresh band). Telling an
+operator reading a cap alert to do something this surface does not let them
+do is the same defect the pending-update consent buttons were fixed for in
+the same round: a control the copy implies but the page does not offer. The
+honest fact in its place is where the number came from — a choice already
+made, not a lever sitting somewhere unlabelled."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -283,17 +298,25 @@ PLATFORM_BAND_COPY: dict[int, _BandCopy] = {
     80: _BandCopy(
         title="Spending across every company is close to the daily limit",
         consequence=(
-            "When it reaches the limit, new work stops across every company until it resets "
-            "or you raise it."
+            "When it reaches the limit, new work stops across every company until it "
+            "resets — this is Jarvis's own daily setting, not something changed from here."
         ),
     ),
 }
 """Same register as `BAND_COPY`, and the same phrasing the breach narrative
-already uses — `CircuitBreaker.trip`'s rationale says "Total spending in the
-last 24 hours reached ... which is the daily limit of ..." — so an operator
-who later reads the halt meets a word they were already warned with, not a
-new one. "Company", never "business"; "Jarvis" is the implied actor
-throughout, never "the Executive Layer" (D-007)."""
+already uses — `CircuitBreaker.trip`'s rationale says "this is Jarvis's own
+daily setting, not something changed from here" in the same words (M9-9
+product REVISE item 5) — so an operator who later reads the halt meets a
+sentence they were already warned with, not a new one. "Company", never
+"business"; "Jarvis" is the implied actor throughout, never "the Executive
+Layer" (D-007).
+
+**No longer says "or you raise it" (M9-9 item 5), for the same reason
+`BAND_COPY` above stopped saying it:** `platform_rolling_24h_usd` is a value
+in `jarvis/kernel/config.py`, never exposed as an editable setting on this
+surface at all — naming an action nobody watching this notice can take is the
+defect, not a missing "how", so the fix states where the number lives
+instead of implying a control that isn't there."""
 
 
 @dataclass(frozen=True, slots=True)

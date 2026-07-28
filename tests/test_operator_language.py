@@ -356,6 +356,16 @@ def test_detector_catches_morphological_variants_missed_live() -> None:
     assert contains_technical_language("Both capabilities are unavailable.")
 
 
+def test_detector_catches_bare_wake_for_model_prose() -> None:
+    """M9-9 product REVISE item 4: bare "wake"/"wakes" were previously left
+    off the list on the argument that they collide with ordinary English —
+    reversed here, because a Manager narrating its own schedule has every
+    reason to reach for the bare word without ever saying "cycle" or an
+    inflection ("woken"/"waking") the table already caught."""
+    assert contains_technical_language("It will wake again tomorrow morning.")
+    assert contains_technical_language("This company wakes every day at 9am.")
+
+
 def test_detector_catches_milestone_codenames_and_kpi() -> None:
     """M7-F50 (packet M7-5a item 4): live Manager prose reached the operator
     feed echoing internal framing ("the M7 targets"), and D-027.2 makes `KPI`

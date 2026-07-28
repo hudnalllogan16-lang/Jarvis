@@ -968,8 +968,11 @@
 }
 
 /* ── Banner ──────────────────────────────────────────────────────────────
-   States a consequence and, where one exists, a remedy. Never used for
-   success: a successful action shows its result, not a congratulation. */
+   States a consequence and, where one exists, a remedy. Not used to
+   congratulate: `#flash`'s one narrow exception (M9-9 item 3, `--note`,
+   consenting to a pending template update) states the plain result a route
+   already computed ("Updated.", "Not now.") because that action's own result
+   is otherwise invisible — it is still a stated fact, never "Success!". */
 .banner {
   border-left: 3px solid var(--status-watch);
   background: var(--wash-watch);

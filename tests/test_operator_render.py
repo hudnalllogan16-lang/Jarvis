@@ -79,6 +79,48 @@ def test_clean_prose_passes_through_unchanged() -> None:
     assert render_operator_text(raw) == raw
 
 
+def test_platform_authored_text_is_exempt_from_lifecycle_translation() -> None:
+    """M9-9 product REVISE item 4: found live as "You paused this company."
+    rendering as "You Paused by you this company." — the raw-lifecycle-word
+    substitution exists to catch a *leaked* state value in live synthesis,
+    and cannot tell that apart from the same ordinary word used correctly in
+    a platform-authored sentence. `platform_authored=True` is the caller's
+    assertion that this text is reviewed copy, never synthesis, so the pass
+    that would otherwise corrupt it does not run."""
+    raw = "You paused this company."
+    assert render_operator_text(raw, platform_authored=True) == raw
+
+
+def test_non_platform_authored_text_still_gets_lifecycle_translation() -> None:
+    """The default (`platform_authored=False`) is unchanged: live prose that
+    leaks a raw state value is still translated, per
+    `test_raw_lifecycle_words_translate_per_d007`."""
+    rendered = render_operator_text("Acme Co moved from provisioning to active.")
+    assert rendered == "Acme Co moved from Setting up to Running."
+
+
+def test_platform_authored_text_still_gets_id_stripping_and_the_technical_guard() -> None:
+    """The exemption is narrow: only the lifecycle-word substitution is
+    skipped. Id-stripping and the forbidden-vocabulary fallback are defence
+    in depth that a correctly-authored platform sentence should never trip,
+    but skipping them too would be a wider exemption than the bug calls for."""
+    raw = "An approval request (apr_1a161be0303c4cf5910e51e50c7d6775) is pending review."
+    assert render_operator_text(raw, platform_authored=True) == (
+        "An approval request is pending review."
+    )
+    assert (
+        render_operator_text(
+            "Retrying the capability invocation after a worker crash.", platform_authored=True
+        )
+        == NEUTRAL_FALLBACK
+    )
+
+
+def test_doing_now_passes_platform_authored_through() -> None:
+    raw = "You paused this company."
+    assert render_doing_now(raw, platform_authored=True) == raw
+
+
 def test_doing_now_is_capped_with_an_ellipsis() -> None:
     raw = "x" * 200
     rendered = render_doing_now(raw)
