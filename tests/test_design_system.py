@@ -464,6 +464,31 @@ def test_the_series_is_not_refetched_on_every_repaint() -> None:
     )
 
 
+def test_the_at_risk_band_word_does_not_reuse_the_stuck_section_heading() -> None:
+    """M9-F28 — the workspace's `BAND_WORDS` finalized.
+
+    `BAND_WORDS.at_risk` used to read "needs attention", the exact text of the
+    unrelated "Needs attention" heading `stuckSection` puts over `stuck[]`
+    (design 13-company-workspace.md's own section name). A company can be
+    `at_risk` with nothing stuck at all, so the Health tile borrowing that
+    heading's words reads as if it were pointing at that section — reusing a
+    heading with no way to promise it applies. Pinned so it does not drift
+    back once the placeholder-copy comment it used to carry is gone.
+    """
+    source = WORKSPACE.read_text(encoding="utf-8")
+    code = re.sub(r"//.*", "", re.sub(r"/\*.*?\*/", " ", source, flags=re.S))
+    band_words = code[code.index("const BAND_WORDS") : code.index("const BAND_WORDS") + 200]
+    assert "needs attention" not in band_words.lower(), (
+        "BAND_WORDS.at_risk has drifted back to the stuck-section's own heading text"
+    )
+    assert "in trouble" in band_words, "BAND_WORDS.at_risk lost its finalized wording"
+    # The heading itself is untouched — this pins the collision is gone without
+    # touching the design-sanctioned section name.
+    assert code.count("Needs attention") == 1, (
+        "the stuck-work heading should be the only place this exact phrase appears"
+    )
+
+
 FORMAT = pathlib.Path("jarvis/api/static/app/format.js")
 
 
@@ -518,16 +543,34 @@ def test_the_trend_note_states_the_relation_and_knows_which_way_is_good() -> Non
     source = TREND.read_text(encoding="utf-8")
     code = re.sub(r"//.*", "", re.sub(r"/\*.*?\*/", " ", source, flags=re.S))
 
-    for phrase in ("on target", "ahead of target", "short of it"):
+    for phrase in ("on target", "ahead of target", "short of target"):
         assert phrase in code, f"the trend note lost its {phrase!r} relation"
     assert "direction === 'below'" in code, (
         "the relation is no longer direction-aware — a lower-is-better metric "
-        "sitting comfortably under its ceiling would read as short of it (M7-F30)"
+        "sitting comfortably under its ceiling would read as short of target (M7-F30)"
     )
     note = code.index("function note(")
     assert "relation(" in code[note:], (
         "the relation is computed but never reaches the note, which is the only "
         "channel a screen reader has for it"
+    )
+
+
+def test_the_trend_relation_never_leaves_a_dangling_pronoun() -> None:
+    """M9-F104 — the copy pass's antecedent fix.
+
+    `relation()`'s shortfall branch used to return "short of it": read on its
+    own — which is exactly how it is read, since the note is one paragraph and
+    the word "target" never otherwise appears in it — "it" has no antecedent.
+    "on target" and "ahead of target" both name the noun outright; the third
+    branch has to as well, or the sentence a screen reader hears is missing its
+    subject.
+    """
+    source = TREND.read_text(encoding="utf-8")
+    code = re.sub(r"//.*", "", re.sub(r"/\*.*?\*/", " ", source, flags=re.S))
+    assert "short of it" not in code, (
+        "the dangling-pronoun relation is back — every branch of relation() "
+        "must name 'target' so the phrase stands alone (M9-F104)"
     )
 
 
@@ -637,6 +680,29 @@ def test_never_measured_is_reported_even_when_nothing_needs_a_look() -> None:
     assert "needLook || census.never_measured" in source, (
         "never_measured no longer keeps the census line visible on its own — "
         "a young, unmeasured company would go silently unmentioned"
+    )
+
+
+def test_the_census_tile_shares_one_voice_with_the_card_for_never_measured() -> None:
+    """M9-F112/F114 — census tile wording reconciled with the card.
+
+    The card's `health_reason` for a never-measured company reads "Set goals,
+    but nothing's been measured yet." (or the healthy-band twin, "Just getting
+    started — nothing's been measured yet.") and the workspace drill-down says
+    "Nothing measured yet" / "Not measured yet." — all three say "yet". The
+    tile used to say "never measured", which reads as a verdict rather than an
+    invitation and does not agree with either sibling surface. Pinned so the
+    tile's count label cannot regress to the old wording independently of the
+    other two, which live in different files entirely.
+    """
+    source = _tiles_source()
+    assert "not yet measured ${census.never_measured}" in source, (
+        "the census tile's label has drifted from 'not yet measured' — it must "
+        "keep the same 'yet' voice as the card and the workspace drill-down"
+    )
+    assert "never measured ${census.never_measured}" not in source, (
+        "the tile is back to 'never measured', out of voice with the card's "
+        "'nothing's been measured yet' and the drill-down's 'measured yet' (M9-F112/F114)"
     )
 
 

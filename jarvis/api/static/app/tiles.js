@@ -33,10 +33,19 @@ export function tile({ label, value, context, tone }) {
 /** The "Needs a look" tile's context line: the portfolio census (design
  * EXECUTIVE-LAYER.md Part 3, D-039) — counts per band, plus the worst
  * company named as a link to its own workspace, never a portfolio score.
- * `never measured` is its own, separate count (D-039, the one honest
+ * `not yet measured` is its own, separate count (D-039, the one honest
  * limitation stated rather than smoothed) — a young company with nothing
  * recorded yet is not evidence about the portfolio's health either way, so
  * it is reported and folded into neither `healthy` nor `watch`/`at_risk`.
+ *
+ * Worded "not yet measured", never "never measured" (M9-F112/F114): the
+ * card carries "Set goals, but nothing's been measured yet." for the exact
+ * same company, and the workspace drill-down says "Nothing measured yet" /
+ * "Not measured yet." for the same fact one level down. "Never" reads as a
+ * verdict, as if the company will not be measured, where every sibling
+ * surface says "yet" — an invitation, not a dead end (§12.5: empty states
+ * are invitations, not apologies). Tile, card and drill-down now share one
+ * voice for one fact.
  *
  * The worst company's own reason is read back from `companies` — already
  * fetched and already carrying `health_reason` for the card itself — rather
@@ -54,7 +63,7 @@ function censusContext(census, companies) {
     `watch ${census.watch}`,
     `at risk ${census.at_risk}`,
   ];
-  if (census.never_measured) parts.push(`never measured ${census.never_measured}`);
+  if (census.never_measured) parts.push(`not yet measured ${census.never_measured}`);
   const counts = esc(parts.join(' · '));
 
   const worst = census.worst_company && companies.find((c) => c.id === census.worst_company.id);
