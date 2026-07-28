@@ -23,7 +23,11 @@ from jarvis.budget.ledger import RESERVED, BudgetLedger
 from jarvis.domain.contract import BusinessContract
 from jarvis.executive.alerts import (
     BAND_COPY,
+    PLATFORM_BAND_COPY,
+    PLATFORM_BANDS,
     SPEND_BANDS,
+    platform_band_ref,
+    raise_platform_ceiling_alerts,
     raise_spend_alerts,
     record_platform_halt,
     spend_band,
@@ -278,6 +282,131 @@ async def test_alerts_read_the_rollups_figure_rather_than_the_ledger(
 
     alerts = await raise_spend_alerts(doctored, NotificationService(session))
     assert [a.band for a in alerts] == [80]
+
+
+# ── the platform ceiling's own warning bands (M9-F83) ───────────────────────
+
+
+@pytest.mark.parametrize(
+    ("utilisation", "expected"),
+    [
+        ("0", None),
+        ("49.99", None),
+        ("50", 50),
+        ("79.9", 50),
+        ("80", 80),
+        ("99.999", 80),
+    ],
+)
+def test_the_platform_band_is_the_highest_one_crossed_below_breach(
+    utilisation: str, expected: int | None
+) -> None:
+    """Same 50/80 shape as the company bands, on the platform's own scheme —
+    `PLATFORM_BANDS` has no 100 entry (see the breach test below)."""
+    assert spend_band(Decimal(utilisation), PLATFORM_BANDS) == expected
+
+
+def test_every_platform_band_has_copy_and_every_copy_has_a_band() -> None:
+    assert set(PLATFORM_BAND_COPY) == set(PLATFORM_BANDS)
+
+
+@pytest.mark.parametrize("band", PLATFORM_BANDS)
+def test_the_platform_alert_sentences_are_written_for_the_operator(band: int) -> None:
+    """§12.5 applies here exactly as `test_the_alert_sentences_are_written_for_
+    the_operator` proves it for the company bands — "company", never
+    "business", and no other forbidden term."""
+    copy = PLATFORM_BAND_COPY[band]
+    assert not contains_technical_language(copy.title)
+    assert not contains_technical_language(copy.consequence)
+    assert copy.title[0].isupper()
+    assert copy.consequence.endswith(".")
+    assert copy.title not in copy.consequence
+
+
+async def test_a_platform_ceiling_below_every_band_is_left_alone(
+    session: AsyncSession, registry: BusinessRegistry, contract: BusinessContract
+) -> None:
+    await _company_spending(session, registry, contract, spend="5.00")
+    notifications = NotificationService(session)
+    rollup = await _rollup(session, registry, ceiling=Decimal("500.00"))
+
+    assert await raise_platform_ceiling_alerts(rollup, notifications) == ()
+    assert await notifications.unread_count() == 0
+
+
+async def test_crossing_the_platform_eighty_band_announces_once(
+    session: AsyncSession, registry: BusinessRegistry, contract: BusinessContract
+) -> None:
+    """The first pass raises it; an unchanged second pass over the same rollup
+    figure does not raise it again — dedup with no new state, `has_unread`
+    against a platform-wide (`business_id=None`) notice."""
+    await _company_spending(session, registry, contract, spend="26.00")
+    ceiling = Decimal("28.00")  # 26/28 = 92.86% -> band 80
+    notifications = NotificationService(session)
+    rollup = await _rollup(session, registry, ceiling=ceiling)
+
+    alerts = await raise_platform_ceiling_alerts(rollup, notifications)
+    assert [a.band for a in alerts] == [80]
+
+    assert await raise_platform_ceiling_alerts(rollup, notifications) == ()
+    assert await notifications.unread_count() == 1
+
+
+async def test_the_platform_notice_names_its_window_and_quotes_the_stored_figures(
+    session: AsyncSession, registry: BusinessRegistry, contract: BusinessContract
+) -> None:
+    await _company_spending(session, registry, contract, spend="26.00")
+    ceiling = Decimal("28.00")
+    notifications = NotificationService(session)
+    rollup = await _rollup(session, registry, ceiling=ceiling)
+    await raise_platform_ceiling_alerts(rollup, notifications)
+
+    row = (await notifications.unread())[0]
+    assert row.business_id is None
+    assert row.kind == NotificationKind.SPENDING.value
+    assert row.title == "Spending across every company is close to the daily limit"
+    assert "$26.00" in row.body
+    assert "$28.00" in row.body
+    assert "in the last 24 hours" in row.body
+    assert not contains_technical_language(row.body)
+    assert row.link_ref == platform_band_ref(80)
+
+
+async def test_a_platform_breach_raises_no_stale_warning_notice(
+    session: AsyncSession, registry: BusinessRegistry, contract: BusinessContract
+) -> None:
+    """M9-F83's own guard: once the platform is at or past its ceiling, the
+    50/80 scheme steps aside rather than telling the operator the platform is
+    merely "close to" a limit it has actually reached — `record_platform_halt`
+    is the accurate narrative for that moment, not this function."""
+    await _company_spending(session, registry, contract, spend="28.00")
+    ceiling = Decimal("28.00")  # 100% exactly
+    notifications = NotificationService(session)
+    rollup = await _rollup(session, registry, ceiling=ceiling)
+    assert rollup.rolling_24h_utilisation_pct == 100
+
+    assert await raise_platform_ceiling_alerts(rollup, notifications) == ()
+    assert await notifications.unread_count() == 0
+
+
+async def test_platform_and_company_bands_are_independent_notices(
+    session: AsyncSession, registry: BusinessRegistry, contract: BusinessContract
+) -> None:
+    """One spend crosses both a company band and the platform band in the same
+    pass, and both are recorded — distinct `link_ref`s under distinct
+    `business_id`s, neither suppressing the other."""
+    await _company_spending(session, registry, contract, spend="26.00")
+    ceiling = Decimal("28.00")
+    notifications = NotificationService(session)
+    rollup = await _rollup(session, registry, ceiling=ceiling)
+
+    company_alerts = await raise_spend_alerts(rollup, notifications)
+    platform_alerts = await raise_platform_ceiling_alerts(rollup, notifications)
+
+    assert [a.band for a in company_alerts] == [50]
+    assert [a.band for a in platform_alerts] == [80]
+    refs = {row.link_ref for row in await notifications.unread()}
+    assert refs == {spend_band_ref(50), platform_band_ref(80)}
 
 
 # ── the halt narrative (M9-F2) ─────────────────────────────────────────────

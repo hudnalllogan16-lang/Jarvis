@@ -10,6 +10,12 @@ has owned for milestones without ever using:
   never been written and `decision_log` holds zero platform-scoped rows
   (M9-F2). :func:`record_platform_halt` is its caller.
 
+**Extended in packet D (M9-1c) with the platform ceiling's own 50%/80%
+warning bands** (M9-F83): the ceiling had a breach narrative and no advance
+notice, unlike a company's own cap. :func:`raise_platform_ceiling_alerts`
+reuses :func:`spend_band` and the `SPENDING` kind rather than inventing either
+a second comparison or a second vocabulary — see the section below.
+
 **Nothing here computes a figure.** Every number it announces is read off
 `PortfolioRollup` — the rollup's fields, never a second aggregation of the
 same rows. Design Part 12's sequencing note is the reason it is written this
@@ -136,13 +142,23 @@ class SpendAlert:
     band: int
 
 
-def spend_band(utilisation_pct: Decimal) -> int | None:
-    """Return the highest band ``utilisation_pct`` has crossed, or None.
+def spend_band(utilisation_pct: Decimal, bands: tuple[int, ...] = SPEND_BANDS) -> int | None:
+    """Return the highest of ``bands`` that ``utilisation_pct`` has crossed, or None.
 
     Pure, and the only arithmetic in this module: a comparison of a figure the
     rollup already computed against a constant. It recomputes no spend.
+
+    Args:
+        utilisation_pct: A cap-utilisation figure the rollup already computed
+            — a company's lifetime one or the platform's rolling 24h one.
+        bands: Which thresholds to check, highest first. Defaults to
+            :data:`SPEND_BANDS`; :func:`raise_platform_ceiling_alerts` passes
+            :data:`PLATFORM_BANDS` instead so the two schemes share one
+            comparison rather than two copies of it (design Part 12's
+            sequencing note, applied to this function rather than to a
+            module).
     """
-    for band in SPEND_BANDS:
+    for band in bands:
         if utilisation_pct >= band:
             return band
     return None
@@ -232,6 +248,136 @@ def _spend_body(company: CompanyBudget, band: int) -> str:
         f"It has spent {_money(company.lifetime_spend_usd)} of its "
         f"{_money(company.lifetime_cap_usd)} limit — a running total since it started, not "
         f"an amount for today. {BAND_COPY[band].consequence}"
+    )
+
+
+# ── the platform ceiling's own warning bands (M9-F83) ───────────────────────
+#
+# §9's ceiling had a breach narrative (`record_platform_halt`, M9-F2) and no
+# advance notice — a company's own cap gets 50%/80% warnings, the platform's
+# rolling 24h ceiling got nothing until it actually halted every company at
+# once. Same fixed-copy table pattern as 2.3, one band scheme reused via
+# `spend_band`'s `bands` argument rather than a second comparison written
+# beside it, and the same rollup field a caller could otherwise be tempted to
+# recompute: `rolling_24h_utilisation_pct` is already `PortfolioRollup`'s own
+# (design 2.2), never re-derived from spend and ceiling here.
+
+PLATFORM_BANDS: tuple[int, ...] = (80, 50)
+"""Percentages of the platform's rolling 24h ceiling worth a warning.
+
+No 100 entry: breach already has its own operator narrative —
+`record_platform_halt`'s "Jarvis paused spending across all companies" — and
+it is written from the breaker's own decision (2.4's argument: the enforcing
+check decides a halt, never a percentage crossing read off the rollup). These
+two bands exist only to give an operator the same lead time on the shared
+ceiling that 2.3 already gives them on their own company's."""
+
+PLATFORM_BAND_COPY: dict[int, _BandCopy] = {
+    50: _BandCopy(
+        title="Spending across every company has passed half the daily limit",
+        consequence=(
+            "Nothing has stopped. There is still time to see what is driving it before new "
+            "work starts stopping everywhere."
+        ),
+    ),
+    80: _BandCopy(
+        title="Spending across every company is close to the daily limit",
+        consequence=(
+            "When it reaches the limit, new work stops across every company until it resets "
+            "or you raise it."
+        ),
+    ),
+}
+"""Same register as `BAND_COPY`, and the same phrasing the breach narrative
+already uses — `CircuitBreaker.trip`'s rationale says "Total spending in the
+last 24 hours reached ... which is the daily limit of ..." — so an operator
+who later reads the halt meets a word they were already warned with, not a
+new one. "Company", never "business"; "Jarvis" is the implied actor
+throughout, never "the Executive Layer" (D-007)."""
+
+
+@dataclass(frozen=True, slots=True)
+class PlatformAlert:
+    """One platform-ceiling announcement made (M9-F83)."""
+
+    band: int
+
+
+def platform_band_ref(band: int) -> str:
+    """Return the internal ref recording which platform band a notice announced.
+
+    Namespaced apart from :func:`spend_band_ref`'s company refs even though
+    the two never collide on `business_id` (a platform notice's is None, a
+    company's never is) — a distinct prefix is one string, and it is the
+    difference between a ref that is self-explanatory in a raw row and one
+    that needs its `business_id` column read alongside it to mean anything.
+    """
+    return f"platform-spend-band:{band}"
+
+
+async def raise_platform_ceiling_alerts(
+    rollup: PortfolioRollup, notifications: NotificationService
+) -> tuple[PlatformAlert, ...]:
+    """Announce the platform ceiling crossing 50% or 80% of its rolling 24h cap.
+
+    Same shape as :func:`raise_spend_alerts`, singular rather than per-company:
+    one figure (`rollup.rolling_24h_utilisation_pct`), one band, one notice,
+    deduplicated the same way — an unread `SPENDING` notice already carrying
+    this exact band's ref suppresses a repeat, and a still-true condition on
+    the next pass is announced again (`NotificationService.has_unread`'s
+    recorded posture, `business_id=None` for a platform-wide notice — the same
+    meaning :meth:`NotificationService.notify` already gives it).
+
+    **Stays silent at or past breach.** `PLATFORM_BANDS` has no 100 entry, and
+    without a guard `spend_band` would still return 80 for a utilisation of
+    say 140% — an operator would then read "close to the daily limit" in the
+    queue in the same moment `record_platform_halt` writes the accurate "Jarvis
+    paused spending" to the feed. Two sentences for one event, one of them
+    stale, is exactly the failure 2.4 avoids by making the enforcing check the
+    one that describes a halt; this function deliberately steps aside once the
+    ceiling is actually reached rather than reusing the highest warning band.
+
+    Args:
+        rollup: The CFO's rollup. Read, never recomputed.
+        notifications: Writer for the operator's queue.
+
+    Returns:
+        A one-element tuple if a notice was written, empty if the ceiling is
+        below every band, at or past breach (the halt narrative's territory),
+        or the crossing was already announced and unread.
+    """
+    if rollup.rolling_24h_utilisation_pct >= 100:
+        return ()
+    band = spend_band(rollup.rolling_24h_utilisation_pct, PLATFORM_BANDS)
+    if band is None:
+        return ()
+    ref = platform_band_ref(band)
+    if await notifications.has_unread(None, kind=NotificationKind.SPENDING, link_ref=ref):
+        return ()
+    await notifications.notify(
+        notification_id=new_notification_id(),
+        kind=NotificationKind.SPENDING,
+        title=PLATFORM_BAND_COPY[band].title,
+        body=_platform_spend_body(rollup, band),
+        business_id=None,
+        link_ref=ref,
+    )
+    logger.info("platform ceiling alert raised", extra={"context": {"band": band}})
+    return (PlatformAlert(band=band),)
+
+
+def _platform_spend_body(rollup: PortfolioRollup, band: int) -> str:
+    """Render the platform ceiling's alert body from stored values only (D-011, D-040).
+
+    Mirrors `CircuitBreaker.trip`'s own rationale phrasing ("spending in the
+    last 24 hours ... the daily limit") rather than `_spend_body`'s "since it
+    started": this figure is the rolling 24h one, not a lifetime total, and
+    §12.5 is only honoured if the two windows keep reading differently.
+    """
+    return (
+        f"Spending in the last 24 hours has reached {_money(rollup.rolling_24h_spend_usd)} of "
+        f"the {_money(rollup.platform_ceiling_usd)} daily limit. "
+        f"{PLATFORM_BAND_COPY[band].consequence}"
     )
 
 
