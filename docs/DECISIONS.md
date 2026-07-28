@@ -2058,3 +2058,33 @@ not resequenced behind anything. Findings M9-F115…F129 recorded in the documen
 open: cap-window (now with the Reserve-states design as its proposed resolution), Confidence
 as a new operator-visible concept, platform-approval identity (security review), L3 actor
 attribution, publish_post graduation-eligibility.
+
+---
+
+## Owner review of the Governance specification — ten directions, four ratification conditions
+
+The owner reviewed EXECUTIVE-GOVERNANCE.md (verdict: excellent across all areas) and
+directs, before ratification:
+**The four conditions:** (1) authority becomes a PLATFORM-WIDE property of every executable
+action (Action → Authority Level → Approval Rule → Audit Record) — plugins, workflows,
+managers, trading modules, integrations inherit the one model, "you never need to invent
+governance again"; (2) POLICY formally defined, verbatim: "A durable owner-authorized
+constraint that determines what actions are permitted, required, or prohibited. Policies may
+only originate from: Owner, Approved specifications, Approved configuration. No model output
+shall become policy without explicit owner authorization." — testable, not aspirational;
+(3) DECISION LINEAGE as a first-class concept — every recommendation reconstructable as a
+proof tree: Observation → Inference → Policy → Authority → Recommendation → Execution;
+(4) the constitutional invariant "**Authority is inherited downward and never upward**" —
+higher may perform lower''s actions, never the reverse; escalation only through explicit
+approval; mechanically checkable.
+**The six refinements:** operational health (Healthy→Warning→Limited→Halted) separated from
+financial health (Healthy→Low→Critical→Exhausted) — "slow down" vs "you literally cannot
+continue"; Confidence gains a fourth state (Current / Limited / Degraded / Blind, owner''s
+definitions verbatim); the explainability structure gains AUTHORITY as its fifth field ("why
+is Jarvis allowed to recommend this?") — nine fields total; plugin governance strengthened:
+"Plugins may request authority. Plugins never possess authority. Authority is granted by
+installation."; provenance extends beyond parameters to EVERYTHING (goals, policies,
+budgets, thresholds, trading rules, risk limits: Origin → Modified By → Approved By →
+Executed By); L4/L5 reserved ("constitutions age better with room to evolve").
+Revision dispatched as the M9-5 designer''s warm continuation; ratification package returns
+to the owner after.
