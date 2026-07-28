@@ -27,11 +27,18 @@ import { region, setWorkspaceTitle } from './shell.js';
 
 /** The health band as a word. Colour never carries a state alone
  *  (docs/design/09-accessibility.md), and the tile has no meter to lean on.
- *  Placeholder-quality copy — an operator-surface pass is owed on all three. */
+ *
+ *  `at_risk` reads "in trouble", never "needs attention" (M9-F28): the main
+ *  column below can carry its own "Needs attention" heading over `stuck[]`
+ *  (design 13-company-workspace.md's own section name), and a company can be
+ *  `at_risk` with nothing stuck at all — reusing the phrase here would read
+ *  as the tile pointing at that section when it may have nothing to do with
+ *  it. "Worth a look" / "in trouble" also escalates in the same plain
+ *  register `healthy` sits in, rather than borrowing a heading's words. */
 const BAND_WORDS = {
   healthy: 'healthy',
   watch: 'worth a look',
-  at_risk: 'needs attention',
+  at_risk: 'in trouble',
 };
 
 // One line of the goals drill-down: what was measured against what it was

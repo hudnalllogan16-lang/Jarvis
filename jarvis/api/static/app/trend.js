@@ -75,11 +75,15 @@ function readings(points) {
  *  of one hour against a 24-hour target is excellent, not a 96% miss), so the
  *  comparison flips rather than the copy.
  *
- *  Placeholder-quality copy; an operator-surface pass is owed on all three. */
+ *  Every branch names "target" outright (M9-F104): "short of it" used to read
+ *  as the fallback, its "it" standing in for a word that appears nowhere in the
+ *  phrase itself — this note is read alone, not after a sentence that already
+ *  said "target", so each of the three branches has to carry its own
+ *  antecedent rather than borrow one from context that is not there. */
 function relation(latest, target, direction) {
   if (latest === target) return 'on target';
   const ahead = direction === 'below' ? latest < target : latest > target;
-  return ahead ? 'ahead of target' : 'short of it';
+  return ahead ? 'ahead of target' : 'short of target';
 }
 
 /** How the readings got to where they are — the trend half of the note.
