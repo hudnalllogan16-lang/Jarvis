@@ -1936,3 +1936,15 @@ sub-ceiling within D-003''s platform scope, set at Executive-enablement time, NO
 scope — recorded now so packet D can wire the seam; the judgment half stays deferred until
 the sub-ceiling has an owner-visible surface anyway. Cross-lane rule active: the census
 wording and M9-3''s never-measured item must agree before either ships.
+
+## M9-F50 … M9-F51 — decline persistence (M9-4); M8-F102 and audit Finding 3 CLOSED
+
+Migration 0007 (contract_refresh_declines, upsert-per-business) scratch-proven both
+directions then applied live (only write; companies byte-identical). Suppression is
+VERSION-keyed, deliberately not digest-keyed — a digest key cannot distinguish a version
+bump from same-version drift and would silently reopen M8-F3''s class (M9-F50, ratified:
+exactly the right call within data-engineer authority). "Not now" is now real: decline
+suppresses, a new version re-offers, same-version drift does not (proven by reproducing
+M8-F3''s historical shape via direct row mutation — M9-F51 records that drift is latent,
+unreachable via normal install today). 980 tests. Stale scratch DB jarvis_migcheck noted as
+litter for a future hygiene pass.
