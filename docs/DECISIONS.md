@@ -1974,3 +1974,16 @@ never_measured = zero cycles AND zero stuck (stuck work is real watch evidence, 
 swallowed). KpiEngine gains public completed_cycle_count(). Ledger: health-aggregation and
 budget-rollup rows RETIRED; alerts, breaker-caller, platform_feed-reader rows OPEN pending
 packets C/E. No findings opened.
+
+## M9-F40 … M9-F49 — surface backlog merged (M9-3); the M8 product follow-ups CLOSED
+
+All nine items live at 1008 tests, resolved onto the workspace architecture after the
+queue''s second conflict (bounced per protocol, resolved main-wins-structure/items-keep-
+behavior — items 4/6/7 ported into company-workspace.js homes). M9-F25 fixed in passing
+(.theme-swap one-repaint transition suppression, documented in 08-motion.md; the rAF removal
+link verified by construction, honestly stated). Ratified worker judgment: theme persistence
+via cookie (the only pre-paint-readable mechanism; no server/DB change) — acceptable, noted
+for the next privacy pass; app.py wording edits beyond the literal file list were correct
+proceed-and-flag under D-037. Remaining from the M9-2 round: M9-F26 (poll cost), M9-F27
+(grid pending indicator — product gate input), M9-F28 (copy pass) → the Phase-3 product gate
+decides their urgency.
