@@ -215,6 +215,30 @@ PARAMETER_ENTRIES: tuple[ParameterEntry, ...] = (
         location="jarvis.executive.alerts:PLATFORM_BANDS",
         note="Module constant, not config (M9-F123). Same as SPEND_BANDS.",
     ),
+    # ── ANNOUNCING — design OPERATIONAL-RUNTIME.md Part 3.2/3.4 (D-058/D-059, packet P0-B) ──
+    ParameterEntry(
+        name="settings.heartbeat.heartbeat_interval_seconds",
+        param_class=ParameterClass.ANNOUNCING,
+        origin=Origin.APPROVED_CONFIG,
+        current_source="approved config (Settings; owner-adjustable)",
+        location="jarvis.kernel.config:HeartbeatSettings.heartbeat_interval_seconds",
+        note=(
+            "Paces the Supervisor's runtime_heartbeat writes; gates no permission. "
+            "Parameter Register row (design OPERATIONAL-RUNTIME.md Part 3.2)."
+        ),
+    ),
+    ParameterEntry(
+        name="settings.heartbeat.heartbeat_stale_after_seconds",
+        param_class=ParameterClass.ANNOUNCING,
+        origin=Origin.APPROVED_CONFIG,
+        current_source="approved config (Settings; owner-adjustable)",
+        location="jarvis.kernel.config:HeartbeatSettings.heartbeat_stale_after_seconds",
+        note=(
+            "Paces the runtime health read (/api/health's runtime component); gates no "
+            "permission. Parameter Register row (design OPERATIONAL-RUNTIME.md Part 3.4)."
+        ),
+    ),
+    # ── ANNOUNCING — wall-clock cron (design OPERATIONAL-RUNTIME.md Part 4, packet P0-D) ──
     ParameterEntry(
         name="wake_conditions.schedule_cron",
         param_class=ParameterClass.ANNOUNCING,

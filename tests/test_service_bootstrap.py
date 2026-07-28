@@ -22,14 +22,17 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from jarvis.kernel.errors import ConfigurationError
+from jarvis.observability.heartbeat import RuntimeIdentity
 from jarvis.shell import service
 from jarvis.shell.preflight import ComponentHealth, HealthReport, Posture, Status
+from jarvis.shell.supervisor import PartState
 
 
 def _report(*, serving: bool) -> HealthReport:
@@ -174,6 +177,105 @@ async def test_waiting_is_stated_once_and_then_restated_on_a_cadence(
     assert messages.count("still waiting for a dependency") == 1
 
 
+# ── Heartbeat writes (packet P0-B, design 3.2) ───────────────────────────────
+
+
+async def test_waiting_writes_a_heartbeat_when_given_an_identity(
+    monkeypatch: pytest.MonkeyPatch, harness: dict[str, Any], caplog: pytest.LogCaptureFixture
+) -> None:
+    """One `waiting` row at the start of the wait, one on each restatement —
+    the same cadence the log already gives a console, but readable with no
+    console attached (design Part 6, Mode 4)."""
+    written: list[dict[str, object]] = []
+
+    async def _write_heartbeat(_kernel: object, _identity: object, **fields: object) -> None:
+        written.append(fields)
+
+    monkeypatch.setattr(service, "_write_heartbeat", _write_heartbeat)
+    retries = int(service.WAIT_LOG_INTERVAL_SECONDS / service.WAIT_RETRY_SECONDS)
+    monkeypatch.setattr(service, "run_preflight", _Preflight(*([False] * (retries + 1)), True))
+    caplog.set_level(logging.INFO, logger="jarvis.shell.service")
+    identity = RuntimeIdentity(runtime_id="r1", hostname="h", pid=1, started_at=datetime.now(UTC))
+
+    await service.bootstrap(
+        _FakeKernel(),  # type: ignore[arg-type]
+        on_unavailable=Posture.WAIT,
+        sleep=harness["sleep"],
+        runtime_identity=identity,
+    )
+
+    assert len(written) == 2
+    assert all(w["part_name"] == service.RUNTIME_PART_NAME for w in written)
+    assert all(w["state"] == service.WAITING_STATE for w in written)
+
+
+async def test_waiting_writes_no_heartbeat_without_an_identity(
+    monkeypatch: pytest.MonkeyPatch, harness: dict[str, Any]
+) -> None:
+    """`runtime_identity=None` (the console's `REFUSE` path never reaches this
+    branch, and every pre-P0-B test calls `bootstrap` this way) must not
+    attempt a write at all."""
+    written: list[dict[str, object]] = []
+
+    async def _write_heartbeat(_kernel: object, _identity: object, **fields: object) -> None:
+        written.append(fields)
+
+    monkeypatch.setattr(service, "_write_heartbeat", _write_heartbeat)
+    monkeypatch.setattr(service, "run_preflight", _Preflight(False, True))
+
+    await service.bootstrap(
+        _FakeKernel(),  # type: ignore[arg-type]
+        on_unavailable=Posture.WAIT,
+        sleep=harness["sleep"],
+    )
+
+    assert written == []
+
+
+async def test_heartbeat_loop_beats_every_part_once_per_tick(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One `_write_heartbeat` call per supervised part, every `interval`."""
+    written: list[dict[str, object]] = []
+
+    async def _write_heartbeat(_kernel: object, _identity: object, **fields: object) -> None:
+        written.append(fields)
+
+    monkeypatch.setattr(service, "_write_heartbeat", _write_heartbeat)
+
+    class _Part:
+        def __init__(self, name: str) -> None:
+            self.name = name
+            self.state = PartState.RUNNING
+            self.consecutive_crashes = 0
+            self.last_error = ""
+
+    class _Supervisor:
+        def statuses(self) -> list[_Part]:
+            return [_Part("api"), _Part("worker")]
+
+    ticks = 0
+
+    async def _sleep(_seconds: float) -> None:
+        nonlocal ticks
+        ticks += 1
+        if ticks >= 2:
+            raise asyncio.CancelledError
+
+    identity = RuntimeIdentity(runtime_id="r1", hostname="h", pid=1, started_at=datetime.now(UTC))
+    with pytest.raises(asyncio.CancelledError):
+        await service._heartbeat_loop(
+            object(),  # type: ignore[arg-type]
+            _Supervisor(),  # type: ignore[arg-type]
+            identity,
+            interval=15.0,
+            sleep=_sleep,
+        )
+
+    assert [w["part_name"] for w in written] == ["api", "worker", "api", "worker"]
+    assert all(w["state"] == "running" for w in written)
+
+
 async def test_only_the_console_is_offered_a_recovery(
     monkeypatch: pytest.MonkeyPatch, harness: dict[str, Any]
 ) -> None:
@@ -259,15 +361,29 @@ def headless(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     `signal.signal` mutates the interpreter for the rest of the suite — it is
     tested separately, by recording what it registers.
     """
-    monkeypatch.setattr(service, "Settings", lambda: type("_S", (), {"api_port": 8000})())
+    fake_heartbeat_settings = type("_H", (), {"heartbeat_interval_seconds": 15})()
+    monkeypatch.setattr(
+        service,
+        "Settings",
+        lambda: type("_S", (), {"api_port": 8000, "heartbeat": fake_heartbeat_settings})(),
+    )
     monkeypatch.setattr(service, "migration_config", lambda root=None: None)
     kernel = _FakeKernel()
     monkeypatch.setattr(service, "PlatformKernel", lambda _settings: kernel)
     monkeypatch.setattr(service, "install_signal_handlers", lambda _stop: None)
+    heartbeats: list[dict[str, object]] = []
+
+    async def _write_heartbeat(_kernel: object, _identity: object, **fields: object) -> None:
+        heartbeats.append(fields)
+
+    monkeypatch.setattr(service, "_write_heartbeat", _write_heartbeat)
 
     class _Supervisor:
         async def run_until_stopped(self) -> None:
             return None
+
+        def statuses(self) -> list[object]:
+            return []
 
     monkeypatch.setattr(service, "build_supervisor", lambda _kernel: _Supervisor())
 
@@ -275,13 +391,23 @@ def headless(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         return _report(serving=True)
 
     monkeypatch.setattr(service, "bootstrap", _bootstrap)
-    return {"kernel": kernel, "monkeypatch": monkeypatch}
+    return {"kernel": kernel, "monkeypatch": monkeypatch, "heartbeats": heartbeats}
 
 
 def test_a_clean_stop_exits_zero(headless: dict[str, Any]) -> None:
     """Tier 2 must leave an operator-requested stop stopped."""
     assert service.serve_headless() == service.EXIT_OK
     assert headless["kernel"].closed == 1
+
+
+def test_a_clean_stop_writes_a_final_stopped_heartbeat(headless: dict[str, Any]) -> None:
+    """D-060: "stopped cleanly" and "last seen" must stay different recorded
+    facts, so a clean stop owes the `runtime_heartbeat` table its own row."""
+    assert service.serve_headless() == service.EXIT_OK
+    heartbeats: list[dict[str, object]] = headless["heartbeats"]
+    stopped = [h for h in heartbeats if h["state"] == service.STOPPED_STATE]
+    assert len(stopped) == 1
+    assert stopped[0]["part_name"] == service.RUNTIME_PART_NAME
 
 
 def test_a_stop_while_waiting_for_a_dependency_exits_zero(headless: dict[str, Any]) -> None:

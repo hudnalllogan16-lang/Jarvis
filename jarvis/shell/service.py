@@ -29,10 +29,11 @@ a behaviour matters it lives in the component being started. It is exempt in
 keeps the claim honest — which is also why `Posture` is defined in
 `jarvis/shell/preflight.py` rather than here.
 
-**Not yet written, and owed to the packets that follow.** The `waiting` and
-`stopped` heartbeat rows this design's Part 3 asks `bootstrap` and
-`serve_headless` to write need the `runtime_heartbeat` table, which is packet
-P0-B's. The places they belong are marked below rather than silently omitted.
+**Heartbeat writes (packet P0-B).** The `waiting` and `stopped` rows design
+Part 3 asks `bootstrap` and `serve_headless` to write, plus the periodic beat
+every running part gets, all land through `_write_heartbeat` below —
+best-effort by construction (design 3.2's fact must never become a new way
+for the runtime it describes to fail).
 """
 
 from __future__ import annotations
@@ -40,8 +41,11 @@ from __future__ import annotations
 import asyncio
 import os
 import signal
+import socket
 import threading
+import uuid
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -52,8 +56,20 @@ from jarvis.kernel.config import Settings
 from jarvis.kernel.container import PlatformKernel
 from jarvis.kernel.errors import ConfigurationError
 from jarvis.kernel.logging import get_logger
+from jarvis.observability.heartbeat import (
+    STOPPED_STATE,
+    WAITING_STATE,
+    HeartbeatStore,
+    RuntimeIdentity,
+)
+from jarvis.persistence.engine import session_scope
 from jarvis.shell.preflight import HealthReport, Posture, run_preflight
 from jarvis.shell.supervisor import Supervisor
+
+RUNTIME_PART_NAME = "runtime"
+"""The synthetic `part_name` for whole-process heartbeat facts no single
+supervised part can express on its own (design 3.2): waiting for a
+dependency before any part exists, and a clean stop after every part does."""
 
 if TYPE_CHECKING:  # imported for typing only; Alembic is a startup cost, not an import one
     from alembic.config import Config
@@ -181,6 +197,7 @@ async def bootstrap(
     announce: Callable[[str], None] = _log_line,
     on_report: Callable[[HealthReport], None] = _log_report,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+    runtime_identity: RuntimeIdentity | None = None,
 ) -> HealthReport:
     """Preflight, wait or refuse, migrate, install builtin types.
 
@@ -205,6 +222,11 @@ async def bootstrap(
         on_report: Called once with the settled report, before migrations, so
             the ladder is shown while they run rather than after.
         sleep: Injectable delay, so posture tests do not wait real seconds.
+        runtime_identity: This process's identity (packet P0-B), for the
+            `waiting` heartbeat row `_wait_for_dependencies` writes while
+            this posture retries. `None` for a caller with no identity to
+            report — the console (`REFUSE` never reaches that branch anyway)
+            and every existing test that predates this parameter.
 
     Returns:
         The settled `HealthReport`. Under `WAIT` it always serves; under
@@ -225,7 +247,9 @@ async def bootstrap(
                 announce(f"  Still waiting ({(attempt + 1) * 5}s)...")
 
     if not report.can_serve and on_unavailable is Posture.WAIT:
-        report = await _wait_for_dependencies(kernel, report, sleep=sleep)
+        report = await _wait_for_dependencies(
+            kernel, report, sleep=sleep, identity=runtime_identity
+        )
 
     on_report(report)
     if not report.can_serve:
@@ -241,6 +265,7 @@ async def _wait_for_dependencies(
     report: HealthReport,
     *,
     sleep: Callable[[float], Awaitable[None]],
+    identity: RuntimeIdentity | None = None,
 ) -> HealthReport:
     """Re-run preflight every `WAIT_RETRY_SECONDS` until the platform can serve.
 
@@ -248,20 +273,26 @@ async def _wait_for_dependencies(
     so a long outage reads as ongoing rather than as one line at the start
     followed by silence.
 
-    P0-B owes this loop a `runtime_heartbeat` row in state `waiting`, so the
-    console can say *what* the service is waiting for rather than only that
-    nothing is running.
+    Writes a `runtime_heartbeat` row in state `waiting` (design 3.2, packet
+    P0-B) once at the start of the wait and again on every restatement — a
+    reader watching that row sees the same "still waiting" cadence the log
+    already gives a console, even with no console attached (Mode 4). Skipped
+    entirely when ``identity`` is `None`.
 
     Args:
         kernel: Initialised Platform Kernel.
         report: The failing report that started the wait.
         sleep: Injectable delay.
+        identity: This process's identity, or `None` to skip the heartbeat
+            write (see `bootstrap`'s docstring).
 
     Returns:
         The first report that can serve.
     """
     waited = 0.0
     logger.info("waiting for a dependency", extra={"context": _blockers(report)})
+    if identity is not None:
+        await _write_heartbeat(kernel, identity, part_name=RUNTIME_PART_NAME, state=WAITING_STATE)
     announced_at = 0.0
     while not report.can_serve:
         await sleep(WAIT_RETRY_SECONDS)
@@ -273,6 +304,10 @@ async def _wait_for_dependencies(
                 "still waiting for a dependency",
                 extra={"context": {"waited_seconds": waited, **_blockers(report)}},
             )
+            if identity is not None:
+                await _write_heartbeat(
+                    kernel, identity, part_name=RUNTIME_PART_NAME, state=WAITING_STATE
+                )
     logger.info("dependencies are available; starting", extra={"context": {"waited": waited}})
     return report
 
@@ -280,6 +315,89 @@ async def _wait_for_dependencies(
 def _blockers(report: HealthReport) -> dict[str, object]:
     """Name the components that are down, for the waiting log's context."""
     return {"down": sorted(c.name for c in report.components if c.status.value == "down")}
+
+
+async def _write_heartbeat(
+    kernel: PlatformKernel,
+    identity: RuntimeIdentity,
+    *,
+    part_name: str,
+    state: str,
+    consecutive_crashes: int = 0,
+    last_error: str = "",
+) -> None:
+    """Best-effort `runtime_heartbeat` upsert (design 3.2, packet P0-B).
+
+    A heartbeat records that the runtime is healthy; a heartbeat write that
+    could itself take the runtime down would make that record less reliable,
+    not more, so a failure here is logged and swallowed — the same posture
+    `AuditLog.record_independently` takes toward a denial record it cannot
+    write. Opens its own short transaction rather than sharing a caller's:
+    nothing that calls this holds a session of its own to share (the
+    Supervisor's loop and the bootstrap wait are both outside `services()`),
+    and a beat has no reason to wait on anyone else's commit.
+
+    Args:
+        kernel: Initialised Platform Kernel, for its session factory.
+        identity: This process's identity (`RuntimeIdentity`).
+        part_name: `'api' | 'worker' | 'scheduler' | 'executive' | 'runtime'`.
+        state: The part's current state, as a bare string (see
+            `HeartbeatStore.beat`'s docstring for why).
+        consecutive_crashes: Mirrors `PartStatus.consecutive_crashes`.
+        last_error: Mirrors `PartStatus.last_error`.
+    """
+    try:
+        async with session_scope(kernel.session_factory) as session:
+            await HeartbeatStore(session).beat(
+                identity,
+                part_name=part_name,
+                state=state,
+                consecutive_crashes=consecutive_crashes,
+                last_error=last_error,
+            )
+    except Exception:
+        logger.warning(
+            "could not write a runtime heartbeat",
+            extra={"context": {"part": part_name, "state": state}},
+        )
+
+
+async def _heartbeat_loop(
+    kernel: PlatformKernel,
+    supervisor: Supervisor,
+    identity: RuntimeIdentity,
+    *,
+    interval: float,
+    sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+) -> None:
+    """Upsert one heartbeat row per supervised part, every ``interval`` seconds.
+
+    Runs alongside the Supervisor as its own task, never as one of its parts
+    — `tests/test_one_part_table.py` asserts exactly four parts, and a
+    heartbeat that could crash-loop would be exactly the silent gap this
+    packet exists to close. Beats immediately on entry (a fresh start should
+    not read as `down` for a full `interval` before its first write) and then
+    on the cadence.
+
+    Args:
+        kernel: Initialised Platform Kernel.
+        supervisor: The running Supervisor to read part statuses from.
+        identity: This process's identity.
+        interval: Seconds between beats (`settings.heartbeat.
+            heartbeat_interval_seconds`).
+        sleep: Injectable delay, so tests do not wait real seconds.
+    """
+    while True:
+        for part in supervisor.statuses():
+            await _write_heartbeat(
+                kernel,
+                identity,
+                part_name=part.name,
+                state=part.state.value,
+                consecutive_crashes=part.consecutive_crashes,
+                last_error=part.last_error,
+            )
+        await sleep(interval)
 
 
 def _supervisor_parts(supervisor: Supervisor) -> list[dict[str, object]]:
@@ -410,9 +528,17 @@ async def _serve(settings: Settings, stop: threading.Event) -> int:
         A process exit code (design 2.3).
     """
     kernel = PlatformKernel(settings)
+    identity = RuntimeIdentity(
+        runtime_id=str(uuid.uuid4()),
+        hostname=socket.gethostname(),
+        pid=os.getpid(),
+        started_at=datetime.now(UTC),
+    )
     stopping = asyncio.ensure_future(_stopped(stop))
     try:
-        booting = asyncio.ensure_future(bootstrap(kernel, on_unavailable=Posture.WAIT))
+        booting = asyncio.ensure_future(
+            bootstrap(kernel, on_unavailable=Posture.WAIT, runtime_identity=identity)
+        )
         done, _ = await asyncio.wait({booting, stopping}, return_when=asyncio.FIRST_COMPLETED)
         if booting not in done:
             # Stopped while waiting for a dependency. Never a failure: the
@@ -423,18 +549,27 @@ async def _serve(settings: Settings, stop: threading.Event) -> int:
 
         supervisor = build_supervisor(kernel)
         running = asyncio.ensure_future(supervisor.run_until_stopped())
+        heartbeat = asyncio.ensure_future(
+            _heartbeat_loop(
+                kernel,
+                supervisor,
+                identity,
+                interval=settings.heartbeat.heartbeat_interval_seconds,
+            )
+        )
         logger.info("runtime serving", extra={"context": {"port": settings.api_port}})
         await asyncio.wait({running, stopping}, return_when=asyncio.FIRST_COMPLETED)
         running.cancel()
+        heartbeat.cancel()
         try:
             await asyncio.wait_for(
-                asyncio.gather(running, return_exceptions=True), timeout=DRAIN_SECONDS
+                asyncio.gather(running, heartbeat, return_exceptions=True), timeout=DRAIN_SECONDS
             )
         except TimeoutError:
             logger.warning("parts did not stop within the drain budget")
-        # P0-B owes this path a final `runtime_heartbeat` row in state
-        # `stopped`: "stopped cleanly at 04:12" and "last seen at 04:12" are
-        # different operational facts and the platform can express neither yet.
+        # "Stopped cleanly at 04:12" and "last seen at 04:12" are different
+        # operational facts (D-060); this row is what keeps them different.
+        await _write_heartbeat(kernel, identity, part_name=RUNTIME_PART_NAME, state=STOPPED_STATE)
         return EXIT_OK
     except ConfigurationError:
         logger.exception("the runtime cannot start with this configuration")

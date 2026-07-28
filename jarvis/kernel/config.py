@@ -116,6 +116,32 @@ class BudgetSettings(BaseModel):
     recorded spend. Owner-adjustable, like every other ceiling here."""
 
 
+class HeartbeatSettings(BaseModel):
+    """Runtime self-report cadence (design OPERATIONAL-RUNTIME.md Part 3.2, D-058).
+
+    Paces the Supervisor's `runtime_heartbeat` writes and the staleness read
+    `/api/health`'s `runtime` component (and, later, the Executive's liveness
+    verdict, packet P0-C) apply against those writes. Neither value gates a
+    permission decision — a slower cadence only delays how quickly a stalled
+    part is *noticed*, it changes nothing about what the platform is allowed
+    to do — so both are ANNOUNCING parameters (Parameter Register, Part 3.3),
+    unlike `platform_rolling_24h_usd`'s ENFORCING ceiling beside them.
+    """
+
+    heartbeat_interval_seconds: int = Field(default=15, gt=0)
+    """How often the Supervisor upserts one `runtime_heartbeat` row per
+    supervised part (design 3.2's own default)."""
+
+    heartbeat_stale_after_seconds: int = Field(default=45, gt=0)
+    """A beat older than this reads as stale rather than merely running late.
+
+    Three missed intervals at the default cadence — the same "don't alarm on
+    one skipped tick" margin every other periodic check in this platform
+    gives itself, so a single delayed write (a slow database round trip, a
+    GC pause) does not flip a healthy part to "down" on its own.
+    """
+
+
 class TemporalSettings(BaseModel):
     """Workflow runtime configuration (spec §2: Temporal, non-negotiable)."""
 
@@ -181,6 +207,7 @@ class Settings(BaseSettings):
     budget: BudgetSettings = Field(default_factory=BudgetSettings)
     temporal: TemporalSettings = Field(default_factory=TemporalSettings)
     executive: ExecutiveSettings = Field(default_factory=ExecutiveSettings)
+    heartbeat: HeartbeatSettings = Field(default_factory=HeartbeatSettings)
 
     credentials: dict[str, SecretStr] = Field(default_factory=dict)
     """Credential handle -> secret, from the secrets manager (spec §10).

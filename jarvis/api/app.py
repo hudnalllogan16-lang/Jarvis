@@ -13,6 +13,7 @@ nothing in the default view links to it without the operator choosing it.
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -46,12 +47,27 @@ from jarvis.kernel.ids import BusinessId, BusinessTypeName, DecisionId, new_deci
 from jarvis.kernel.logging import get_logger
 from jarvis.kpi.engine import KpiEngine
 from jarvis.notifications.service import NotificationService
+from jarvis.observability.heartbeat import HeartbeatStore, summarise_runtime_health
 from jarvis.persistence.models import DeadLetterRow
 from jarvis.registry.registry import LIFECYCLE_TRANSITION_ACTION_TYPE
 
 logger = get_logger(__name__)
 
 STATIC_DIR = "jarvis/api/static"
+
+MIGRATION_HEAD_REVISION = "0008"
+"""The newest Alembic revision under `migrations/versions/` (design
+OPERATIONAL-RUNTIME.md Part 3.4's "schema at head" readiness gate).
+
+Bumped in the same diff that adds a new migration —
+`tests/test_ready_route.py::test_migration_head_constant_matches_the_newest_migration_file`
+keeps the two from drifting apart, the same discipline
+`KNOWN_M130_EXCEPTIONS` uses to keep a hand-maintained value honest. Kept
+here rather than resolved from Alembic's own `ScriptDirectory` at request
+time: computing it that way needs the installation-root path resolution
+`jarvis/shell/service.py` owns (M10-F10), a milestone-5 concern this
+milestone-3 module may not import, and `/api/ready` is polled often enough
+that a filesystem walk per request is cost this constant avoids for free."""
 
 MAX_KPI_SERIES_LIMIT = 365
 """Upper bound on `?limit=` for `/kpi-series` (M9-2a). One reading a day for a
@@ -1118,6 +1134,40 @@ def create_app(
             }
         )
 
+        # design OPERATIONAL-RUNTIME.md Part 3.4, packet P0-B: the self-report
+        # half of liveness, read from `runtime_heartbeat` rather than from a
+        # local Supervisor — this is what lets a console-only attach (Mode 4,
+        # no Supervisor of its own) answer "is anything running" at all,
+        # closing M10-F2 for every topology at once. `workers` (the
+        # DescribeTaskQueue half) is packet P0-C's: it needs the Temporal
+        # poller probe, which lands with the liveness verdict that consumes it.
+        try:
+            async with kernel.services() as svc:
+                heartbeat_rows = await HeartbeatStore(svc.session).rows()
+        except Exception:
+            components.append(
+                {
+                    "name": "runtime",
+                    "status": "down",
+                    "summary": "Jarvis can't check whether anything is running.",
+                    "remedy": "",
+                }
+            )
+        else:
+            runtime_status, runtime_summary = summarise_runtime_health(
+                heartbeat_rows,
+                now=datetime.now(UTC),
+                stale_after_seconds=kernel.settings.heartbeat.heartbeat_stale_after_seconds,
+            )
+            components.append(
+                {
+                    "name": "runtime",
+                    "status": runtime_status,
+                    "summary": runtime_summary,
+                    "remedy": "",
+                }
+            )
+
         return {
             "ok": all(c["status"] == "ok" for c in components),
             "can_serve": next(
@@ -1126,6 +1176,63 @@ def create_app(
             "components": components,
             "parts": parts_provider() if parts_provider is not None else [],
         }
+
+    async def _not_ready_reason() -> str | None:
+        """Return the first readiness gate `/api/ready` fails, or `None`.
+
+        Each check happens in its own transaction and returns immediately on
+        failure — a failed statement leaves a Postgres transaction unable to
+        run a further query, so nothing here tries to reuse a session across
+        a check that might have just failed on it (unlike `/api/health`'s
+        components, which are independent facts about different things and
+        can share one narrative response even when several are wrong at
+        once; readiness is a single gate and the first failing reason is the
+        whole answer).
+        """
+        try:
+            async with kernel.services() as svc:
+                await svc.session.execute(text("SELECT 1"))
+        except Exception:
+            return "the database is unreachable"
+
+        try:
+            async with kernel.services() as svc:
+                version = (
+                    await svc.session.execute(text("SELECT version_num FROM alembic_version"))
+                ).scalar()
+        except Exception:
+            return "the database schema hasn't been migrated"
+        if version != MIGRATION_HEAD_REVISION:
+            return "the database schema is behind"
+
+        async with kernel.services() as svc:
+            if not await svc.registry.installed_types():
+                return "company templates aren't installed yet"
+
+        if parts_provider is not None:
+            not_running = [p for p in parts_provider() if p.get("state") != "running"]
+            if not_running:
+                return "still starting"
+
+        return None
+
+    @app.get("/api/ready")
+    async def ready() -> JSONResponse:  # pyright: ignore[reportUnusedFunction]
+        """Readiness gate (design OPERATIONAL-RUNTIME.md Part 3.4, D-059, M10-F16).
+
+        Answers one question for an orchestrator or a service throttle: is it
+        safe to send traffic. No narrative, no components — those are
+        `/api/health`'s job, and deliberately cannot be this route's: by
+        D-016's degradation ladder `/api/health` always answers 200 with a
+        body describing what's degraded, which is exactly wrong for a caller
+        to whom 200 means "route here". `/api/ready` is the other half of
+        that split — 200 or 503, nothing in between, so the two routes never
+        answer the same question twice and never disagree about it.
+        """
+        reason = await _not_ready_reason()
+        if reason is None:
+            return JSONResponse(status_code=200, content={"ready": True})
+        return JSONResponse(status_code=503, content={"ready": False, "reason": reason})
 
     @app.get("/api/companies/{business_id}/full-details")
     async def full_details(  # pyright: ignore[reportUnusedFunction]
