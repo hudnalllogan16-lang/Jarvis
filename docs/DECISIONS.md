@@ -2198,3 +2198,27 @@ switch (the template toggles are easy to misread as one — doc note owed).
 
 All M10-F work is gated on the owner''s M10 approval per the standing directive; the audit
 and plan travel with the m9-baseline recommendation package.
+
+---
+
+## M9 ratification complete — Option 2 executed; m9-baseline re-recommended
+
+The owner-commissioned ratification review (docs/reports/M9-RATIFICATION-REVIEW.md)
+independently CONFIRMED all ten runtime-audit findings (strengthening two: the cron
+flattening makes ''0 9,16 * * *'' fire HOURLY — a 12× billable over-fire; docker-compose has
+no restart policy at all), git-dated every defect (the shadowing and the cron both trace to
+the M6 import — pre-existing, not M9 regressions), verified the M9 contract (one unmet item:
+M9-7''s banner published atop the dead route), validated the Executive as
+operating-as-designed with autonomy PRESENT-but-topology-dependent, and recommended
+**Option 2**. Executed: M9-10 restored the parts-aware /api/health via create_app''s
+parts_provider closure (one route, shadowing dead at the root, layering intact, M9-7''s
+claim now true as shipped; the M8-F44/M9-F155 route half advanced, check-logic half stays
+flagged), re-pinned the test to assert one-route + real parts, and applied the M10-F3 doc
+corrections (launcher = the supported autonomy topology; api-only = read-only; worker =
+unsupervised). **1240 tests, gates green, tree clean.**
+
+**M10 boundary adopted (the review''s P7 test):** a finding is M10''s if fixing it changes
+how Jarvis is deployed, supervised, or scheduled in wall-clock time; M9''s only if it makes
+a published M9 claim true. M9 baselines the architecture; M10 makes it operable — opening
+with Operational Readiness (headless supervised entrypoint, restart policy, liveness, real
+cron via D-033, M10-F2 silent-non-autonomy signal) before Trading Intelligence.
