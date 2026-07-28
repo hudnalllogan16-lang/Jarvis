@@ -222,6 +222,45 @@ class DecisionLogRow(Base):
     )
 
 
+class RuntimeHeartbeatRow(Base):
+    """The platform's self-report liveness signal (design OPERATIONAL-RUNTIME.md
+    Part 3.2, D-058, packet P0-B).
+
+    One row per ``(runtime_id, part_name)`` — a composite key, not a surrogate
+    one, because the question this table answers is never "what has this
+    process ever said" (that is the audit log's job) but only "what is true
+    of it right now": upserted on every heartbeat, never appended. A process
+    restart mints a fresh ``runtime_id`` (design 3.2: "generated at process
+    start"), so an old runtime's rows simply age out of every reader's
+    staleness window rather than being reconciled against the new one — no
+    row here is ever deleted, and none needs to be, because a stale row and
+    an absent one read identically to `jarvis.observability.heartbeat`'s
+    assessment.
+
+    ``part_name`` is one of ``'api' | 'worker' | 'scheduler' | 'executive' |
+    'runtime'`` — the first four are the Supervisor's own part names
+    (`jarvis.shell.supervisor.PartStatus.name`); ``'runtime'`` is the whole
+    process, written for the states no single part can express on its own
+    (`waiting` for a dependency before any part exists, `stopped` for a clean
+    shutdown — D-060's point that "stopped cleanly" and "last seen" must stay
+    different facts).
+    """
+
+    __tablename__ = "runtime_heartbeat"
+
+    runtime_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    part_name: Mapped[str] = mapped_column(String(32), primary_key=True)
+    hostname: Mapped[str] = mapped_column(String(255), nullable=False)
+    pid: Mapped[int] = mapped_column(nullable=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_beat_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+    state: Mapped[str] = mapped_column(String(16), nullable=False)
+    consecutive_crashes: Mapped[int] = mapped_column(default=0, nullable=False)
+    last_error: Mapped[str] = mapped_column(String(300), default="", nullable=False)
+
+
 # ── Milestone 2: execution spine ────────────────────────────────────────────
 
 

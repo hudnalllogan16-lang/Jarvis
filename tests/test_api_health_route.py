@@ -23,6 +23,8 @@ wiring — a `parts_provider` closure — rather than a competing route.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import httpx
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import StaticPool
@@ -30,6 +32,7 @@ from sqlalchemy.pool import StaticPool
 from jarvis.api.app import create_app
 from jarvis.kernel.config import LLMSettings, Settings
 from jarvis.kernel.container import PlatformKernel
+from jarvis.observability.heartbeat import HeartbeatStore, RuntimeIdentity
 from jarvis.persistence.models import Base
 
 
@@ -73,7 +76,12 @@ async def test_health_route_exists_without_the_shell_topology() -> None:
         assert response.status_code == 200
         body = response.json()
         assert isinstance(body["components"], list)
-        assert {c["name"] for c in body["components"]} == {"database", "workflows", "thinking"}
+        assert {c["name"] for c in body["components"]} == {
+            "database",
+            "workflows",
+            "thinking",
+            "runtime",
+        }
         assert body["parts"] == []
     finally:
         await kernel.aclose()
@@ -119,5 +127,39 @@ async def test_health_route_reports_the_database_as_ok_when_reachable() -> None:
             response = await client.get("/api/health")
         database = next(c for c in response.json()["components"] if c["name"] == "database")
         assert database["status"] == "ok"
+    finally:
+        await kernel.aclose()
+
+
+async def test_health_route_reports_runtime_down_with_no_heartbeat_rows() -> None:
+    """M10-F2: even api-only (no Supervisor) must answer honestly — a
+    platform that has never reported a heartbeat is `down`, not silent."""
+    kernel = await _kernel()
+    try:
+        transport = httpx.ASGITransport(app=create_app(kernel))
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get("/api/health")
+        runtime = next(c for c in response.json()["components"] if c["name"] == "runtime")
+        assert runtime["status"] == "down"
+    finally:
+        await kernel.aclose()
+
+
+async def test_health_route_reports_runtime_ok_with_a_fresh_beat() -> None:
+    kernel = await _kernel()
+    try:
+        identity = RuntimeIdentity(
+            runtime_id="r1", hostname="h", pid=1, started_at=datetime.now(UTC)
+        )
+        async with kernel.services() as svc:
+            store = HeartbeatStore(svc.session)
+            for part in ("api", "worker", "scheduler", "executive"):
+                await store.beat(identity, part_name=part, state="running")
+
+        transport = httpx.ASGITransport(app=create_app(kernel))
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get("/api/health")
+        runtime = next(c for c in response.json()["components"] if c["name"] == "runtime")
+        assert runtime["status"] == "ok"
     finally:
         await kernel.aclose()
