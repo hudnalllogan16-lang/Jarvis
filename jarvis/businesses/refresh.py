@@ -127,7 +127,13 @@ class ContractRefreshService:
         Returns:
             A plan whose `is_empty` is True when the company is already
             current — the ordinary answer for one created since the installed
-            version, and the case that makes this mechanism falsifiable.
+            version, and the case that makes this mechanism falsifiable. Also
+            True when the operator already declined this exact installed
+            version (D-030 Part 4.3, M8-F102/M9-4): `changes` collapses to
+            `()` the same way, so nothing downstream needs to tell "current"
+            from "suppressed" apart to do the right thing — both mean there is
+            nothing here to show or act on right now. `withheld` (Band C) is
+            unaffected either way; it is never gated by consent state.
 
         Raises:
             BusinessNotFoundError: If no such company exists.
@@ -143,15 +149,39 @@ class ContractRefreshService:
         definition = await self._installed_definition(contract.business_type)
         target = refreshed_contract(contract, definition)
 
+        changes = tuple(_band_b_changes(contract, definition))
+        if changes and await self._is_declined(business_id, definition.version):
+            # Suppressed, not merely hidden: collapse to the same shape a
+            # genuinely-current plan has (empty changes, source == target) so
+            # apply/dismiss's existing `plan.is_empty` checks (jarvis/api/
+            # app.py) and the operator surface (render_plan) need no changes
+            # of their own to do the honest thing. A new version changes
+            # `definition.version`, which changes what `_is_declined` compares
+            # against, which naturally stops matching — no separate clearing
+            # step required.
+            changes = ()
+            target = contract
+
         return ContractRefreshPlan(
             business_id=business_id,
             business_type=contract.business_type,
             installed_version=definition.version,
-            changes=tuple(_band_b_changes(contract, definition)),
+            changes=changes,
             withheld=tuple(_withheld_changes(contract, definition)),
             source_digest=band_b_digest(contract),
             target_digest=band_b_digest(target),
         )
+
+    async def _is_declined(self, business_id: BusinessId, installed_version: str) -> bool:
+        """Return whether the operator already declined ``installed_version``.
+
+        Version-keyed, not digest-keyed (see `ContractRefreshDeclineRow` and
+        `BusinessRegistry.declined_refresh_version` for why: a content digest
+        cannot distinguish a real version change from the same-version drift
+        M8-F3 found live).
+        """
+        declined = await self._registry.declined_refresh_version(business_id)
+        return declined == installed_version
 
     # ── applying (the write path) ──────────────────────────────────────────
 
@@ -314,6 +344,17 @@ class ContractRefreshService:
             ),
             action_type=None,
             inputs_considered={"changes": [change.field for change in plan.changes]},
+        )
+        # D-030 Part 4.3 / M8-F102: the Decision Log entry above is the
+        # operator-readable record that this happened; this is the mechanism
+        # that makes it *do* something — the next `plan_refresh` for this
+        # company suppresses the same offer until `plan.installed_version`
+        # moves (M9-4).
+        await self._registry.record_refresh_decline(
+            business_id,
+            declined_version=plan.installed_version,
+            source_digest=plan.source_digest,
+            target_digest=plan.target_digest,
         )
         return RefreshResult(
             business_id=business_id,

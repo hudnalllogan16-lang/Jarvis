@@ -94,6 +94,51 @@ class BusinessInstanceRow(Base):
     )
 
 
+class ContractRefreshDeclineRow(Base):
+    """The operator's most recent "Not now" to a company's contract refresh
+    (D-030, design PLUGIN-FRAMEWORK.md Part 4.3; M8-F102/M9-4).
+
+    One row per company, upserted on every `decline_refresh` call — this is
+    not a history (the Decision Log already carries an append-only entry for
+    every decline an operator can read; spec §11.5). It exists to answer one
+    question for `plan_refresh`: "is the version installed right now the one
+    this company's operator already said no to." A different version answers
+    no, and the plan is offered again — Part 4.3's "re-offered only on the
+    next version change" made literal.
+
+    `declined_version` is what `plan_refresh` compares against, deliberately
+    **not** a content digest. `business_type.py`'s `compute_digest` docstring
+    records the live case this guards against (M8-F3): the installed
+    `affiliate` type's stored definition once differed from what its own
+    declared version implied, with no version bump in between. A digest keyed
+    to content would treat that kind of same-version drift exactly like a
+    real version change and silently clear a decline the operator never
+    revisited. A digest cannot tell "the type changed" from "the type's stored
+    row drifted while claiming to be the same" apart — only the version string
+    can, so suppression is keyed on it. `source_digest`/`target_digest` are
+    kept anyway, not for suppression but so a decline row is self-describing:
+    what the company looked like and what it would have become, for an
+    operator's or developer's own "why is this suppressed" question.
+    """
+
+    __tablename__ = "contract_refresh_declines"
+
+    business_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    declined_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    """The installed type version this decline suppresses. `plan_refresh`
+    re-offers as soon as the currently installed version differs from this."""
+
+    source_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    """Band B digest of the contract at decline time (audit context only)."""
+
+    target_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    """Band B digest the declined plan would have produced (audit context only)."""
+
+    declined_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+
+
 class AuditLogRow(Base):
     """Forensic record of every technical event (spec §11).
 

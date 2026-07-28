@@ -687,10 +687,11 @@ def create_app(kernel: PlatformKernel) -> FastAPI:
         """Decline a pending template update for now (design Part 4.3).
 
         "Not now" is a real, recorded outcome, not a deferral loop — re-offered
-        only on the next version change. M8-F102 (decline persistence) stays
-        deferred: nothing is stored to suppress the offer, so the next visit
-        recomputes the same plan and shows it again honestly, rather than
-        silently remembering a "no" nowhere the operator can see it recorded.
+        only on the next version change (M8-F102 closed, M9-4). The decline is
+        stored (`BusinessRegistry.record_refresh_decline`) and `plan_refresh`
+        reads it back on every subsequent call for this company, so the next
+        visit answers "nothing pending" honestly rather than showing the same
+        offer again — the audit Finding 3 gap this closes.
         """
         async with kernel.services() as svc:
             refresh = kernel.build_refresh(svc)
