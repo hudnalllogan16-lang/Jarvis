@@ -1906,3 +1906,33 @@ whose founding packet carries the authority (the M8-F162 refusals, both correct,
 evidence); (2) M8-F150 reconciled: a packet may name files outside an agent''s default
 territory explicitly, and the agent proceeds-and-flags rather than escalating. Measured
 against the retro''s +25â€“35% prediction through M9.
+
+---
+
+## D-038 … D-041 ratified; M9-F1 … M9-F5; two owner escalations open (M9-1)
+
+Executive Layer design merged (docs/design/EXECUTIVE-LAYER.md — authoritative). Ratified as
+drafted: **D-038** the deterministic half computes and reports, never writes a contract —
+enforced by the import rule (executive imports registry/budget/kpi/observability/
+notifications and nothing else; importing jarvis.llm IS the violation event); **D-039** a
+portfolio has a census, not a score (live data is the argument: means read healthy while
+Summit sits on watch); **D-040** every Executive figure names its window; runway in cycles;
+absent is not zero; **D-041** the Executive runs on its own timer at runtime/worker.py —
+never a workflow, never Scheduler.sweep. **D-042 held** pending owner escalation 2.
+
+Findings: **M9-F1** the business cap sums lifetime while the platform breaker is rolling —
+Summit''s $25 lifetime cap ≈ 30 cycles, less than one day''s allowance; **M9-F2**
+CircuitBreaker.trip() has no caller and §12.5''s "Jarvis paused spending" has never been
+written (0 platform decision rows); **M9-F3** nothing sets KPI targets — Executive
+target-setting and M8-F6 are the same event from opposite directions and must land together;
+**M9-F4** Executive reasoning has no budget scope (why the judgment half is deferred);
+**M9-F5** per-model cost tracking explicitly homed here, deferred with rationale.
+
+**OWNER ESCALATIONS (D-037: re-surfaced until ruled):** (1) `business_cap_usd` window —
+lifetime vs rolling — changes what a spending limit MEANS to the operator (user-facing);
+(2) a platform-scoped approval action_type for capital allocation — §8/D-013 security
+boundary. **Manager-decided:** escalation 3 (Executive budget scope) = an explicit
+sub-ceiling within D-003''s platform scope, set at Executive-enablement time, NOT a fifth
+scope — recorded now so packet D can wire the seam; the judgment half stays deferred until
+the sub-ceiling has an owner-visible surface anyway. Cross-lane rule active: the census
+wording and M9-3''s never-measured item must agree before either ships.
