@@ -5,12 +5,20 @@ truth. Where v1.4 left a mechanism unspecified, the choice is recorded in
 [`docs/DECISIONS.md`](docs/DECISIONS.md) rather than made silently in code. Nothing in this
 repository amends the specification.
 
-**Current state: Milestone 5 — Affiliate Business, running as one application.**
+**Current state: Milestone 9 — Executive Layer + governance constitution, merged
+(`docs/reports/M9.md`).**
 
-`uv run python -m jarvis` opens Jarvis like a desktop app: every backend part starts and is
-supervised behind the scenes (crashes restart with backoff and show as "restarting" in-app),
-subsystems toggle in Settings, and with the `desktop` extra the dashboard is a native window
-whose close button quits the app.
+`uv run python -m jarvis` is the one supported autonomous topology: it opens Jarvis like a
+desktop app, and every backend part — API, Temporal worker, scheduler, Executive tick — starts
+under one Supervisor in that same process (crashes restart with backoff and show as "restarting"
+in the health banner), subsystems toggle in Settings, and with the `desktop` extra the dashboard
+is a native window whose close button quits the app. Its lifetime is tied to that window or
+terminal; it is a development/single-operator topology, not a daemon (`docs/reports/RUNTIME-AUDIT.md`
+M10-F7).
+
+Running `uv run python -m jarvis.api.server` on its own (below) starts the API and dashboard
+**only** — no worker, no scheduler, no Executive. It is a read-only surface: companies can be
+viewed but nothing wakes them up. Use the launcher above unless you specifically want that.
 
 **Picking up development?** [`KICKOFF.md`](KICKOFF.md) has the session prompt to paste;
 [`HANDOFF.md`](HANDOFF.md) has current state, what is and isn't verified, and the next work packets.
@@ -46,10 +54,12 @@ Affiliate Business a real test of §4's "configuration only" requirement.
 | Operator HTTP API | §1, §12.5 | `jarvis/api/app.py` |
 | Dashboard (Sims-style card view) | §12.5 | `jarvis/api/static/index.html` |
 
-Start it with `uv run python -m jarvis.api.server`, then open <http://localhost:8000>.
-
-Nothing calls the 24h/7d timers on a schedule yet — that needs the scheduler, which arrives with
-the Business Manager in M4. The timers are correct but dormant.
+*As of M3 this was the only entrypoint, so it was started with*
+`uv run python -m jarvis.api.server` *and nothing called the 24h/7d timers on a schedule — that
+needed the scheduler, which arrived with the Business Manager in M4. Both sentences describe M3;
+neither is true today. As of M9, `uv run python -m jarvis` (above) is the supported way to run
+Jarvis, timers fire under its scheduler, and `jarvis.api.server` alone is a deliberately
+autonomy-free read surface, not the general-purpose way in.*
 
 ## What Milestone 2 added
 
@@ -130,9 +140,12 @@ uv sync --all-extras
 
 docker compose up -d          # postgres, redis, temporal, temporal-ui
 uv run alembic upgrade head
+uv run python -m jarvis       # migrations, API + dashboard, worker, scheduler, Executive — one process
 ```
 
-Temporal UI: <http://localhost:8233>. Nothing schedules work yet — Milestone 1 has no workflows.
+Temporal UI: <http://localhost:8233>. As of M9, `uv run python -m jarvis` also applies migrations
+and runs Executive/scheduler timers itself — the steps above are for manual/CI setups that skip
+the launcher.
 
 ## Verification
 

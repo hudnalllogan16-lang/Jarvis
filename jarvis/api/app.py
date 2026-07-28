@@ -12,6 +12,7 @@ nothing in the default view links to it without the operator choosing it.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from decimal import Decimal
 from typing import Any
 
@@ -150,12 +151,26 @@ class DecideBody(BaseModel):
     approval already carries; may not introduce one. See `_decide`."""
 
 
-def create_app(kernel: PlatformKernel) -> FastAPI:
+def create_app(
+    kernel: PlatformKernel,
+    *,
+    parts_provider: Callable[[], list[dict[str, object]]] | None = None,
+) -> FastAPI:
     """Build the operator API.
 
     Args:
         kernel: Initialised Platform Kernel, injected so tests can supply one
             backed by an in-memory database.
+        parts_provider: Optional zero-arg callable returning the running
+            process's supervised-part statuses, for `/api/health`'s `parts`
+            field. The launcher (`jarvis/shell/launcher.py`) is milestone 5;
+            this package is milestone 3, so `create_app` cannot import
+            `Supervisor` itself (`tests/test_layering.py` forbids the forward
+            import) — the launcher instead hands in a closure over its own
+            `Supervisor.statuses()` (M10-F1). Omitted under every other
+            topology (`jarvis.api.server`, tests), where `parts` is
+            honestly `[]`: there is no supervisor to ask, and this route
+            does not pretend otherwise.
 
     Returns:
         A configured FastAPI application.
@@ -1016,15 +1031,25 @@ def create_app(kernel: PlatformKernel) -> FastAPI:
     async def health() -> dict[str, object]:  # pyright: ignore[reportUnusedFunction]
         """Live health for the dashboard banner (M6-5a item 8: M6-5's false-red).
 
-        `jarvis/shell/launcher.py` registers a richer version of this same
-        route — it adds the Supervisor's own part statuses (a restarting
-        worker shows as "restarting itself" rather than a dead terminal) —
-        but that route only exists under the full developer-shell topology.
+        The single `/api/health` route for every topology (M10-F1). Until this
+        fix, `jarvis/shell/launcher.py` registered a *second*, richer route at
+        the same path — adding the Supervisor's own part statuses so a
+        restarting worker shows as "restarting" rather than a dead terminal —
+        but Starlette matches routes in registration order and this route,
+        registered first inside `create_app`, always won; the launcher's was
+        permanently dead code and `parts` was `[]` under every topology,
+        including the one topology that had real parts to report. M9-7's
+        docstring claim that a rejected model "shows the operator 'Company
+        runner — restarting' ... in the health banner" (`worker.py:47-53`) was
+        therefore false as shipped. Fixed by deleting the launcher's duplicate
+        registration and having it hand this route a `parts_provider` closure
+        instead (see `create_app`'s docstring).
+
         Running the API standalone (`jarvis.api.server`, and this test
-        client) served no `/api/health` at all: the dashboard's `fetch`
-        against it 404'd, `paintHealth()`'s `.filter` then threw on the
-        shape it got back, and the banner read "Jarvis isn't responding" —
-        false, since everything else was working.
+        client) still serves this same route with no `parts_provider` — the
+        dashboard's `fetch` against it now succeeds under every topology, and
+        `parts` stays honestly `[]` where there genuinely is no supervisor,
+        rather than 404ing as it did pre-M6-5a.
 
         `jarvis.shell` is milestone 5 and this package is milestone 3
         (`tests/test_layering.py`), so the checks below intentionally do not
@@ -1033,10 +1058,11 @@ def create_app(kernel: PlatformKernel) -> FastAPI:
         (database, workflow runtime, model configuration) against the same
         `PlatformKernel`, kept in sync by hand; genuinely sharing one
         implementation across both milestones is an architecture question
-        (moving the check or exempting this file), not a small fix, so it is
-        flagged rather than decided here. `parts` is always empty in this
-        topology — there is no Supervisor to ask — which the dashboard
-        already treats as "nothing to report" rather than an error.
+        (moving the check or exempting this file), not a small fix, so it
+        remains flagged rather than decided here (M8-F44/M9-F155) — this fix
+        advances that unification by collapsing the *route* duplication that
+        was blocking the parts wiring; the *check-logic* duplication is
+        untouched.
         """
         components: list[dict[str, object]] = []
         try:
@@ -1098,7 +1124,7 @@ def create_app(kernel: PlatformKernel) -> FastAPI:
                 (c["status"] != "down" for c in components if c["name"] == "database"), True
             ),
             "components": components,
-            "parts": [],
+            "parts": parts_provider() if parts_provider is not None else [],
         }
 
     @app.get("/api/companies/{business_id}/full-details")
