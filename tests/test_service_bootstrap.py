@@ -47,12 +47,16 @@ def _report(*, serving: bool) -> HealthReport:
 
 
 class _FakeKernel:
-    """Only what `bootstrap` touches: builtin-type installation and settings."""
+    """Only what `bootstrap` and `build_supervisor` touch: builtin-type
+    installation and settings (`api_port`, and `heartbeat.
+    part_failing_after_crashes` since `build_supervisor` started reading it,
+    packet P0-E design 5.4)."""
 
     def __init__(self) -> None:
         self.installed = 0
         self.closed = 0
-        self.settings = type("_S", (), {"api_port": 8000})()
+        heartbeat = type("_H", (), {"part_failing_after_crashes": 10})()
+        self.settings = type("_S", (), {"api_port": 8000, "heartbeat": heartbeat})()
 
     async def ensure_builtin_types(self) -> None:
         self.installed += 1
@@ -540,6 +544,20 @@ async def test_a_runtime_without_the_api_still_runs_every_other_part() -> None:
             "scheduler",
             "executive",
         ]
+    finally:
+        await _cancel_everything()
+
+
+async def test_build_supervisor_threads_the_failing_after_crashes_setting() -> None:
+    """Design 5.4: the crash-loop honesty threshold is Settings-driven, not
+    the Supervisor's own module default — `build_supervisor` is the one place
+    that reads `Settings.heartbeat.part_failing_after_crashes` and hands it
+    to the Supervisor, exactly like every other supervised-part knob."""
+    kernel = _FakeKernel()
+    kernel.settings.heartbeat.part_failing_after_crashes = 3  # type: ignore[attr-defined]
+    supervisor = service.build_supervisor(kernel)  # type: ignore[arg-type]
+    try:
+        assert supervisor._failing_after_crashes == 3  # type: ignore[attr-defined]
     finally:
         await _cancel_everything()
 

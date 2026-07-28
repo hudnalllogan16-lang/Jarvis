@@ -121,10 +121,11 @@ class HeartbeatSettings(BaseModel):
 
     Paces the Supervisor's `runtime_heartbeat` writes and the staleness read
     `/api/health`'s `runtime` component (and, later, the Executive's liveness
-    verdict, packet P0-C) apply against those writes. Neither value gates a
-    permission decision — a slower cadence only delays how quickly a stalled
-    part is *noticed*, it changes nothing about what the platform is allowed
-    to do — so both are ANNOUNCING parameters (Parameter Register, Part 3.3),
+    verdict, packet P0-C) apply against those writes. None of the three
+    values here gate a permission decision — a slower cadence only delays how
+    quickly a stalled part is *noticed*, and the crash threshold below only
+    relabels a part the Supervisor was already going to keep restarting — so
+    all three are ANNOUNCING parameters (Parameter Register, Part 3.3),
     unlike `platform_rolling_24h_usd`'s ENFORCING ceiling beside them.
     """
 
@@ -140,6 +141,21 @@ class HeartbeatSettings(BaseModel):
     gives itself, so a single delayed write (a slow database round trip, a
     GC pause) does not flip a healthy part to "down" on its own.
     """
+
+    part_failing_after_crashes: int = Field(default=10, gt=0)
+    """Consecutive crashes at which a supervised part's state becomes
+    `failing` rather than `restarting` (design OPERATIONAL-RUNTIME.md Part
+    5.4, the crash-loop honesty rule; packet P0-E). Ten minutes of failure at
+    the capped 60s backoff by default.
+
+    Changes nothing about *what happens*: Tier 1 never gives up on a part
+    (D-017) and the Supervisor keeps restarting it exactly as before — this
+    only changes the *word* `/api/health` and the heartbeat rows use, so a
+    part that has been "restarting" for six hours stops being described as
+    if it were still coping. Read by `jarvis/shell/supervisor.py`'s
+    `Supervisor`, threaded in from `jarvis/shell/service.py::build_supervisor`
+    rather than imported directly, matching how every other supervised-part
+    knob reaches the Supervisor."""
 
 
 class TemporalSettings(BaseModel):
@@ -157,13 +173,34 @@ class ExecutiveSettings(BaseModel):
     """How often rollup -> census -> alerts -> the halt narrative runs as one
     pass (design EXECUTIVE-LAYER.md Part 7).
 
-    Its own setting, not the scheduler's `interval_seconds` (300s, un-configured
-    today): Part 7's second argument is that the two cadences are "genuinely
-    different" — the sweep is tuned to §9's approval timers (24h re-notify, 7d
-    expire), while a company can cross both its 50% and 80% spend bands inside
-    a single working session (design 2.3) and is owed a tighter check. 60s is
-    chosen for that reason, not derived from any other constant, and is
+    Its own setting, not `SchedulerSettings.sweep_interval_seconds`: Part 7's
+    second argument is that the two cadences are "genuinely different" — the
+    sweep is tuned to §9's approval timers (24h re-notify, 7d expire), while a
+    company can cross both its 50% and 80% spend bands inside a single
+    working session (design 2.3) and is owed a tighter check. 60s is chosen
+    for that reason, not derived from any other constant, and is
     owner-adjustable like every other cadence and ceiling here."""
+
+
+class SchedulerSettings(BaseModel):
+    """The platform timer sweep's own cadence (spec §9, M9-F92, design
+    OPERATIONAL-RUNTIME.md Part 4.6 / M10-F5).
+
+    Known since M9 (`Scheduler.sweep_interval_seconds`, beside
+    `ExecutiveSettings.tick_interval_seconds`, read in `run_scheduler` exactly
+    as `run_executive` already reads its own) and arriving now rather than as
+    a drive-by fix because it also registers (Parameter Register, Part 7.2):
+    a cadence that governs when approvals expire is a parameter, not a
+    hardcoded default, and shipping it unregistered would create the next
+    M9-F130 row on the day it landed.
+    """
+
+    sweep_interval_seconds: int = Field(default=300, gt=0)
+    """How often `Scheduler.sweep` runs: re-notify stale approvals, expire and
+    pause week-old ones, reconcile orphaned budget reservations, reconcile
+    Manager liveness, and dispatch bus events. Previously a bare default on
+    `run_scheduler`'s signature (`interval_seconds: int = 300`); owner-
+    adjustable now, like every other cadence and ceiling here."""
 
 
 def _lowercase_keys(raw: Mapping[str, Any]) -> dict[str, Any]:
@@ -208,6 +245,7 @@ class Settings(BaseSettings):
     temporal: TemporalSettings = Field(default_factory=TemporalSettings)
     executive: ExecutiveSettings = Field(default_factory=ExecutiveSettings)
     heartbeat: HeartbeatSettings = Field(default_factory=HeartbeatSettings)
+    scheduler: SchedulerSettings = Field(default_factory=SchedulerSettings)
 
     credentials: dict[str, SecretStr] = Field(default_factory=dict)
     """Credential handle -> secret, from the secrets manager (spec §10).

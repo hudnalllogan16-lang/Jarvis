@@ -20,8 +20,10 @@ and §3 reserve that layer for things that reason.
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import TypeVar
 
 from sqlalchemy import select
 
@@ -36,6 +38,11 @@ from jarvis.notifications.service import NotificationKind, NotificationService
 from jarvis.persistence.models import BudgetLedgerRow, DeadLetterRow
 
 logger = get_logger(__name__)
+
+_StepResult = TypeVar("_StepResult")
+"""One sweep step's return shape — an int count, or the timers step's
+``(renotified, expired, paused)`` triple — so `Scheduler._run_step` stays a
+single generic helper rather than one copy per step."""
 
 ORPHANED_RESERVATION_AGE = timedelta(hours=1)
 """How old a held reservation must be before age alone releases it (D-034.3).
@@ -65,6 +72,14 @@ a predictable amount of time whatever the backlog. Oldest-first ordering makes a
 bounded pass the right kind of incomplete: it always releases the orphans that
 have been costing headroom longest, and the remainder wait one sweep."""
 
+TEMPORAL_OUTAGE_HEARTBEAT_SWEEPS = 12
+"""Every Nth sweep while Temporal stays unreachable, restate that the outage
+is still ongoing (design 5.2 point 2, M10-F9) — hourly at the default 300s
+sweep interval, so a long outage reads as *ongoing* rather than only *begun*.
+Not owner-adjustable: unlike the cadences in the Parameter Register, this is a
+multiplier on whatever cadence is already configured, not a value with an
+independent meaning of its own."""
+
 
 @dataclass(frozen=True, slots=True)
 class SweepReport:
@@ -87,27 +102,54 @@ class Scheduler:
         kernel: Platform Kernel supplying sessions and services.
         """
         self._kernel = kernel
+        self._temporal_reachable: bool | None = None
+        """Remembered across sweeps so connectivity is logged on *transition*,
+        not per sweep (design 5.2 point 1, M10-F9; D-046 family: a persisting
+        condition is a state, announced once — not re-announced every pass).
+        `None` until the first sweep observes it."""
+        self._unreachable_streak = 0
+        """Consecutive sweeps Temporal has been unreachable, for the periodic
+        outage heartbeat (design 5.2 point 2)."""
 
     async def sweep(self, *, now: datetime | None = None) -> SweepReport:
-        """Run one full pass: re-notify, expire, pause, wake.
+        """Run one full pass: re-notify, expire, pause, reconcile, wake.
+
+        Each named step — timers, reservation reconciliation, Manager
+        reconciliation, event dispatch — is contained in its own try/except
+        (design 5.3, the M6-F9 family applied to the sweep rather than to a
+        Manager cycle): one step raising logs and continues rather than
+        skipping every step after it. Before M10 the first three steps shared
+        one transaction and one exception unwound all of them plus the two
+        that followed, so a failing renotify could silently cancel Manager
+        reconciliation for the whole tick — exactly the coupling the sweep
+        exists to avoid.
 
         Args:
             now: Injectable clock, so timer behaviour is testable without
                 waiting a real week.
 
         Returns:
-            A report of what changed.
+            A report of what changed. A step that raised reports as having
+            done nothing this pass; the next sweep tries it again.
         """
         moment = now or datetime.now(UTC)
-        async with self._kernel.services() as svc:
-            renotified = await self._renotify(svc, moment)
-            expired, paused = await self._expire_and_pause(svc, moment)
-            released = await self._reconcile_reservations(svc, moment)
+        reachable = await self._observe_temporal_connectivity()
+
+        renotified, expired, paused = await self._run_step(
+            "timers", self._timers_step, moment, default=(0, 0, ())
+        )
+        released = await self._run_step("reconcile", self._reconcile_step, moment, default=0)
         # Reconcile before dispatching: signalling a Manager that was never
         # started is a silent no-op, and a business created while the worker was
-        # down would otherwise stay Manager-less indefinitely (§2.1).
-        started = await ManagerLifecycle(self._kernel).reconcile()
-        woken = await self.dispatch_events()
+        # down would otherwise stay Manager-less indefinitely (§2.1). Both are
+        # skipped outright when Temporal is unreachable rather than calling
+        # into `kernel.temporal_client()` a second and third time this pass —
+        # each failed connection attempt logs on its own, and this sweep
+        # already knows the answer.
+        started = await self._run_step(
+            "managers_started", self._managers_started_step, reachable, default=0
+        )
+        woken = await self._run_step("events", self._events_step, reachable, default=0)
         return SweepReport(
             renotified=renotified,
             expired=expired,
@@ -116,6 +158,111 @@ class Scheduler:
             managers_started=started,
             reservations_released=released,
         )
+
+    async def _run_step(
+        self,
+        name: str,
+        step: Callable[..., Awaitable[_StepResult]],
+        *args: object,
+        default: _StepResult,
+    ) -> _StepResult:
+        """Run one named sweep step, containing its failure (design 5.3).
+
+        Args:
+            name: The step's name, for the log line only.
+            step: An async callable taking ``*args``.
+            *args: Forwarded to ``step``.
+            default: Returned, unlogged as data, if ``step`` raises.
+
+        Returns:
+            Whatever ``step`` returned, or ``default`` on a contained failure.
+        """
+        try:
+            return await step(*args)
+        except Exception:
+            logger.exception(
+                "sweep step failed; other steps still ran",
+                extra={"context": {"step": name}},
+            )
+            return default
+
+    async def _timers_step(self, moment: datetime) -> tuple[int, int, tuple[str, ...]]:
+        """Re-notify and expire/pause (spec §9), in their own transaction."""
+        async with self._kernel.services() as svc:
+            renotified = await self._renotify(svc, moment)
+            expired, paused = await self._expire_and_pause(svc, moment)
+        return renotified, expired, paused
+
+    async def _reconcile_step(self, moment: datetime) -> int:
+        """Reconcile orphaned budget reservations, in their own transaction."""
+        async with self._kernel.services() as svc:
+            return await self._reconcile_reservations(svc, moment)
+
+    async def _managers_started_step(self, reachable: bool) -> int:
+        """Start any ACTIVE business with no running Manager (§2.1)."""
+        if not reachable:
+            return 0
+        return await ManagerLifecycle(self._kernel).reconcile()
+
+    async def _events_step(self, reachable: bool) -> int:
+        """Deliver claimed bus events to the Managers that subscribed."""
+        if not reachable:
+            return 0
+        return await self.dispatch_events()
+
+    async def _observe_temporal_connectivity(self) -> bool:
+        """Return whether Temporal is reachable this sweep, logging only
+        transitions plus a periodic heartbeat while an outage continues
+        (design 5.2 points 1-2, M10-F9; states not alerts, D-046 family).
+
+        Before this, `ManagerLifecycle.reconcile` and `dispatch_events` each
+        called `kernel.temporal_client()` independently and logged nothing
+        themselves when it returned `None` — a thirteen-hour outage produced
+        either silence (nothing here said the outage was still happening) or,
+        at the client's own connect-retry layer, one line per failed attempt
+        per step per sweep. This makes the sweep say it once per transition
+        and once an hour thereafter, and remembers the answer so the two
+        steps that need it (`_managers_started_step`, `_events_step`) do not
+        each pay for and log their own failed connection attempt.
+
+        Returns:
+            True if Temporal answered this sweep, False otherwise.
+        """
+        client = await self._kernel.temporal_client()
+        reachable = client is not None
+        was_reachable = self._temporal_reachable
+        self._temporal_reachable = reachable
+
+        if was_reachable is None:
+            # First observation: nothing has "changed" yet, but an outage
+            # already in progress when the scheduler starts is exactly M10-F12's
+            # shape and must not be silent just because it predates this process.
+            self._unreachable_streak = 1 if not reachable else 0
+            if not reachable:
+                logger.warning("workflow runtime unreachable")
+            return reachable
+
+        if reachable == was_reachable:
+            if not reachable:
+                self._unreachable_streak += 1
+                if self._unreachable_streak % TEMPORAL_OUTAGE_HEARTBEAT_SWEEPS == 0:
+                    logger.warning(
+                        "workflow runtime still unreachable",
+                        extra={"context": {"consecutive_sweeps": self._unreachable_streak}},
+                    )
+            return reachable
+
+        # A real transition, in either direction.
+        if reachable:
+            logger.warning(
+                "workflow runtime reachable again",
+                extra={"context": {"unreachable_sweeps": self._unreachable_streak}},
+            )
+            self._unreachable_streak = 0
+        else:
+            self._unreachable_streak = 1
+            logger.warning("workflow runtime became unreachable")
+        return reachable
 
     async def _reconcile_reservations(self, svc: KernelServices, now: datetime) -> int:
         """Release orphaned budget holds and audit every one (D-034.3, M6-F18).
