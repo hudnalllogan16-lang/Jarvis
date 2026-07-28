@@ -2040,3 +2040,21 @@ into packet E. **M9-F103 (open, structural):** the surface now carries real arit
 the repo has NO JavaScript test runner — source-level pins + browser verification is the
 honest current state; a JS unit-runner decision joins the deferred build-tooling question at
 the next UI-phase retrospective. M9-F104 (copy antecedent) → the Phase-4 copy pass.
+
+## Executive Governance specification merged (M9-5) — Manager ratifications
+
+docs/design/EXECUTIVE-GOVERNANCE.md (1,551 lines) is the authoritative governance design,
+pending owner ratification of its drafted spec amendments (§15, §3.1, §8, §5, §12.5 + D-007
+rows). Manager ratifies the design''s refinements of the seven binding positions: the L2
+tactical/strategic split (tactical graduates per §8; strategic NEVER); the envelope rule
+(propose within an owner-set envelope, never a move of the envelope); reasoning renders from
+a STORED RULE IDENTIFIER, never prose; bands explain / states protect (LOW at runway_cycles
+< max_cycles_per_day — two existing contract numbers, no invented percentage); D-043…D-050
+DRAFTED in Part 9, written into this record only as their mechanisms land (G1 first).
+Strategy ratified: every governance mechanism ships BEFORE the capability it governs; G1
+(registry, parameter register, ratchet test, namespace enforcement) is four small packets,
+not resequenced behind anything. Findings M9-F115…F129 recorded in the document; **M9-F118
+(the silent triple failure of 06:14 today) under urgent read-only diagnosis.** Owner asks
+open: cap-window (now with the Reserve-states design as its proposed resolution), Confidence
+as a new operator-visible concept, platform-approval identity (security review), L3 actor
+attribution, publish_post graduation-eligibility.
