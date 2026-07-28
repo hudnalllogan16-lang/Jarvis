@@ -194,6 +194,68 @@ being small.
 collapses to a single sentence rather than a list of per-target stutters — M7-5b item 3, pinned
 by test).
 
+### Trend — `.trend`
+
+Shipped at M9-2b, once `/api/companies/{id}/kpi-series` made a history readable. It was
+**SPEC ONLY** from M8-2 to M9-2 because the data was unreachable, not because the form was
+undecided — the reservation is what kept a plausible line off the page for three milestones.
+
+**Anatomy.** A small inline `<svg>` above one line of `--font-data` prose, inside the goal
+`.entry` it belongs to, so a metric and its history are never separated.
+
+    ┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈   ← the target, dashed, --border-strong
+    ╲    ╱╲               ← the readings, --text-secondary
+     ╲__╱  ●              ← the latest, --text-primary, filled
+    5 readings · up from 2 metrics
+
+**States — and the number of points decides which, never a preference.**
+
+| Points | Renders |
+|---|---|
+| 0 | nothing at all. The goals section's own unmeasured sentence already says it, and an empty chart frame is a container promising a value it does not have. |
+| 1 | the target line and **one dot**, no line, placed a *fixed* distance above / on / below the target — plus "one reading so far — a trend needs a second." |
+| 2+ | the target line, the reading line scaled to its own domain, the latest dot, and "*n* readings · up from / down from / unchanged". |
+
+**Rules.**
+
+1. **A line is never drawn through one point.** This is the whole reason the component was
+   reserved rather than approximated, and it is the state most of the live data is in today
+   (M9-F72): every real series on the platform holds exactly one reading. A two-point line
+   invented from one reading and its target would be `01-principles.md` #3's defect with a chart
+   drawn around it.
+2. **The y domain includes the target.** Scaling to the readings alone is the truncated-axis
+   lie: it turns noise into a swing, and it hides the only comparison a page about goals is
+   for. Including the target answers "is this heading toward the line or away from it" — and it
+   costs a metric sitting far from its target a flat-looking series, honestly flat, because it
+   is.
+3. **The chart never encodes a magnitude it cannot scale.** One reading has no domain: it and
+   its target are the only two numbers, so they would always land on opposite edges of the box
+   and a one-unit shortfall would draw identically to a thousand-unit one. The eye reads that
+   distance as magnitude; it is not magnitude, it is an artifact of having two numbers. So a
+   lone reading sits a **fixed** distance from its target line — relation stated, magnitude
+   withheld, exact figures in the sentence directly above. This is the same instinct as rule 1
+   one level down: do not draw what the data cannot support, even when the pixels are willing.
+   *Above* and *below* are in value space, not in "good" space — a lower-is-better metric puts a
+   good reading below the line, and which way is good is what the goal sentence says.
+4. **It spends no colour.** The line is `--text-secondary` ink, the latest reading
+   `--text-primary`, the target `--border-strong` dashed — three tokens the system already has,
+   none of them a status hue. Colouring the line by attainment would put a second meaning on
+   colour inside a page whose meter already means health (`01-principles.md` #2), and it would
+   restate as a hue a judgement the health parts already give as a number.
+5. **The prose line is the accessible equivalent, not a caption.** The `<svg>` is
+   `aria-hidden="true"`; "up from 2 metrics" is a fact about the data, legible in greyscale and
+   to a screen reader. Same division of labour as the meter: the chart is the glance, the words
+   are the fact.
+6. **No draw-on animation** (`08-motion.md`). A line that animates into place performs; the data
+   did not arrive gradually.
+7. **Geometry is computed into SVG attributes, never into `style=`** — which the surface forbids
+   outright, and which is the shape a CSS-drawn sparkline would have been forced into. The
+   constraint chose the technique here, not taste.
+
+**Not iconography.** `07-iconography.md` governs marks that stand for a concept. This is a
+*data* mark, the same family as `.meter`: it renders values, it is inline markup with no asset
+and no request, and it disappears when the values do.
+
 ---
 
 ## Attention
@@ -388,9 +450,9 @@ string in the activity feed would widen its track and scroll the page sideways.
 
 - **Persona chip** — see `11-persona-components.md`. **No rendering path until persona data
   exists.**
-- **Trend indicator** — direction arrow plus delta, in `--font-data`. Requires a time series the
-  API does not serve. The data exists — `kpi_values` has been an append-only series since D-027
-  and `KpiEngine.series()` reads it — but no route exposes it, so the surface holds one reading
-  per metric and nothing before it. A direction arrow needs a previous reading; drawn from a
-  single point it would be decoration that lies. Reserved with the endpoint shape it needs in
-  `13-company-workspace.md`.
+**Trend indicator — released.** It sat here from M8-2 to M9-2 for want of a route, and shipped
+at M9-2b as **`.trend`** (above) once `/api/companies/{id}/kpi-series` existed. The delta it
+was specified as — "direction arrow plus delta" — did not survive the real data: with one
+reading per series there is no delta to state, so the component's one-point state says so in
+words instead of pointing an arrow at nothing. The reservation worked exactly as intended; what
+it protected was three milestones of not drawing that arrow anyway.

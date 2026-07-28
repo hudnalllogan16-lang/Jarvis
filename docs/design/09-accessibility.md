@@ -54,6 +54,25 @@ graphic:
 Minimum 3.78 (light watch) against a 3:1 requirement. The focus ring meets ≥5.46:1 (dark) and
 ≥8.34:1 (light) against every surface it can land on.
 
+**Trend marks** (`.trend`, M9-2b) against `--surface-page`, the only plane they land on. All
+three tokens appear in the text tables above; drawing them as *graphics* is a new usage class,
+and `--border-strong` had never been measured as a foreground at all:
+
+| Mark | Token | dark | light |
+|---|---|---|---|
+| reading line | `--text-secondary` | 9.04 | 6.72 |
+| latest reading | `--text-primary` | 15.98 | 16.12 |
+| target reference | `--border-strong` | **3.25** | 16.12 |
+
+Minimum 3.25 (dark `--border-strong` `#5A6478` on `#0B0E14`) against the same 3:1 requirement.
+That mark is deliberately the quietest on the chart — a target is a reference the readings are
+read *against*, so it must be legible without competing with them — and 3.25 sits close enough
+to the floor that any future darkening of `--border-strong` has to be re-measured rather than
+eyeballed.
+
+Colour is not a channel on this component at all: the trend spends no status hue
+(`02-color.md`), and the prose line beneath the chart states the same movement in words.
+
 ## Colour is never the only channel
 
 A hard rule, not a guideline. Every status in Jarvis is carried by **colour + word**:
@@ -61,6 +80,7 @@ A hard rule, not a guideline. Every status in Jarvis is carried by **colour + wo
 | State | Colour | The word that carries it |
 |---|---|---|
 | health band | meter fill hue | the health reason sentence, and the numeric score |
+| a metric's movement | *no hue at all* — the trend is drawn in ink | "5 readings · up from 2 metrics" beneath the chart |
 | running / paused | dot hue + motion | the status label beside the dot |
 | approval urgency | left rule + heading | "Needs your OK" and the count |
 | degraded dependency | banner rule | the summary sentence and its remedy |

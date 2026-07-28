@@ -354,3 +354,111 @@ def test_persona_components_ship_as_spec_with_no_rendering_path() -> None:
         "a persona is being rendered, but no endpoint serves persona data — "
         "see docs/design/11-persona-components.md before adding a render path"
     )
+
+
+TREND = pathlib.Path("jarvis/api/static/app/trend.js")
+WORKSPACE = pathlib.Path("jarvis/api/static/app/company-workspace.js")
+
+
+def test_a_trend_line_is_never_drawn_through_a_single_point() -> None:
+    """docs/design/06-components.md, `.trend` rule 1 — the reason the component
+    was reserved from M8-2 to M9-2 rather than approximated.
+
+    This is not a defensive edge case: it is the shape of ALL the live data.
+    Every real KPI series on the platform holds exactly one reading (M9-F72),
+    so a `<polyline>` emitted without the two-point guard would put an invented
+    line on every goal on every company page — `01-principles.md` #3's defect
+    with a chart drawn around it, and one that would look entirely convincing.
+
+    Pinned structurally because the guard is one `? :` away from being deleted
+    by someone tidying, and no other check in the suite renders this component.
+    """
+    source = TREND.read_text(encoding="utf-8")
+    source = re.sub(r"/\*.*?\*/", " ", source, flags=re.S)
+    source = re.sub(r"//.*", "", source)
+
+    polylines = [m.start() for m in re.finditer(r"<polyline", source)]
+    assert len(polylines) == 1, (
+        f"expected exactly one <polyline> emission in trend.js, found {len(polylines)}"
+    )
+    guard = source.find("values.length > 1")
+    assert guard != -1, (
+        "the two-point guard is gone from trend.js — a single reading would be "
+        "drawn as a line (docs/design/06-components.md, `.trend` rule 1)"
+    )
+    assert guard < polylines[0], (
+        "the <polyline> is emitted before the two-point guard, so it is not guarded by it"
+    )
+
+
+def test_the_trend_is_drawn_in_ink_and_spends_no_status_colour() -> None:
+    """docs/design/02-color.md rule 2, "one meaning per surface".
+
+    On a company page colour already means health. A series stroked in
+    `--status-healthy` when it is meeting its target would put a second meaning
+    on colour beside the meter that owns the first, and would restate as a hue
+    a judgement `health_parts` already gives as a number — while quietly
+    duplicating the direction-aware attainment maths in CSS, of all places.
+
+    The rule is cheap to state and easy to lose to one plausible-looking line,
+    so it is asserted over the component's own declarations.
+    """
+    css = COMPONENTS.read_text(encoding="utf-8")
+    css = re.sub(r"/\*.*?\*/", " ", css, flags=re.S)
+    blocks = re.findall(r"(\.trend[^{]*)\{([^}]*)\}", css)
+    assert blocks, "no .trend rules found in components.css"
+    for selector, body in blocks:
+        spent = re.findall(r"var\(\s*(--(?:status|wash|accent|meter)[a-z-]*)", body)
+        assert not spent, (
+            f"{selector.strip()} spends a status colour ({spent}); the trend is "
+            "drawn in ink — docs/design/02-color.md, 'one meaning per surface'"
+        )
+
+
+def test_the_trend_chart_is_hidden_from_assistive_tech_and_says_it_in_words() -> None:
+    """docs/design/09-accessibility.md, "colour is never the only channel",
+    applied to a component that uses no colour at all.
+
+    The drawing carries movement; a screen reader and a greyscale screenshot
+    both get that movement from `.trend__note` instead. So the `<svg>` is
+    `aria-hidden` — announcing it would be noise, not information — and the
+    note is the thing that must never be dropped. Both halves are asserted,
+    because either one alone is a silent accessibility regression.
+    """
+    source = TREND.read_text(encoding="utf-8")
+    assert 'aria-hidden="true"' in source, (
+        "the trend <svg> must be aria-hidden — its content is announced as the "
+        "note beneath it, not as a graphic"
+    )
+    assert "trend__note" in source, (
+        "the trend lost its prose line, which is the accessible equivalent of "
+        "the chart rather than a caption for it"
+    )
+
+
+def test_the_series_is_not_refetched_on_every_repaint() -> None:
+    """docs/design/13-company-workspace.md, "Fetching the series without paying
+    for it every cycle" (M9-F26).
+
+    This page already runs the most expensive poll on the surface every 15
+    seconds. The series read is behind a freshness key and a visibility check;
+    dropping either turns a cached read into a second unconditional per-company
+    fetch on every cycle, which nothing user-visible would reveal — the page
+    would look identical and simply cost twice as much.
+    """
+    source = WORKSPACE.read_text(encoding="utf-8")
+    # Comments legitimately name the route they explain; only real call sites
+    # count, the same strip the §12.5 gate applies to find operator copy.
+    code = re.sub(r"//.*", "", re.sub(r"/\*.*?\*/", " ", source, flags=re.S))
+    calls = re.findall(r"kpi-series", code)
+    assert len(calls) == 1, (
+        f"the kpi-series read appears {len(calls)} times; it belongs in one place, behind the cache"
+    )
+    assert "freshnessKey" in source, (
+        "the series freshness key is gone — the cache can no longer tell when a "
+        "new reading could exist, so it is either stale forever or refetching"
+    )
+    assert "visibilityState" in source, (
+        "the visibility check is gone — a hidden tab nobody is reading would "
+        "refetch the series on every cycle"
+    )
