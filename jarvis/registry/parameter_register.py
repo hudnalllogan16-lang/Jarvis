@@ -117,9 +117,18 @@ PARAMETER_ENTRIES: tuple[ParameterEntry, ...] = (
         name="autonomy_policy.graduation_eligible",
         param_class=ParameterClass.ENFORCING,
         origin=Origin.PLATFORM_DEFAULT,
-        current_source="code default (bool = True)",
+        current_source="code default (bool = False)",
         location="jarvis.domain.contract:AutonomyPolicy.graduation_eligible",
-        note="Defaults to permission, the opposite of spec §8. M9-F115 -> M9-F130.",
+        note=(
+            "Defaulted to permission, the opposite of spec §8. M9-G1a flipped it to "
+            "False, so the ratchet no longer arms by omission — but the origin "
+            "violation STANDS and this row stays: nobody authorised False either, and "
+            "PLATFORM_DEFAULT is not a permitted policy origin. The flip made the "
+            "default safe; only an owner can make it legitimate. Live stored contracts "
+            "are untouched — both affiliate companies store true explicitly (verified "
+            "read-only) — so the remediation owed to the owner is the stored values, "
+            "not this line. M9-F115 -> M9-F130."
+        ),
     ),
     # ── ENFORCING — conforming today ────────────────────────────────────
     ParameterEntry(

@@ -131,6 +131,13 @@ def contract() -> BusinessContract:
             ),
         ),
         autonomy_policies=(
-            AutonomyPolicy(action_type="affiliate.publish_post", graduation_threshold=5),
+            AutonomyPolicy(
+                action_type="affiliate.publish_post",
+                graduation_threshold=5,
+                # Explicit since M9-G1a: `graduation_eligible` no longer defaults to
+                # True (M9-F115), and the graduation suites need the live affiliate
+                # type's actual setting rather than whatever the default happens to be.
+                graduation_eligible=True,
+            ),
         ),
     )

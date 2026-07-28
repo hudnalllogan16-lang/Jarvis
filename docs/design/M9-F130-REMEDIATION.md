@@ -30,7 +30,19 @@ currently running against.
 |---|---|---|---|---|---|
 | 1 | M9-F117 → M9-F130 | `WakeConditions.max_cycles_per_day` | `48` | `jarvis/domain/contract.py`, `Field(default=48)` | `PLATFORM_DEFAULT` |
 | 2 | M9-F117 → M9-F130 | `CapabilityPermission.max_invocation_budget_usd` | `$0.50` | `jarvis/domain/contract.py`, `Field(default=Decimal("0.50"))` | `PLATFORM_DEFAULT` |
-| 3 | M9-F115 → M9-F130 | `AutonomyPolicy.graduation_eligible` | `True` | `jarvis/domain/contract.py`, `bool = True` | `PLATFORM_DEFAULT` |
+| 3 | M9-F115 → M9-F130 | `AutonomyPolicy.graduation_eligible` | `False` (was `True`) | `jarvis/domain/contract.py`, `bool = False` | `PLATFORM_DEFAULT` |
+
+**Row 3 changed direction between packets, and the finding is not closed.**
+M9-G1b enumerated this parameter and deliberately changed nothing; M9-G1a's
+mandate was the autonomy ratchet and it flipped the default to `False`, so
+eligibility is now opt-in per declaration and the ratchet no longer arms by
+omission. **The origin violation stands** — nobody authorised `False` either, and
+`PLATFORM_DEFAULT` is not a permitted origin — so the row keeps its place in
+`KNOWN_M130_EXCEPTIONS`. The flip made the default *safe*; only an owner can make
+it *legitimate*. Live stored contracts are untouched: both affiliate companies
+store `graduation_eligible: true` explicitly (read live, read-only, 2026-07-28),
+so what this row still asks of the owner is a ruling on the stored values rather
+than on the default.
 
 Each is registered in `jarvis/registry/parameter_register.py::PARAMETER_REGISTER`
 as `ParameterClass.ENFORCING`, and is named exactly (not approximately) in
