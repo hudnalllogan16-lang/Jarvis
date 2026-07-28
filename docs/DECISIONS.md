@@ -2029,3 +2029,14 @@ M9-F93 (runner loops first to get loop-level tests), M9-F94 (ledger "Retired" me
 a-function-calls-it, not something-runs — terminology note). M9-F80 stays open (no honest
 triggering_business supplier). Packet E (census/alerts surface + platform_feed reader) is
 unblocked but HELD until lane m9-2c merges — same surface hotspot.
+
+## M9-F100 … M9-F104 — Phase-3 gate fixes merged (M9-2c); 1078 on main
+
+F100/F101 closed as the gate demanded (relation-led notes, direction-aware; measurement() to
+its contract — 0.0005 renders 0.0005, 1.2e-7 renders decimal, non-finite renders an em dash
+per M9-F102''s §12.5 catch). Grid marker built dormant; lighting it needs a presence-only
+boolean on the list payload with a CHEAP existence check (not N× plan_refresh) — bundled
+into packet E. **M9-F103 (open, structural):** the surface now carries real arithmetic and
+the repo has NO JavaScript test runner — source-level pins + browser verification is the
+honest current state; a JS unit-runner decision joins the deferred build-tooling question at
+the next UI-phase retrospective. M9-F104 (copy antecedent) → the Phase-4 copy pass.
