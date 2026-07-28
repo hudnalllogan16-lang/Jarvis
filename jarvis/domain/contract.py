@@ -19,6 +19,7 @@ from enum import StrEnum
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from jarvis.domain.lifecycle import LifecycleState
+from jarvis.domain.provenance import ProvenanceHead
 from jarvis.kernel.ids import BusinessId, BusinessTypeName
 
 
@@ -68,7 +69,20 @@ class CapabilityPermission(_Contract):
     Never secret material — secrets MUST NOT appear in prompts (spec §10)."""
 
     max_invocation_budget_usd: Decimal = Field(default=Decimal("0.50"), ge=0)
-    """Per-invocation ceiling (spec §2.2), the innermost debit scope in D-003."""
+    """Per-invocation ceiling (spec §2.2), the innermost debit scope in D-003.
+
+    Governance note (**M9-F117** -> **M9-F130**): this field's own code
+    default is the platform's ENFORCING policy example — see
+    ``jarvis.registry.parameter_register``. The default is unchanged here
+    because fixing it would rewrite what every live capability permission
+    resolves to with no owner sign-off; the M9-G1b packet records it in the
+    REMEDIATION table for ratification rather than changing it."""
+
+    provenance: ProvenanceHead = Field(default_factory=ProvenanceHead)
+    """Static provenance head for :attr:`max_invocation_budget_usd`
+    (Origin/Modified By/Approved By only — ``jarvis.domain.provenance``).
+    Additive with a default: a permission stored before this field existed
+    deserializes unchanged, honestly empty (Part 3.5)."""
 
 
 class AutonomyPolicy(_Contract):
@@ -88,7 +102,19 @@ class AutonomyPolicy(_Contract):
 
     graduation_eligible: bool = True
     """False for trade execution and any direct movement of real capital: those
-    MUST NOT be eligible for graduation in v1 (spec §8, hard constraint)."""
+    MUST NOT be eligible for graduation in v1 (spec §8, hard constraint).
+
+    Governance note (**M9-F115** -> **M9-F130**): this default arms the
+    graduation ratchet by omission rather than by owner decision — the
+    platform's other ENFORCING policy violation, alongside
+    :attr:`CapabilityPermission.max_invocation_budget_usd`. Recorded in the
+    REMEDIATION table for owner ratification, not changed here (the M9-G1b
+    packet: "implement nothing, change no live contract")."""
+
+    provenance: ProvenanceHead = Field(default_factory=ProvenanceHead)
+    """Static provenance head for this policy's ENFORCING fields
+    (``graduation_eligible``, ``graduation_threshold``). Additive with a
+    default; see :class:`jarvis.domain.provenance.ProvenanceHead`."""
 
     @field_validator("graduation_threshold")
     @classmethod
@@ -112,7 +138,15 @@ class BudgetPolicy(_Contract):
 
     max_cycles_before_continuation: int = Field(default=100, ge=1)
     """Wake cycles before the Manager workflow continues-as-new (D-005), which
-    is what keeps durable workflow state bounded."""
+    is what keeps durable workflow state bounded. ANNOUNCING, not ENFORCING
+    (Part 2.1 classification, ``jarvis.registry.parameter_register``): it
+    paces a workflow mechanism and gates no permission, so a code default is
+    legitimate here in a way it is not for :attr:`business_cap_usd`."""
+
+    provenance: ProvenanceHead = Field(default_factory=ProvenanceHead)
+    """Static provenance head for this policy's ENFORCING fields
+    (``business_cap_usd``, ``wake_cycle_ceiling_usd``). Additive with a
+    default; see :class:`jarvis.domain.provenance.ProvenanceHead`."""
 
 
 class WakeConditions(_Contract):
@@ -132,7 +166,19 @@ class WakeConditions(_Contract):
     max_cycles_per_day: int = Field(default=48, ge=1)
     """Bounds wake *frequency*. The spec's cost ceiling bounds a single cycle but
     nothing bounds how often cycles start; without this a Manager woken by its
-    own capability results can oscillate indefinitely within budget."""
+    own capability results can oscillate indefinitely within budget.
+
+    Governance note (**M9-F117** -> **M9-F130**): this field's code default
+    is stored, unchanged, in all three live contracts today — the platform's
+    most serious ENFORCING policy violation (design EXECUTIVE-GOVERNANCE.md
+    Part 1.8, Part 5.2, Part 9.4). Not fixed here: removing the default or
+    rewriting the live contracts is exactly the change the M9-G1b packet
+    withholds pending the owner's retroactive blessing at ratification. See
+    the REMEDIATION table, ``docs/design/M9-F130-REMEDIATION.md``."""
+
+    provenance: ProvenanceHead = Field(default_factory=ProvenanceHead)
+    """Static provenance head for :attr:`max_cycles_per_day`. Additive with a
+    default; see :class:`jarvis.domain.provenance.ProvenanceHead`."""
 
 
 class KpiDirection(StrEnum):
@@ -175,6 +221,15 @@ class KpiTarget(_Contract):
     companies' contract JSON among them — deserializes unchanged: additive
     with a default, not a migration (proven against a pre-field contract
     snapshot in ``tests/test_contract.py``)."""
+
+    provenance: ProvenanceHead = Field(default_factory=ProvenanceHead)
+    """Static provenance head for this target (Part 3.3's Goal Register
+    row: Origin ``OWNER`` once the Executive sets a target, or
+    ``TYPE_DEFINITION`` for a type's suggested one — Part 3.3's collision
+    between the two is what M8-F6's deadlock becomes *detectable* rather
+    than merely scheduled). Additive with the same precedent as
+    :attr:`direction` above; see
+    :class:`jarvis.domain.provenance.ProvenanceHead`."""
 
 
 class BusinessContract(_Contract):
