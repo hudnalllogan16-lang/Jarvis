@@ -473,7 +473,9 @@ def build_supervisor(kernel: PlatformKernel, *, with_api: bool = True) -> Superv
         A Supervisor with its parts registered and running. The caller awaits
         `run_until_stopped()`.
     """
-    supervisor = Supervisor()
+    supervisor = Supervisor(
+        failing_after_crashes=kernel.settings.heartbeat.part_failing_after_crashes
+    )
     if with_api:
         supervisor.add(
             "api", "Dashboard", lambda: _serve_api(kernel, supervisor, kernel.settings.api_port)

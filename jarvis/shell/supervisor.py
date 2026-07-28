@@ -29,6 +29,25 @@ MAX_BACKOFF = 60.0
 STABLE_AFTER = 30.0
 """Seconds a part must stay up before its crash count resets."""
 
+DEFAULT_FAILING_AFTER_CRASHES = 10
+"""Consecutive crashes at which a part's state becomes `failing` rather than
+`restarting` (design OPERATIONAL-RUNTIME.md Part 5.4, the crash-loop honesty
+rule; packet P0-E). Ten minutes of failure at the capped 60s backoff by
+default — module-level default; the live value is
+`Settings.heartbeat.part_failing_after_crashes`, threaded in by
+`jarvis/shell/service.py::build_supervisor` the same way `sleep` is already
+injected below, so this constant is what a caller gets by not overriding it
+rather than what the platform actually runs on.
+
+This changes nothing about *what happens*: Tier 1 never gives up on a part
+(D-017) and the restart loop below is unconditional either way. Crossing this
+threshold only relabels the state `/api/health` and the `runtime_heartbeat`
+rows report, so a part that has been "restarting" for six hours stops being
+described as if it were still coping. Whether and how that relabeling gets
+announced to an operator is the Executive's `runtime.liveness_verdict` (D-038
+layering; design 3.3, packet P0-C) reading these facts — this module only
+records the state, it never notifies."""
+
 
 @dataclass
 class StartupOutcome:
@@ -53,6 +72,11 @@ class PartState(StrEnum):
     STARTING = "starting"
     RUNNING = "running"
     RESTARTING = "restarting"
+    FAILING = "failing"
+    """`RESTARTING` for `part_failing_after_crashes` consecutive crashes in a
+    row with no stable interval between them (design 5.4). The Supervisor
+    keeps restarting the part exactly as it would under `RESTARTING` — this
+    is a more honest label for the same behaviour, not a different one."""
     STOPPED = "stopped"
 
 
@@ -73,14 +97,24 @@ class PartStatus:
 class Supervisor:
     """Runs named coroutines forever, restarting them with backoff."""
 
-    def __init__(self, *, sleep: Callable[[float], Awaitable[None]] = asyncio.sleep) -> None:
+    def __init__(
+        self,
+        *,
+        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+        failing_after_crashes: int = DEFAULT_FAILING_AFTER_CRASHES,
+    ) -> None:
         """Args:
         sleep: Injectable delay so restart tests do not wait real seconds.
+        failing_after_crashes: Consecutive-crash threshold for the `failing`
+            state (design 5.4). `jarvis/shell/service.py::build_supervisor`
+            passes `Settings.heartbeat.part_failing_after_crashes`; the
+            module default here is what a caller gets by not overriding it.
         """
         self._parts: dict[str, PartStatus] = {}
         self._tasks: list[asyncio.Task[None]] = []
         self._sleep = sleep
         self._stopping = False
+        self._failing_after_crashes = failing_after_crashes
 
     def add(
         self,
@@ -118,7 +152,11 @@ class Supervisor:
                     backoff = INITIAL_BACKOFF
                 status.consecutive_crashes += 1
                 status.last_error = f"{type(exc).__name__}: {exc}"[:300]
-                status.state = PartState.RESTARTING
+                status.state = (
+                    PartState.FAILING
+                    if status.consecutive_crashes >= self._failing_after_crashes
+                    else PartState.RESTARTING
+                )
                 logger.warning(
                     "part crashed; restarting",
                     extra={
@@ -126,6 +164,7 @@ class Supervisor:
                             "part": status.name,
                             "crashes": status.consecutive_crashes,
                             "backoff_s": backoff,
+                            "state": status.state.value,
                         }
                     },
                 )

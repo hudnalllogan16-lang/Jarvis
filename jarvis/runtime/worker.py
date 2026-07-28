@@ -118,7 +118,7 @@ async def run_worker(kernel: PlatformKernel) -> None:
     await worker.run()
 
 
-async def run_scheduler(kernel: PlatformKernel, *, interval_seconds: int = 300) -> None:
+async def run_scheduler(kernel: PlatformKernel, *, interval_seconds: int | None = None) -> None:
     """Run the platform timer sweep on a loop (spec §9).
 
     Deliberately outside the workflow layer: the sweep is deterministic
@@ -127,13 +127,37 @@ async def run_scheduler(kernel: PlatformKernel, *, interval_seconds: int = 300) 
 
     A failed sweep is logged and retried on the next tick rather than killing
     the loop — an approval that expires five minutes late is a nuisance, but a
-    scheduler that stops means approvals never expire at all.
+    scheduler that stops means approvals never expire at all. `Scheduler.sweep`
+    itself now contains a failing sub-step (design 5.3, M6-F9 family), so this
+    outer guard is the backstop for something the sweep no longer needs to ask
+    of it in the ordinary case — the same belt-and-braces relationship
+    `run_executive`'s own `try/except` has to `run_executive_tick`.
+
+    Args:
+        kernel: Initialised Platform Kernel.
+        interval_seconds: Overrides `Settings.scheduler.sweep_interval_seconds`
+            when given — tests use this to avoid a real sleep; production
+            leaves it None and the configured cadence applies (M9-F92,
+            design OPERATIONAL-RUNTIME.md Part 4.6 / M10-F5).
     """
+    interval = (
+        interval_seconds
+        if interval_seconds is not None
+        else kernel.settings.scheduler.sweep_interval_seconds
+    )
     scheduler = Scheduler(kernel)
     while True:
         try:
             report = await scheduler.sweep()
-            if report.renotified or report.expired or report.woken or report.reservations_released:
+            if (
+                report.renotified
+                or report.expired
+                or report.woken
+                or report.reservations_released
+                # M10-F9 point 3: a sweep whose only work was starting a
+                # Manager must not stay silent either.
+                or report.managers_started
+            ):
                 logger.info(
                     "sweep complete",
                     extra={
@@ -141,6 +165,7 @@ async def run_scheduler(kernel: PlatformKernel, *, interval_seconds: int = 300) 
                             "renotified": report.renotified,
                             "expired": report.expired,
                             "woken": report.woken,
+                            "managers_started": report.managers_started,
                             # D-034.3: budget headroom returned to its ceilings.
                             # In the trigger as well as the context, so a sweep
                             # whose only work was reconciliation still says so.
@@ -150,7 +175,7 @@ async def run_scheduler(kernel: PlatformKernel, *, interval_seconds: int = 300) 
                 )
         except Exception:
             logger.exception("sweep failed; retrying next tick")
-        await asyncio.sleep(interval_seconds)
+        await asyncio.sleep(interval)
 
 
 async def probe_task_queue_pollers(client: Any, task_queue: str) -> PollerReading:

@@ -258,9 +258,14 @@ PARAMETER_ENTRIES: tuple[ParameterEntry, ...] = (
         current_source="approved config (Settings; owner-adjustable)",
         location="jarvis.kernel.config:HeartbeatSettings.part_failing_after_crashes",
         note=(
-            "Paces design 5.4's crash-loop honesty notice; gates no permission — a slower "
-            "threshold only delays how quickly a crash-looping part is announced. "
-            "Parameter Register row (design OPERATIONAL-RUNTIME.md Part 7.2)."
+            "Design 5.4's crash-loop honesty threshold, read by two consumers "
+            "(HeartbeatSettings' own docstring): the Supervisor (packet P0-E) relabels "
+            "the part 'failing' rather than 'restarting' for /api/health's parts array — "
+            "restart behaviour is unchanged (D-017) — and the Executive (packet P0-C, "
+            "D-038 layering) reads the same threshold to raise the operator notice the "
+            "Supervisor itself cannot (jarvis.shell is outside D-038's import list). "
+            "Paces what the platform SAYS in both places, not what it DOES; gates no "
+            "permission. Parameter Register row (design OPERATIONAL-RUNTIME.md Part 7.2)."
         ),
     ),
     # ── ANNOUNCING — wall-clock cron (design OPERATIONAL-RUNTIME.md Part 4, packet P0-D) ──
@@ -290,6 +295,21 @@ PARAMETER_ENTRIES: tuple[ParameterEntry, ...] = (
             "default states what every live contract already did. A type may REQUEST "
             "another zone in its definition; only the owner's creation or refresh "
             "flow establishes one, which is why this is not APPROVED_CONFIG today."
+        ),
+    ),
+    # ── ANNOUNCING — scheduler correctness (design OPERATIONAL-RUNTIME.md Part
+    #    4.6, M9-F92/M10-F5/M10-F9, packet P0-E) ──
+    ParameterEntry(
+        name="settings.scheduler.sweep_interval_seconds",
+        param_class=ParameterClass.ANNOUNCING,
+        origin=Origin.APPROVED_CONFIG,
+        current_source="approved config (Settings; owner-adjustable)",
+        location="jarvis.kernel.config:SchedulerSettings.sweep_interval_seconds",
+        note=(
+            "Known since M9 (M9-F92) as a bare default on run_scheduler's own "
+            "signature; now read from Settings exactly as "
+            "executive.tick_interval_seconds already is (design Part 4.6/M10-F5). "
+            "A cadence, not a gate."
         ),
     ),
 )
