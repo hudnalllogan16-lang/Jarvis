@@ -2312,3 +2312,18 @@ ratchet itself ruled new-surface-not-loosened-rule (no signature; reasoning besi
 authority-bearing action with no registry row — a code→registry sweep needs design 7.1''s
 prose line made mechanical; queued for the next governance pass. Judgment calls ratified in
 the P0-D thread. All three live schedules become honest at the next worker start.
+
+## P0-B merged (1368 tests) — the platform reports its own pulse
+
+Heartbeat table (migration 0008) + HeartbeatStore in observability (D-038 holds);
+identities per process; heartbeats through every posture including WAIT; stopped rows on
+clean shutdown (D-060); /api/ready gates (DB, schema-at-head via a pinned
+MIGRATION_HEAD_REVISION, builtins, parts) while /api/health explains; the runtime component
+sources from heartbeat rows not the local Supervisor — a console sees liveness it doesn''t
+own (M10-F2 CLOSED). Ratified: the stale part-number note (design substance over its own
+numbering — doc fix rides the next docs pass); ORM-row-in-persistence per the existing
+pattern (M8-F150 proceed-and-flag, correct). Third additive-rows conflict in the parameter
+register, lane-resolved with section comments. NEXT: P0-C (poller probe + two-signal
+verdict + runtime.liveness_verdict row) ∥ P0-E (scheduler correctness), then F (NSSM
+deployment), G (production validation → the owner''s six-criteria readiness assessment →
+the Trading gate).
