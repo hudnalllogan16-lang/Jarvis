@@ -429,6 +429,18 @@
   color: var(--status-risk);
 }
 
+/* A tile whose only reason to need a look is a company in `watch` — nothing
+   at `at_risk` — must not borrow the risk hue: that would tell the operator
+   something is worse than it is, the exact tile-vs-card mismatch a company
+   card already avoids by giving watch and at_risk their own colours
+   (docs/design/06-components.md, co-card States). `--status-watch` is
+   already measured against `--surface-base` in both themes
+   (docs/design/09-accessibility.md) — no new value, an existing tone applied
+   to a tile for the first time (M9-3 surface backlog, M9-F42). */
+.tile--watch .tile__value {
+  color: var(--status-watch);
+}
+
 .tile--healthy .tile__value {
   color: var(--status-healthy);
 }

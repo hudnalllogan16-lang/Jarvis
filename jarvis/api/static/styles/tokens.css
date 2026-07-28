@@ -51,15 +51,20 @@
   /* ── Typography (theme-independent) ─────────────────────────────────────
      Three families, three jobs — docs/design/03-typography.md.
 
-     Finding M8-F21 (the third-party CDN) is closed by DELETION, not by
-     vendoring: a locally-run platform must not ask Google for its own chrome,
-     and until the licensed files are actually vendored into
-     `jarvis/api/static/fonts/` the honest state is "no webfonts", not
-     "@font-face pointing at files that 404". The stacks below are therefore
-     what actually renders today, and the display stack names a distinct
-     platform face first so the display/body distinction survives the loss of
-     Bricolage Grotesque rather than collapsing to one family.
-     tests/test_design_system.py pins the no-third-party-request property. */
+     Finding M8-F21 (the third-party CDN) is CLOSED (M8-11, document.fonts
+     proof): the three families are vendored, OFL-licensed, into
+     `jarvis/api/static/fonts/` and registered by `fonts.css`, linked ahead of
+     this file in index.html so they are available before anything asks for
+     them — never fetched from a third party. The platform-face fallbacks
+     below are not a stand-in for that; they are what renders for an operator
+     whose browser fails to load a vendored file, same as any @font-face
+     fallback chain, and the display stack still names a distinct platform
+     face first so the display/body distinction survives that case rather
+     than collapsing to one family.
+     tests/test_design_system.py pins the no-third-party-request property and
+     `test_fonts_are_linked_ahead_of_tokens` pins the link order.
+     M9-3 surface backlog, M9-F48: this comment itself had gone stale since
+     M8-11 closed M8-F21 for real — the paragraph above is the correction. */
   --font-display: "Bricolage Grotesque", "Segoe UI Variable Display",
                   "Segoe UI Semibold", Optima, Avenir, system-ui, sans-serif;
   --font-body:    "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;

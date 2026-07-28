@@ -56,6 +56,18 @@ year is already more than a trend line needs; the bound exists so the query
 `KpiEngine.series` runs stays cheap regardless of what a client passes, the
 same reasoning `target_value`'s own bounds protect the contract side."""
 
+UPDATE_CHECK_UNCERTAIN_NOTE = (
+    "Jarvis couldn't check whether an update is ready for this company just now — "
+    "it will try again on its own."
+)
+"""M9-3 surface backlog item 6 (M9-F45): 'up-to-date vs uncomputable both silent'. Both
+states used to render as nothing at all — see `_pending_update`'s own docstring
+— which is honest for one of them (design PLUGIN-FRAMEWORK.md Part 4.3's
+"simply current" case, where silence is correct and stays correct) and
+misleading for the other (the operator cannot distinguish "nothing to show
+you" from "Jarvis could not tell"). One line, shown only for the second case,
+is the whole fix — the first stays exactly as silent as it always was."""
+
 
 class CreateCompanyBody(BaseModel):
     """Operator input to the create-a-company flow (spec §4).
@@ -208,7 +220,7 @@ def create_app(kernel: PlatformKernel) -> FastAPI:
 
     async def _pending_update(
         svc: KernelServices, contract: BusinessContract, types: dict[str, dict[str, str]]
-    ) -> PendingUpdateView | None:
+    ) -> tuple[PendingUpdateView | None, bool]:
         """Whether this company has a pending Band-B template update to show.
 
         design `PLUGIN-FRAMEWORK.md` Part 4/6 (D-030, M8-F115). `plan_refresh`
@@ -223,15 +235,21 @@ def create_app(kernel: PlatformKernel) -> FastAPI:
         why the plan and result models live there rather than beside their
         producer).
 
-        A refusal to compute the plan — the type this company was built from
-        is no longer installed, or refreshing it against the installed
-        definition would itself be invalid (M8-F111 refuses this at install
-        for every *new* upgrade, but a row installed before that guard
-        existed could still be in this state) — answers None rather than
-        raising: either way there is nothing here an operator could act on,
-        and that is also the safe, correct answer Part 4.3 gives for a
-        company that is simply current (Summit Trail Gear, the negative
-        control).
+        Returns:
+            `(view, uncertain)`. `view` is `None` either when the company is
+            simply current (Part 4.3's negative control — the correct,
+            silent default) or when the plan could not be computed at all;
+            `uncertain` is what tells those two apart. A refusal to compute
+            the plan — the type this company was built from is no longer
+            installed, or refreshing it against the installed definition
+            would itself be invalid (M8-F111 refuses this at install for
+            every *new* upgrade, but a row installed before that guard
+            existed could still be in this state) — used to answer plain
+            `None`, indistinguishable from "up to date" (M9-3 surface
+            backlog item 6, `UPDATE_CHECK_UNCERTAIN_NOTE`). There is still
+            nothing here an operator could act on either way — Part 4.3's
+            reasoning for silence-as-default is unchanged — but "nothing to
+            show you" and "couldn't tell" are no longer the same silence.
 
         Args:
             types: The installed-type display-data map `_type_catalog`
@@ -252,9 +270,10 @@ def create_app(kernel: PlatformKernel) -> FastAPI:
                     }
                 },
             )
-            return None
+            return None, True
         kind = types.get(contract.business_type, {}).get("kind") or "your company template"
-        return render_plan(plan, company_name=contract.display_name, type_display_name=kind)
+        view = render_plan(plan, company_name=contract.display_name, type_display_name=kind)
+        return view, False
 
     def _stuck_reading(stuck_count: int) -> str:
         """Plain-language reading of the stuck-work part (M7-5b item 1).
@@ -294,6 +313,19 @@ def create_app(kernel: PlatformKernel) -> FastAPI:
             # honest wording for the sub-case the number alone cannot tell
             # apart from a real miss.
             health_reason = "Set goals, but nothing's been measured yet."
+        elif health.early_days and not await _ever_measured(svc, contract):
+            # M9-3 surface backlog item 4 (M9-F43), the `healthy`-band twin
+            # of the fix above: `early_days` keeps the badge at `healthy` (D-027.4
+            # — a young company is genuinely fine), but `_summarise`'s own
+            # EARLY_DAYS_SUMMARY ("Just getting started — no goals hit
+            # yet.") still reads as an attempt that came up short. Reusing
+            # `_ever_measured` — already computed for the sibling branch,
+            # no new query, no kpi/engine.py change — distinguishes "hit
+            # nothing" from "nothing to hit yet" the same way the watch-band
+            # case already does. `zero_attainment_stall` and `early_days`
+            # are mutually exclusive (kpi/engine.py's `health()`), so this
+            # never double-applies.
+            health_reason = "Just getting started — nothing's been measured yet."
 
         return {
             "id": row.business_id,
@@ -352,7 +384,7 @@ def create_app(kernel: PlatformKernel) -> FastAPI:
             # design PLUGIN-FRAMEWORK.md Part 4/6 (D-030): a pending template
             # update lives on the company's own page, never in the approvals
             # queue. See `_pending_update`.
-            update = await _pending_update(svc, contract, types)
+            update, update_uncertain = await _pending_update(svc, contract, types)
             payload["pending_update"] = (
                 {
                     "headline": update.headline,
@@ -361,6 +393,14 @@ def create_app(kernel: PlatformKernel) -> FastAPI:
                 }
                 if update
                 else None
+            )
+            # M9-3 item 6: the one honest line for "couldn't check", never
+            # shown alongside a real `pending_update` (mutually exclusive by
+            # construction — `_pending_update` only sets `uncertain` on the
+            # branch that returns no view) and never shown for the ordinary
+            # up-to-date case, which stays silent exactly as before.
+            payload["pending_update_note"] = (
+                UPDATE_CHECK_UNCERTAIN_NOTE if update_uncertain else None
             )
             feed = await svc.decisions.activity_feed(BusinessId(business_id), limit=40)
             payload["activity"] = [

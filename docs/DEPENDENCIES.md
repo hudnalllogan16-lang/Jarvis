@@ -93,6 +93,7 @@ earlier** — with exactly three exceptions.
 | `events`, `budget`, `capabilities`, `security`, `runtime` | 2 | | `manager`, `scheduler` | 4 |
 | `businesses`, `shell` | 5 |
 | | | | `businesses`, `shell` | 5 |
+| `executive` | 9 | | | |
 
 **Permitted exceptions — composition roots:**
 
@@ -124,6 +125,11 @@ roadmap revision 2.
 | Business Manager workflow (§2.1) | M4 | M5 — started by `ManagerLifecycle` | Retired |
 | `KpiEngine.record` (§5, §11 dashboard) | M3 | M7-3b — `record_cycle_kpis` (D-027) | Retired |
 | `AutonomyCounterRow.plugin_major_version` — A-003's major-version graduation reset (§8) | M3 | M8-8 — `BusinessRegistry._reset_graduation_on_major_bump` | Retired |
+| `KpiEngine.health`, per-company only — no aggregation across companies (§3, COO) | M3 | M9-1a — `jarvis.executive.health.compute_portfolio_health` | Retired |
+| `BudgetLedger.business_spend`/`platform_spend_24h` — enforcement only, no rollup (§3, CFO) | M2 | M9-1a — `jarvis.executive.rollup.compute_portfolio_rollup` | Retired |
+| `CircuitBreaker.trip()` — writes §12.5's halt narrative; nothing in `jarvis/` calls it (§9) | M2 | pending — packet C (design 2.4, M9-F2) | Open |
+| `DecisionLog.record_platform_decision` / `platform_feed` — writer exists, no reader (§11.5) | M1 | pending — packet E, operator-surface lane (design Part 8) | Open |
+| `NotificationKind.SPENDING` — declared kind, zero writers, zero readers (§3, CFO) | M3 | pending — packet C (design 2.3) | Open |
 
 **The entry this ledger missed.** `KpiEngine.record` was written in M3 and had no caller for four
 milestones — it was never listed here, so the debt accrued invisibly and was found by a live run
@@ -139,6 +145,16 @@ and zero writers for five milestones: nothing compared an installed major versio
 change. Recorded at M8-1 as **M8-F8** and retired here. Two worked examples of one rule is the
 point at which the rule is the finding: a component's ledger row is written when the component is,
 not when someone notices it never acquired a caller.
+
+**M9-F1: five more, all found the same way — by reading design EXECUTIVE-LAYER.md's Part 0
+census of the live platform, not by a failure.** Each is a platform primitive whose
+Executive-shaped caller was never written, the identical shape to the two entries above. Two
+callers land in M9-1a itself, retiring those rows immediately; the other three stay **Open**
+because M9-1a builds only the deterministic CFO rollup and COO census (design Part 12 packets A
+and B) — the cap-tracking alerts, the breaker's missing caller, and `platform_feed`'s first
+reader are packets C and E, not built here. Recording the row when the debt is found, per this
+ledger's own rule, means recording it before the caller exists too — an **Open** status is not a
+gap in the bookkeeping, it is the bookkeeping.
 
 **Deferred at M5.** `CredentialManager` was scheduled to gain a caller here through generic tool
 execution. Building it found the plan self-defeating: a tool-execution layer with no concrete tool

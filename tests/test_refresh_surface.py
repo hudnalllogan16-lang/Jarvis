@@ -143,6 +143,45 @@ async def test_a_freshly_created_company_has_no_pending_update(
 
     assert "pending_update" in detail
     assert detail["pending_update"] is None
+    # M9-3 item 6: genuinely current stays exactly as silent as it always
+    # was — the new note exists for the OTHER silent case (below), not this
+    # one.
+    assert detail["pending_update_note"] is None
+
+
+async def test_an_uncomputable_plan_gets_the_one_honest_line_not_silence(
+    kernel: PlatformKernel, api: httpx.AsyncClient
+) -> None:
+    """M9-3 surface backlog item 6: 'up-to-date vs uncomputable both silent'.
+
+    `register_instance` itself refuses an uninstalled type, so the only way
+    to reach `_pending_update`'s documented edge case — "a row installed
+    before [the M8-F111] guard existed could still be in this state" — is a
+    company that was legitimately registered against an installed type whose
+    row is then gone by the time `plan_refresh` looks for it. Deleting the
+    `BusinessTypeRow` after registration reproduces exactly that: the
+    company is real and untouched, only its type's installed row is missing,
+    which is what `_installed_definition` (`jarvis/businesses/refresh.py`)
+    raises `BusinessTypeNotFoundError` for. Before this fix that produced the
+    exact same `pending_update: null` a genuinely current company gets; now
+    it also carries a note distinguishing the two.
+    """
+    business_id = await _create(kernel, AFFILIATE, "Orphaned Template Co")
+    async with kernel.services() as svc:
+        row = await svc.registry.installed_type(BusinessTypeName(AFFILIATE.name))
+        assert row is not None
+        await svc.session.delete(row)
+        # `kernel.services()` commits on clean exit (see its own docstring) —
+        # no explicit commit needed, and none of the other direct-registry
+        # fixtures in this file take one either.
+
+    detail = (await api.get(f"/api/companies/{business_id}")).json()
+
+    assert detail["pending_update"] is None
+    assert detail["pending_update_note"] == (
+        "Jarvis couldn't check whether an update is ready for this company just now — "
+        "it will try again on its own."
+    )
 
 
 async def test_pending_update_is_not_on_the_default_card(
