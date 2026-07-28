@@ -992,6 +992,38 @@ def test_install_refuses_a_type_requesting_authority_above_l2_tactical() -> None
         )
 
 
+def test_install_refuses_a_type_declaring_an_unregistered_action() -> None:
+    """F1 (M9-F185, governance violation): an unregistered action has no authority.
+
+    Before this fix, `granted_entry(...) is None` fell straight through the
+    level comparison (`entry is not None and entry.level not in {...}`), so a
+    business type declaring an action the registry had never heard of
+    installed exactly as if L0/L1/L2-tactical had been granted. Namespaced
+    correctly on purpose — `finance` owns the `finance.` prefix (proven by
+    `test_a_types_own_namespace_is_still_permitted` above) — so the namespace
+    guard cannot be what is catching this; only the registry-membership guard
+    can.
+    """
+    action = "finance.read_ledger"
+    assert action not in ACTION_REGISTRY, (
+        "fixture must exercise a genuinely unregistered action for this test to mean anything"
+    )
+    with pytest.raises(ConfigurationError, match=r"does not grant|unregistered"):
+        ProvisioningService._refuse_unauthorised_action_types(_definition(action, name="finance"))
+
+
+def test_install_still_accepts_a_registered_action_negative_control() -> None:
+    """Negative control for F1 (M8-F120 discipline): a registered action is unaffected.
+
+    Proves the new registry-membership guard is not a blanket refusal that
+    happens to also catch the unregistered case above — it lets a genuinely
+    granted action through untouched.
+    """
+    ProvisioningService._refuse_unauthorised_action_types(
+        _definition("affiliate.publish_post", name="affiliate")
+    )
+
+
 def test_install_accepts_the_live_affiliate_type() -> None:
     """The detector is not trigger-happy: the shipped catalog still installs.
 

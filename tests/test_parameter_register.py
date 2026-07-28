@@ -17,6 +17,7 @@ register from silently drifting from the code it describes:
 from __future__ import annotations
 
 import importlib
+from decimal import Decimal
 from typing import Any
 
 import pytest
@@ -119,6 +120,42 @@ def test_known_exceptions_are_all_registered_and_enforcing() -> None:
     for name in KNOWN_M130_EXCEPTIONS:
         assert name in PARAMETER_REGISTER, f"{name} is not a registered parameter"
         assert PARAMETER_REGISTER[name].param_class is ParameterClass.ENFORCING
+
+
+_M130_TABLE = "docs/design/M9-F130-REMEDIATION.md"
+
+
+def test_m130_remediation_values_are_pinned() -> None:
+    """F4 (M9-F188): the three known exceptions are presence-checked above
+    (`test_enforcing_violations_are_exactly_the_known_m130_exceptions`), never
+    value-checked — the audit's honest-limits note named this gap directly:
+    "the remediation-table value-drift gap (presence-checked, not
+    value-checked)". A silent change to any of the three live defaults would
+    still satisfy that test, because it only compares *names*, while
+    `docs/design/M9-F130-REMEDIATION.md`'s table — which the owner is
+    ratifying against a specific value per row — quietly went stale
+    underneath it. Pin each value the table states, so a drift fails loudly
+    and the message points at the table to update.
+    """
+    max_cycles = _resolve(PARAMETER_REGISTER["wake_conditions.max_cycles_per_day"].location)
+    assert max_cycles.default == 48, (
+        f"WakeConditions.max_cycles_per_day drifted from the value "
+        f"{_M130_TABLE}'s row 1 pins (48) — update the table before this pin"
+    )
+
+    max_budget = _resolve(
+        PARAMETER_REGISTER["capability_permission.max_invocation_budget_usd"].location
+    )
+    assert max_budget.default == Decimal("0.50"), (
+        f"CapabilityPermission.max_invocation_budget_usd drifted from the value "
+        f"{_M130_TABLE}'s row 2 pins ($0.50) — update the table before this pin"
+    )
+
+    graduation = _resolve(PARAMETER_REGISTER["autonomy_policy.graduation_eligible"].location)
+    assert graduation.default is False, (
+        f"AutonomyPolicy.graduation_eligible's default drifted from the value "
+        f"{_M130_TABLE}'s row 3 pins (False) — update the table before this pin"
+    )
 
 
 def test_announcing_entries_are_always_legitimate() -> None:
