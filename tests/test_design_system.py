@@ -534,10 +534,12 @@ def test_the_trend_note_states_the_relation_and_knows_which_way_is_good() -> Non
 def test_the_pending_update_marker_never_renders_without_a_served_field() -> None:
     """docs/design/06-components.md, `.co-card__update` (M9-F27, gate-ruled).
 
-    The marker ships complete and dormant: `/api/companies` does not carry
-    `pending_update` yet, so it renders nothing. That is the persona-component
-    discipline applied to a marker — the data does not exist, so the mark must
-    not appear.
+    Lit at M9-1d: `/api/companies` now carries a presence-only `pending_update`
+    boolean from a cheap existence check (`PlatformKernel.has_pending_update`),
+    so the marker is no longer dormant. What this test still pins is the
+    *shape* of the guard — the markup renders strictly from the served field,
+    never from an inference — which is exactly as true now that the field is
+    lit as it was while it was dormant.
 
     The failure this guards is specific and tempting: making the card *look*
     right by inferring a pending update from something else on the payload, or
@@ -562,4 +564,90 @@ def test_the_pending_update_marker_never_renders_without_a_served_field() -> Non
     assert not spent, (
         f"the pending-update marker spends a status colour ({spent}); a template "
         "update is not a health problem and must never look like one (D-030)"
+    )
+
+
+TILES = pathlib.Path("jarvis/api/static/app/tiles.js")
+
+
+def _tiles_source() -> str:
+    source = TILES.read_text(encoding="utf-8")
+    source = re.sub(r"/\*.*?\*/", " ", source, flags=re.S)
+    return re.sub(r"//.*", "", source)
+
+
+def test_the_census_tile_reads_the_served_census_not_a_client_side_filter() -> None:
+    """design EXECUTIVE-LAYER.md Part 3/8, D-039 (M9-1d).
+
+    Before this packet "Needs a look" counted `health_band !== 'healthy'`
+    client-side — a filter that cannot tell a `never_measured` company apart
+    from a genuinely `healthy` one, because that distinction does not exist
+    on the card payload at all (D-027.4's grace period bands a young company
+    `healthy`, correctly, for that company). The count must come from
+    `/api/summary`'s own `census`, a direct read of `PortfolioHealth`, not a
+    second, weaker aggregation invented in the browser.
+    """
+    source = _tiles_source()
+    assert "summary.census" in source, "the tile no longer reads the served census"
+    assert "health_band !== 'healthy'" not in source, (
+        "the old client-side filter is back — it cannot see never_measured"
+    )
+
+
+def test_the_census_tile_never_computes_a_portfolio_score() -> None:
+    """design Part 3's surface rule, restated: a single number covering every
+    company is the one addition this packet refuses. Guards against the
+    tempting shortcut of averaging `health` across `companies` for a tile
+    value instead of reading the served per-band counts.
+
+    `approvals.reduce` is the one legitimate `reduce()` in this file (finding
+    the oldest pending approval) and predates this packet; any *other*
+    reduce — over `companies`, in particular — is exactly the shape a
+    portfolio average would take."""
+    source = _tiles_source()
+    reduces = re.findall(r"\b\w+(?:\.\w+)*\.reduce\(", source)
+    assert reduces, "expected the existing approvals.reduce to still be here"
+    assert all(call == "approvals.reduce(" for call in reduces), (
+        f"unexpected reduce() call(s) in tiles.js: {reduces} — averaging comparable "
+        "per-company scores is comparable to nothing (design Part 3) and must never "
+        "back a tile value"
+    )
+    assert "/ companies.length" not in source and "/ census" not in source
+
+
+def test_the_worst_company_link_is_escaped_and_never_a_second_destination() -> None:
+    """The link reuses `coCard`'s own route (`companyHref`) and the card's own
+    `.btn--link` in-prose affordance (docs/design/06-components.md) rather
+    than inventing either — extend-first, and one destination per company,
+    reached from two places rather than two links to the same place."""
+    source = _tiles_source()
+    assert "companyHref(worst.id)" in source
+    assert 'class="btn--link"' in source
+    assert "esc(worst.name)" in source
+    assert "esc(worst.health_reason)" in source
+
+
+def test_never_measured_is_reported_even_when_nothing_needs_a_look() -> None:
+    """D-039's "one honest limitation", restated as a surface rule: a
+    never-measured company is not folded into "all companies healthy" just
+    because nothing is in `watch` or `at_risk` — the count must still reach
+    the operator (M9-1d)."""
+    source = _tiles_source()
+    assert "census.never_measured" in source
+    assert "needLook || census.never_measured" in source, (
+        "never_measured no longer keeps the census line visible on its own — "
+        "a young, unmeasured company would go silently unmentioned"
+    )
+
+
+def test_the_spending_paused_reason_is_escaped_before_it_reaches_the_tile() -> None:
+    """`platform_feed`'s first reader (design Part 8, M9-F2): the halt
+    narrative is live Decision Log prose laundered through
+    `render_operator_text` server-side, but it is still an API value, and the
+    tile's own escaping contract (`tiles.js`'s module comment) applies to it
+    exactly as it does to every other context-line value."""
+    source = _tiles_source()
+    assert re.search(r"esc\(\s*summary\.spending_paused_reason", source), (
+        "spending_paused_reason reaches the tile without going through esc() — "
+        "an unescaped API value in a context string is a hole (tiles.js's own rule)"
     )

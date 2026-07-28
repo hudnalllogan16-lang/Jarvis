@@ -33,6 +33,7 @@ from jarvis.approvals.rendering import (
     render_request,
 )
 from jarvis.approvals.service import ApprovalError
+from jarvis.budget.breaker import PLATFORM_HALT_ACTION_TYPE
 from jarvis.budget.ledger import BudgetLedger
 from jarvis.domain.contract import BusinessContract
 from jarvis.domain.lifecycle import OPERATOR_LABELS as LIFECYCLE_LABELS
@@ -327,6 +328,16 @@ def create_app(kernel: PlatformKernel) -> FastAPI:
             # never double-applies.
             health_reason = "Just getting started — nothing's been measured yet."
 
+        # M9-1d: the grid marker's cheap existence check (M9-F100…F104) — a
+        # presence-only boolean, never the full `ContractRefreshPlan`
+        # `_pending_update` builds below for the drill-down page. `None`
+        # (cannot be honestly computed) collapses to `False`: a marker that
+        # might be wrong is worse than one that stays quiet, the same
+        # silence-as-default `_pending_update` already keeps for its own
+        # uncertain case. `company_detail` overwrites this key with the real
+        # view for the one company the operator actually opened.
+        pending = await kernel.has_pending_update(svc, contract)
+
         return {
             "id": row.business_id,
             "name": row.display_name,
@@ -349,6 +360,7 @@ def create_app(kernel: PlatformKernel) -> FastAPI:
             # M6-5a item 4) and capped to one sentence — the card is the
             # default view, not the drill-down.
             "doing": render_doing_now(feed[0].summary) if feed else "Nothing yet.",
+            "pending_update": bool(pending),
         }
 
     @app.get("/api/companies")
@@ -383,7 +395,10 @@ def create_app(kernel: PlatformKernel) -> FastAPI:
             payload["goals"] = await _goal_readings(svc, contract)
             # design PLUGIN-FRAMEWORK.md Part 4/6 (D-030): a pending template
             # update lives on the company's own page, never in the approvals
-            # queue. See `_pending_update`.
+            # queue. See `_pending_update`. This overwrites `_company_payload`'s
+            # cheap boolean marker with the real, rendered view for the one
+            # company the operator actually opened — the roster's presence-only
+            # check earns the click, the detail route always pays the full cost.
             update, update_uncertain = await _pending_update(svc, contract, types)
             payload["pending_update"] = (
                 {
@@ -839,6 +854,34 @@ def create_app(kernel: PlatformKernel) -> FastAPI:
             await NotificationService(svc.session).mark_read(notification_id)
         return {"status": "Dismissed."}
 
+    async def _platform_halt_reason(svc: KernelServices) -> str | None:
+        """`DecisionLog.platform_feed`'s first reader (design Part 8, M9-F2,
+        M9-F76): the "why" behind an active spending pause.
+
+        Reads the same platform-scoped log `CircuitBreaker.trip` writes to
+        and nothing else invents — D-011's own discipline, applied to a
+        platform decision instead of a company's. Laundered through
+        `render_operator_text`, the identical boundary `activity_feed`'s
+        entries already pass through, so no raw id or lifecycle word can
+        leak here either. `action_type` is read only to recognise the halt
+        entry (the structured column `_halt_already_explained` already
+        matches on) and is never returned — that column is this entry's
+        internal ref, and M9-F76 is exactly the finding that a ref must
+        never reach the operator, whether or not anything renders it as a
+        link.
+
+        Returns:
+            The laundered rationale of the most recent halt entry, or None
+            if the platform is not currently paused for that reason (the
+            feed has no such entry yet, or it has rolled past the default
+            50-row window — the same generous margin `_halt_already_explained`
+            reasons about).
+        """
+        for entry in await svc.decisions.platform_feed():
+            if entry.action_type == PLATFORM_HALT_ACTION_TYPE:
+                return render_operator_text(entry.rationale)
+        return None
+
     @app.get("/api/summary")
     async def summary() -> dict[str, Any]:  # pyright: ignore[reportUnusedFunction]
         """Return the top status strip: companies, spend today, things waiting."""
@@ -851,13 +894,40 @@ def create_app(kernel: PlatformKernel) -> FastAPI:
             spend = await ledger.platform_spend_24h()
             service = kernel.build_approvals(svc)
             ceiling = kernel.settings.budget.platform_rolling_24h_usd
+            spending_paused = spend >= ceiling
+
+            # M9-1d, design Part 3/D-039: the Command Center's health tile
+            # grows into the portfolio census — counts per band, never a
+            # single portfolio score. `worst_company` comes back as a display
+            # name only (`PortfolioHealth` names no id, by design — Part 1
+            # keeps the census a pure function over D-009's own reads); the
+            # roster this route already fetched is where an id lives, so the
+            # link is resolved here rather than teaching the census package a
+            # new field for one caller.
+            census = await kernel.portfolio_census(svc)
+            worst = None
+            if census.worst_company is not None:
+                match = next((r for r in rows if r.display_name == census.worst_company), None)
+                if match is not None:
+                    worst = {"id": match.business_id, "name": match.display_name}
+
             return {
                 "companies": len(rows),
                 "running": sum(1 for r in rows if r.lifecycle_state == LifecycleState.ACTIVE.value),
                 "spent_today": float(spend),
                 "spend_limit": float(ceiling),
-                "spending_paused": spend >= ceiling,
+                "spending_paused": spending_paused,
+                "spending_paused_reason": (
+                    await _platform_halt_reason(svc) if spending_paused else None
+                ),
                 "waiting_on_you": len(await service.pending()),
+                "census": {
+                    "healthy": census.healthy_count,
+                    "watch": census.watch_count,
+                    "at_risk": census.at_risk_count,
+                    "never_measured": census.never_measured_count,
+                    "worst_company": worst,
+                },
             }
 
     @app.get("/api/health")

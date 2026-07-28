@@ -29,8 +29,10 @@ from jarvis.capabilities.executor import CapabilityExecutor, InMemoryTemplates, 
 from jarvis.capabilities.idempotency import IdempotencyStore
 from jarvis.capabilities.pool import CapabilityPool
 from jarvis.capabilities.tools import ToolExecutor
+from jarvis.domain.contract import BusinessContract
 from jarvis.events.bus import EventBus
 from jarvis.kernel.config import Settings
+from jarvis.kernel.errors import ConfigurationError
 from jarvis.kernel.logging import configure_logging, get_logger
 from jarvis.kpi.engine import KpiEngine
 from jarvis.llm.base import LLMProvider
@@ -327,6 +329,70 @@ class PlatformKernel:
     def build_notifications(self, services: KernelServices) -> NotificationService:
         """Return the notification service bound to ``services``' session."""
         return NotificationService(services.session)
+
+    async def portfolio_census(self, services: KernelServices) -> Any:
+        """Return the COO's portfolio census (design EXECUTIVE-LAYER.md Part 3,
+        D-039), for the Command Center's health tile (packet E, M9-1d).
+
+        Constructed here for the same reason `build_refresh` is: the API (M3)
+        must not import `executive` (M9), and the Kernel is the composition
+        root that may. The return type is `Any` for that reason — naming
+        `PortfolioHealth` in an annotation the API can read would put an M9
+        symbol on an M3 import path.
+        """
+        from jarvis.executive.health import compute_portfolio_health
+
+        return await compute_portfolio_health(
+            services.registry, self.build_ledger(services), self.build_kpis(services)
+        )
+
+    async def has_pending_update(
+        self, services: KernelServices, contract: BusinessContract
+    ) -> bool | None:
+        """Return whether ``contract``'s company has a Band-B template update
+        waiting, without building the full `ContractRefreshPlan` (M9-F100…
+        F104's grid-marker finding; design PLUGIN-FRAMEWORK.md Part 4).
+
+        A cheap existence check for the roster's dormant marker
+        (`docs/design/06-components.md`'s `.co-card__update`): it reuses
+        `refreshed_contract`'s own Band B projection and `band_b_digest`'s
+        comparison — the exact machinery `ContractRefreshService.plan_refresh`
+        (`jarvis.businesses.refresh`, M5) uses to decide `is_empty` — but stops
+        short of enumerating `FieldChange`s or rendering their sentences,
+        which `plan_refresh` builds only for the drill-down page this marker
+        is not. It also never re-fetches the contract `plan_refresh` would
+        redundantly re-read: the caller already has one.
+
+        Constructed here rather than imported by the API for the same
+        layering reason `build_refresh` is (M3 must not import M5).
+
+        Returns:
+            True if a Band-B difference exists and the operator has not
+            already declined this exact installed version; False if the
+            company is current or the difference was declined; None if the
+            answer cannot be honestly computed — the type is no longer
+            installed, or the refreshed contract would be invalid. The
+            caller's correct response to None is to show no marker, the same
+            silence `_pending_update` already defaults to for its own
+            uncertain case: a marker that might be wrong is worse than one
+            that stays quiet.
+        """
+        from jarvis.businesses.definition import read_installed_definition
+        from jarvis.businesses.refresh import refreshed_contract
+        from jarvis.domain.refresh import band_b_digest
+
+        row = await services.registry.installed_type(contract.business_type)
+        definition = read_installed_definition(row)
+        if definition is None:
+            return None
+        try:
+            target = refreshed_contract(contract, definition)
+        except ConfigurationError:
+            return None
+        if band_b_digest(contract) == band_b_digest(target):
+            return False
+        declined = await services.registry.declined_refresh_version(contract.business_id)
+        return declined != definition.version
 
     async def temporal_client(self) -> Any:
         """Return a connected Temporal client, or None if unavailable.

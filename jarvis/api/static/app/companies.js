@@ -55,13 +55,18 @@ export const companyHref = (id) => `#/companies/${encodeURIComponent(id)}`;
  *  up and one line long — deliberately NOT `.ask`-shaped, because this is the
  *  platform proposing a change, not a company asking for money.
  *
- *  **Renders nothing today.** `/api/companies` does not carry
- *  `pending_update`; only `/api/companies/{id}` does, and computing it across
- *  the roster from the surface would be N per-company fetches — the exact
- *  cost `12-application-shell.md` refused a cross-company Goals workspace
- *  for. The field this waits on is named in the M9-2c report and in
- *  `06-components.md`; nothing here guesses at it, so the marker appears on
- *  the day the field does and not one repaint sooner. */
+ *  **Lit at M9-1d.** `/api/companies` now carries a presence-only
+ *  `pending_update` boolean, from a cheap existence check
+ *  (`PlatformKernel.has_pending_update`, `jarvis/kernel/container.py`) that
+ *  compares the installed type's Band B digest against the stored contract's
+ *  and the operator's own decline record — never the full
+ *  `ContractRefreshPlan` the company's own Details page still builds, and
+ *  never N per-company fetches across the roster, the exact cost
+ *  `12-application-shell.md` refused a cross-company Goals workspace for.
+ *  A company the check cannot answer honestly (its type is no longer
+ *  installed, say) reads `false` here, the same silence Details already
+ *  keeps for its own uncertain case — a marker that might be wrong is worse
+ *  than one that says nothing. */
 function updateFlag(c) {
   return c.pending_update ? `<p class="co-card__update">Update available</p>` : '';
 }
