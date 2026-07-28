@@ -2297,3 +2297,18 @@ packet line over-specified against Part 11, and the registry integrity tests cor
 refused stubs. Residual recorded: all-parts-exit-cleanly → process exit 0 → OS restarter
 stays stopped (no part does this today; P0-F names the case or records why not).
 `serve_headless` carries an Open ledger row until P0-F/G start it as a real process.
+
+## P0-D merged alone (1337 tests) — wall-clock time is real
+
+The flattening is deleted; ''0 9 * * *'' fires at 09:00 in a validated IANA zone (tzdata
+added — Windows ships no zoneinfo database; hand-rolled parser whose load-bearing behavior
+is REFUSAL at contract creation); one cycle per period; a missed wake skips with the
+registered late-wake notice; lateness rides every cycle decision. D-033 honesty went a
+level deeper: M10-F30 pins as an executable test that replay never compares timer durations
+— the park evidence is payload+timer assertions plus scripted pairs, stated not implied.
+The three parked live executions remain replayable. Registry row composed in-lane; the
+ratchet itself ruled new-surface-not-loosened-rule (no signature; reasoning beside the pin).
+**M10-F32 narrowed but standing (joins M9-F160):** nothing catches a platform-emitted
+authority-bearing action with no registry row — a code→registry sweep needs design 7.1''s
+prose line made mechanical; queued for the next governance pass. Judgment calls ratified in
+the P0-D thread. All three live schedules become honest at the next worker start.
