@@ -2327,3 +2327,19 @@ register, lane-resolved with section comments. NEXT: P0-C (poller probe + two-si
 verdict + runtime.liveness_verdict row) ∥ P0-E (scheduler correctness), then F (NSSM
 deployment), G (production validation → the owner''s six-criteria readiness assessment →
 the Trading gate).
+
+## Phase 0 core complete — P0-C/P0-E merged (1441 tests)
+
+The two-signal liveness verdict is live (poller facts in observability so M3 and M9 both
+reach them — placement ratified; unreachable renders UNKNOWN never zero, verified against
+this host''s actual zero-poller queue; outage/recovery announced once each via audit
+transition; crash-loop notice per the D-053 shape; runtime.liveness_verdict registered,
+ratchet ruled new-surface). Scheduler correctness in (per-step containment, transition-
+deduped connectivity, FAILING as pure label honoring D-016/17, interval Settings-sourced —
+M9-F92 closed). Fourth compose conflict lane-resolved — and it caught a REAL silent
+duplicate the auto-merge concatenated (two lanes'' identical parameter row would have
+dict-collapsed past the duplicate test); de-duplicated by inspection. Provisional liveness
+copy flagged for the next surface pass. A/B/C/D/E done: REMAINING = P0-F (NSSM deployment;
+F11 owner question gates container validation only) and P0-G (end-to-end validation +
+~24h soak per the owner''s demonstrate-don''t-infer mandate) → nine deliverables →
+readiness assessment → the Trading gate.
