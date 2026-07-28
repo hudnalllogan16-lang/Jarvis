@@ -38,6 +38,34 @@ export function meter(health, band) {
  *  slightly different routes. */
 export const companyHref = (id) => `#/companies/${encodeURIComponent(id)}`;
 
+/** A quiet marker that this company's template has an update waiting
+ *  (D-030, design PLUGIN-FRAMEWORK.md Part 4/6). Phase-3 gate ruling, M9-F27:
+ *  until now the only way to discover a pending update was to open every
+ *  company one at a time, which is a search the operator should never have to
+ *  run across their own roster.
+ *
+ *  A MARKER, not a control. The card already has exactly one way in — the
+ *  Details link directly beneath this — and a second link to the same
+ *  destination would spend the card's one destination affordance twice.
+ *
+ *  `--accent`, never a status hue: colour on this card means health and
+ *  nothing else (ratified M7-5a), and `02-color.md` rule 3 carves the accent
+ *  out of that as "an affordance, not a status". It is the same signal the
+ *  workspace's own `.pending-update` card carries as its left rule, one level
+ *  up and one line long — deliberately NOT `.ask`-shaped, because this is the
+ *  platform proposing a change, not a company asking for money.
+ *
+ *  **Renders nothing today.** `/api/companies` does not carry
+ *  `pending_update`; only `/api/companies/{id}` does, and computing it across
+ *  the roster from the surface would be N per-company fetches — the exact
+ *  cost `12-application-shell.md` refused a cross-company Goals workspace
+ *  for. The field this waits on is named in the M9-2c report and in
+ *  `06-components.md`; nothing here guesses at it, so the marker appears on
+ *  the day the field does and not one repaint sooner. */
+function updateFlag(c) {
+  return c.pending_update ? `<p class="co-card__update">Update available</p>` : '';
+}
+
 // The card carries one meter and one sentence. The three health parts belong
 // to the company workspace, not here (ratified M7-5a).
 export function coCard(c) {
@@ -61,6 +89,7 @@ export function coCard(c) {
         ? ` <a class="btn--link" href="${companyHref(c.id)}">more in Details</a>`
         : ''
     }</div>
+    ${updateFlag(c)}
     <div class="co-card__acts">
       <a class="btn btn--small" href="${companyHref(c.id)}">Details</a>
       <button class="btn btn--small" data-act="toggle-co" data-id="${esc(c.id)}"

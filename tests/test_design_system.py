@@ -462,3 +462,104 @@ def test_the_series_is_not_refetched_on_every_repaint() -> None:
         "the visibility check is gone — a hidden tab nobody is reading would "
         "refetch the series on every cycle"
     )
+
+
+FORMAT = pathlib.Path("jarvis/api/static/app/format.js")
+
+
+def test_a_sub_unit_reading_is_not_rounded_away_to_zero() -> None:
+    """M9-F101 — `measurement()` against its own stated contract.
+
+    Its docstring has promised significant-figure rounding since M9-3; the code
+    did `toFixed(2)` and round-tripped through `Number()`, so **0.0005 became
+    "0"**. The reading that motivated the function was the one it erased, and it
+    erased it into the single value a measurement must never be confused with:
+    `10-interaction-patterns.md` is explicit that zero is a measurement, so
+    rendering "very nearly zero" as `0` is a lie of format in the same family as
+    rendering "unmeasured" as `0`.
+
+    Pinned at the source, because there is no JavaScript runner in this repo and
+    the arithmetic therefore has no executable test (recorded as M9-F103). What
+    is asserted is the *mechanism*: places derived from the magnitude, and the
+    fixed-decimal shape that caused the defect gone.
+    """
+    source = FORMAT.read_text(encoding="utf-8")
+    body = source[source.index("export function measurement") :]
+
+    assert "Math.log10" in body, (
+        "measurement() no longer derives its precision from the magnitude — a "
+        "fixed decimal count rounds a sub-unit reading away to '0' (M9-F101)"
+    )
+    assert "< 1 ? 2 :" not in body, (
+        "the fixed-decimal shape is back: toFixed(2) renders 0.0005 as '0.00', "
+        "which Number() then collapses to '0'"
+    )
+    assert "if (x === 0) return '0'" in body, (
+        "a true zero must still render '0' — it is a measurement, and the fix "
+        "for M9-F101 must not turn it into something else"
+    )
+
+
+def test_the_trend_note_states_the_relation_and_knows_which_way_is_good() -> None:
+    """M9-F100 — the Phase-3 gate's finding.
+
+    The chart drew Data freshness (0.0005 against a 24-hour ceiling — excellent)
+    and Reports delivered (3 against a goal of 4 — short) as the *identical*
+    mark: a dot below a line. It had to. The y axis is value space, and value
+    space does not know which way is good — `direction: "below"` means lower is
+    better (M7-F30), so "below the line" is a triumph for one metric and a
+    shortfall for the next.
+
+    Only words can carry that, and because the `<svg>` is `aria-hidden` they
+    were also the only channel a screen reader ever had. Both halves of the gap
+    close in the same sentence, which is why the direction check and the note
+    are asserted together rather than apart.
+    """
+    source = TREND.read_text(encoding="utf-8")
+    code = re.sub(r"//.*", "", re.sub(r"/\*.*?\*/", " ", source, flags=re.S))
+
+    for phrase in ("on target", "ahead of target", "short of it"):
+        assert phrase in code, f"the trend note lost its {phrase!r} relation"
+    assert "direction === 'below'" in code, (
+        "the relation is no longer direction-aware — a lower-is-better metric "
+        "sitting comfortably under its ceiling would read as short of it (M7-F30)"
+    )
+    note = code.index("function note(")
+    assert "relation(" in code[note:], (
+        "the relation is computed but never reaches the note, which is the only "
+        "channel a screen reader has for it"
+    )
+
+
+def test_the_pending_update_marker_never_renders_without_a_served_field() -> None:
+    """docs/design/06-components.md, `.co-card__update` (M9-F27, gate-ruled).
+
+    The marker ships complete and dormant: `/api/companies` does not carry
+    `pending_update` yet, so it renders nothing. That is the persona-component
+    discipline applied to a marker — the data does not exist, so the mark must
+    not appear.
+
+    The failure this guards is specific and tempting: making the card *look*
+    right by inferring a pending update from something else on the payload, or
+    by fetching every company's detail to find out. Both would be a mark that
+    lies, one of them expensively.
+    """
+    emitted = surface_text()
+    assert "co-card__update" in emitted, "the pending-update marker is gone"
+    assert "c.pending_update ?" in emitted, (
+        "the marker is no longer guarded by the served field — it must render "
+        "from `pending_update` or not at all, never from an inference"
+    )
+
+    css = COMPONENTS.read_text(encoding="utf-8")
+    css = re.sub(r"/\*.*?\*/", " ", css, flags=re.S)
+    block = re.search(r"\.co-card__update\s*\{([^}]*)\}", css)
+    assert block, "no .co-card__update rule in components.css"
+    assert "--accent" in block.group(1), (
+        "the marker must carry the accent — an affordance, not a status"
+    )
+    spent = re.findall(r"var\(\s*(--(?:status|wash)[a-z-]*)", block.group(1))
+    assert not spent, (
+        f"the pending-update marker spends a status colour ({spent}); a template "
+        "update is not a health problem and must never look like one (D-030)"
+    )

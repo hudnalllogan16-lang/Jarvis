@@ -543,6 +543,29 @@
   margin-bottom: var(--space-2);
 }
 
+/* "Update available" — the roster-level marker for a pending template update
+   (D-030; Phase-3 gate ruling, M9-F27). A MARKER, not a control: the Details
+   link directly beneath it is the way in.
+
+   `--accent`, never a status hue. Colour on this card means health and nothing
+   else (ratified M7-5a), and docs/design/02-color.md rule 3 carves the accent
+   out of that rule as "an affordance, not a status" — the same reasoning that
+   already puts `.btn--link` in accent on this card. The 2px left rule is the
+   workspace's own `.pending-update` signature, shrunk to one line, so the
+   operator meets the same mark at both levels.
+
+   `margin-top: auto` deliberately NOT set here: it belongs to `.co-card__acts`
+   below, which is what pins the action row to the bottom of a ragged card. */
+.co-card__update {
+  border-left: 2px solid var(--accent);
+  padding-left: var(--space-5);
+  font-family: var(--font-data);
+  font-size: var(--size-xs);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
 .co-card__acts {
   display: flex;
   gap: var(--space-4);
