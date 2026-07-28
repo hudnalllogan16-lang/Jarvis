@@ -40,7 +40,7 @@ other.
 | **Command Center** | stat row, attention (approvals), companies grid | `/api/summary`, `/api/approvals`, `/api/companies` |
 | **Companies** | the roster, full width, nothing competing | `/api/companies` |
 | **Approvals** | the decision queue as *work* rather than as an interruption | `/api/approvals` |
-| **Settings** | what Jarvis can run; parts of the app | `/api/settings/subsystems`, `/api/health` |
+| **Settings** | appearance (theme); what Jarvis can run; parts of the app | `/api/settings/subsystems`, `/api/health`, `app/theme.js` (client-only) |
 
 Command Center and Approvals both render the approvals region, and Command Center and Companies
 both render the company grid. They are the same component in two framings: on the Command Center

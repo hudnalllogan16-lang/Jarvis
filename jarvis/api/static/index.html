@@ -13,6 +13,22 @@
      keep their platform-face fallbacks for a family that fails to load, never
      for a network request — see docs/design/03-typography.md.
      Pinned by tests/test_design_system.py. -->
+<!-- The stored theme choice, applied before the stylesheets below so the
+     first paint is never the wrong theme and then a flash to the right one.
+     Classic (not `type="module"`), so it runs synchronously as parsed —
+     module scripts defer until the document is otherwise ready, which for
+     this one purpose is already too late. A plain cookie, not
+     `localStorage`/`sessionStorage` (docs/design/02-color.md, D-028's "no
+     browser storage APIs" applies to the Web Storage API family the surface
+     otherwise never touches): it is the one mechanism a synchronous script
+     can read before its own first paint, which is the actual reason for the
+     choice, not a loophole in the rule. Absent (no explicit choice recorded)
+     is left alone entirely — tokens.css's own `prefers-color-scheme` block
+     is what "honors OS default until set" means, and this script does not
+     duplicate it. app/theme.js is the one other place this cookie is read
+     or written (the Settings control) — see it for the persistence half. -->
+<script>(function(){var m=document.cookie.match(/(?:^|; )jarvis_theme=(dark|light)/);
+if(m)document.documentElement.setAttribute('data-theme',m[1]);})();</script>
 <!-- The design system, in three layers (docs/design/README.md):
      fonts       vendored @font-face declarations (jarvis/api/static/fonts.css)
      tokens      tier-1 primitives + tier-2 semantic tokens, both themes

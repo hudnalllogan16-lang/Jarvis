@@ -36,7 +36,13 @@ export function tileRow(summary, approvals, companies) {
   const oldest = waiting
     ? approvals.reduce((a, b) => (a.waiting_since < b.waiting_since ? a : b))
     : null;
-  const needLook = companies.filter((c) => c.health_band !== 'healthy').length;
+  const belowHealthy = companies.filter((c) => c.health_band !== 'healthy');
+  const needLook = belowHealthy.length;
+  // A company merely at `watch` must not push this tile to the same risk-red
+  // a real `at_risk` company earns — the card beside it already keeps the
+  // two apart (M9-3 surface backlog, M9-F42: tile-vs-card severity tone
+  // mismatch).
+  const anyAtRisk = belowHealthy.some((c) => c.health_band === 'at_risk');
 
   return (
     tile({
@@ -68,7 +74,7 @@ export function tileRow(summary, approvals, companies) {
       context: needLook
         ? `${esc(needLook)} ${plural(needLook, 'company', 'companies')} below healthy`
         : 'all companies healthy',
-      tone: needLook ? 'attention' : 'healthy',
+      tone: needLook ? (anyAtRisk ? 'attention' : 'watch') : 'healthy',
     })
   );
 }

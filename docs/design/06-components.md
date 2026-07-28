@@ -85,8 +85,12 @@ mechanism by which the approvals region becomes loud.
     └─────────────────────┘
 
 **States.** normal · `--attention` (value takes `--status-risk`, used when the tile's number is
-the reason something is wrong — e.g. spending paused) · null (value renders `—` **only** when
-the platform genuinely has no value; a zero that means zero renders `0`).
+the reason something is wrong — e.g. spending paused, or at least one company is `at_risk`) ·
+`--watch` (value takes `--status-watch`; the "Needs a look" tile when every company pulling the
+count down is at `watch` and none is `at_risk` — M9-3: a tile colour may never claim a severity
+worse than the companies actually driving it, the same rule the company card already keeps
+between its `watch` and `at_risk` bands) · null (value renders `—` **only** when the platform
+genuinely has no value; a zero that means zero renders `0`).
 
 **Rules.** Every tile maps to a served field. The four shipped tiles are backed by
 `/api/summary` (`companies`, `running`, `waiting_on_you`, `spent_today`, `spend_limit`,
@@ -205,7 +209,9 @@ The loud object. Left rule in `--status-risk`, `--surface-base`, 20px padding.
 **States.** editable payload (inputs, plus the sentence that says correcting it means Jarvis
 keeps asking — D-010) · read-only payload (`<pre>`, "This is exactly what gets sent.") ·
 mid-edit (the 15-second repaint is suppressed so typing is never destroyed) · empty queue (the
-region collapses to a heading and "Nothing needs you right now.").
+region collapses to a heading and "Nothing needs you right now." — on the Approvals workspace,
+where this region is the whole page rather than a line above the company grid, the sentence
+continues into what will appear here and why, so the good emptiness still teaches — M9-3).
 
 **Rules.** The payload is shown **open and in full**. An operator who approves a summary of the
 words has not approved the words (§8). Every value on this card is escaped before it becomes

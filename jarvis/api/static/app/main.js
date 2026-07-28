@@ -43,12 +43,25 @@ async function paint() {
   // authorise is a defect, not a refresh.
   const asks = region('asks');
   if (asks && !editing()) {
+    // On the Approvals route this region IS the page — there is no company
+    // grid beneath it to give "nothing needs you" its context, the way there
+    // is on the Command Center. `.calm` stays the right component (an empty
+    // queue is success, not a failed load — docs/design/06-components.md),
+    // but the route on its own needs the teaching sentence Command Center
+    // gets for free from what sits below it (M9-3 surface backlog, M9-F40).
+    const onApprovalsRoute = asks.closest('[data-ws]')?.dataset.ws === 'approvals';
     asks.innerHTML = approvals.length
       ? `<h2 class="section-head section-head--urgent">Needs your OK
            <span class="section-head__count">${approvals.length}</span></h2>` +
         approvals.map(askCard).join('')
       : `<h2 class="section-head">Needs your OK</h2>
-         <p class="calm">Nothing needs you right now.</p>`;
+         <p class="calm">Nothing needs you right now.${
+           onApprovalsRoute
+             ? " Jarvis asks here before it spends money, publishes anything, or does" +
+               " something a company can't already do on its own — with exactly" +
+               " what it wants to do and why, before anything happens."
+             : ''
+         }</p>`;
   }
 
   const cos = region('companies');

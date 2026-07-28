@@ -3,7 +3,7 @@
 
 import { get, post } from './api.js';
 import { action } from './actions.js';
-import { esc, money, ago, humanizeAction } from './format.js';
+import { esc, money, ago, humanizeAction, measurement } from './format.js';
 import { flash } from './flash.js';
 import { openSheet, sheet, closeSheet } from './panel.js';
 import { refresh } from './refresh.js';
@@ -57,9 +57,12 @@ export function coCard(c) {
 // (data freshness) is not "behind" for being small.
 function goalLine(g) {
   const goal = g.direction === 'below' ? 'at most' : 'at least';
+  // `measurement()` rounds to a size that reads as a reading rather than raw
+  // float noise (M9-3 surface backlog, M9-F46: "0.0005 hours since last
+  // check" for data freshness) — applied to every goal, not just freshness's.
   return `<div class="entry"><p>${esc(g.label)}</p>
-     <p class="entry__why">${esc(g.measured)} ${esc(g.unit)} &middot; goal is ${goal} ${esc(
-       g.target,
+     <p class="entry__why">${esc(measurement(g.measured))} ${esc(g.unit)} &middot; goal is ${goal} ${esc(
+       measurement(g.target),
      )} ${esc(g.unit)}</p></div>`;
 }
 
@@ -142,6 +145,11 @@ export async function openCo(id) {
     <p class="kind">${esc(c.kind)}</p>
     <p class="kind-desc">${esc(c.kind_description)}</p>
     ${pendingUpdateCard(id, c.pending_update)}
+    ${
+      c.pending_update_note
+        ? `<p class="calm">${esc(c.pending_update_note)}</p>`
+        : ''
+    }
     <p class="reason reason--tight">${esc(c.health_reason)}
        &middot; health ${esc(c.health)}</p>
     <div class="health-parts">${parts}</div>
