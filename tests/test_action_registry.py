@@ -510,7 +510,7 @@ NOT_AN_ACTION = "publish_post"
 
 # ── Guard 4: the pin, and the ratchet (design 9.2 guard 4, 9.5) ─────────────
 
-REGISTRY_DIGEST_PIN = "6b4fa7d5ee63ae3af83bc157fe84c582165b98ab12a879e7173401b62a6a9040"
+REGISTRY_DIGEST_PIN = "1cf445eeeef8a3bcc265dda54df1b9266dad43f3e9b101e628c6f157e379a109"
 """SHA-256 over every governance-relevant field of the registry and the module
 authority table. Updating this line is the visible, reviewable, single-line diff
 that cannot be mistaken for anything else."""
@@ -522,6 +522,12 @@ AUTONOMY_PIN: dict[str, tuple[str, str, int | None, bool | None]] = {
     "budget.read_aggregates": ("L0", "NONE", None, None),
     "budget.refuse_reservation": ("L1", "NONE", None, None),
     "business.dropped_wake_notice": ("L1", "NONE", None, None),
+    # New surface, not a loosened rule: P0-D's skipped-round notice, ratified
+    # with the Phase 0 design (DECISIONS, "Phase 0 design merged" — two new L1
+    # actions, D-055..D-061). A newly registered action is not an autonomy
+    # increase by `_increases_autonomy`'s own definition, so the pin moves
+    # without a sign-off row and this comment is the reviewable statement of why.
+    "business.late_wake_notice": ("L1", "NONE", None, None),
     "business.park_degraded": ("L1", "NONE", None, None),
     "business.wake_cycle": ("L1", "NONE", None, None),
     "capability.deny": ("L1", "NONE", None, None),
