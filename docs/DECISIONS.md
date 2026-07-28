@@ -2088,3 +2088,16 @@ budgets, thresholds, trading rules, risk limits: Origin → Modified By → Appr
 Executed By); L4/L5 reserved ("constitutions age better with room to evolve").
 Revision dispatched as the M9-5 designer''s warm continuation; ratification package returns
 to the owner after.
+
+## M9-F105 … M9-F114 — executive surface merged (M9-1d); 1091 on main
+
+Packet E complete: census tile (counts + worst-company link, never a score — D-039 on the
+operator''s screen), platform_feed reader (the halt narrative''s path to the human,
+launderd, link_ref never linkified), grid marker lit via the cheap check (silence over a
+maybe-wrong mark, ratified). All EXECUTIVE-LAYER.md ledger rows now retired. Ratified
+latitude: worst-company id resolved at app.py (PortfolioHealth stays pure); marker "lit"
+proof via isolated injection honoring read-only. Live note of record: the census diverged
+from prediction because TRAILHEAD RAN ITS OWN CYCLES AND APPLIED ITS OWN BAND-B UPDATE
+between packets — the platform now operates between our merges. F106 (digest order,
+false-positive-only), F111 (container seam accumulation), F112/F114 (census-vs-card wording)
+→ retrospective notes; F113 (50-row window margin) → hygiene list.
