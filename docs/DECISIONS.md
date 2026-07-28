@@ -2101,3 +2101,22 @@ from prediction because TRAILHEAD RAN ITS OWN CYCLES AND APPLIED ITS OWN BAND-B 
 between packets — the platform now operates between our merges. F106 (digest order,
 false-positive-only), F111 (container seam accumulation), F112/F114 (census-vs-card wording)
 → retrospective notes; F113 (50-row window margin) → hygiene list.
+
+---
+
+## D-053 — a failed round is loud; the model id is checked at the door (M9-7, ratified)
+
+An UNFINISHED_ROUND notification (new kind — the approval kinds reconcile against pending
+and would swallow it) is raised from `record_cycle_decision` for FAILED/BUDGET_EXHAUSTED
+outcomes, deduped per company per condition, copy from a fixed §12.5 table keyed by outcome
+— the table IS the notify-policy. NO patch id: the change adds no workflow command (notice
+raised in-activity off a D-021-recorded field) — D-033''s recorded-result side, proven per
+fixture; the packet''s premise that no fixture held a FAILED cycle was FALSE (M9-F150 — the
+Finance fixture''s event 18 is one; Manager''s packet error, worker''s catch). Startup model
+validation: `ModelCatalog` protocol on transports (deliberately NOT on LLMProvider — A-005;
+business logic never enumerates models); a rejection is issued only from a complete,
+non-empty catalog (unreachable/partial = warning), stops only the supervised worker, read
+surfaces keep serving, restart-loop is loud and self-heals on fix (M9-F154 posture
+ratified). M9-F152 pinned a real rollback inversion. M9-F155 (api/app.py preflight
+duplication blocks banner wiring) joins M8-F44''s unification note. The M9-F118 incident''s
+fix pair is COMPLETE; recurrence is now loud, not silent.
