@@ -1948,3 +1948,18 @@ suppresses, a new version re-offers, same-version drift does not (proven by repr
 M8-F3''s historical shape via direct row mutation — M9-F51 records that drift is latent,
 unreachable via normal install today). 980 tests. Stale scratch DB jarvis_migcheck noted as
 litter for a future hygiene pass.
+
+## M9-F20 … M9-F29 — company workspaces (M9-2); UI Phase 3 foundation merged
+
+Merged at 983. Ratified: the workspace REPLACES the Details sheet (three-level ladder
+preserved — a fourth level was refused); navigation controls are links (reload-survival,
+linkability); a detail pane names a rail parent that stays lit. M9-F20–F24 fixed in-lane
+(naming regrowth, details-preserving repaint rule now documented, orphan-route empty state,
+duplicate accessible name, anchor button metrics). Open → routed: M9-F25 transition smear
+(m9-3''s theme toggle must address), M9-F26 the 15s poll re-runs plan_refresh (successor
+candidate: cache or lighter read), M9-F27 grid pending-indicator (product gate input),
+M9-F28 copy pass owed, M9-F29 raw floats in goal readings (m9-3 freshness-copy item covers).
+The kpi-series endpoint is specified exactly in the M9-2 report (labels never keys; empty
+points never omitted; KpiEngine.series reused) → packet M9-2a dispatched under rolling
+dispatch; trend render follows via warm continuation; product-reviewer gates the phase after
+trends land.
