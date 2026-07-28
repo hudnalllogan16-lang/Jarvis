@@ -40,7 +40,12 @@ from jarvis.kernel.logging import get_logger
 from jarvis.kernel.runtime import RuntimeIdentity
 from jarvis.observability.audit import AuditLog
 from jarvis.observability.decision_log import DecisionLog
-from jarvis.persistence.models import AutonomyCounterRow, BusinessInstanceRow, BusinessTypeRow
+from jarvis.persistence.models import (
+    AutonomyCounterRow,
+    BusinessInstanceRow,
+    BusinessTypeRow,
+    ContractRefreshDeclineRow,
+)
 
 logger = get_logger(__name__)
 
@@ -399,6 +404,64 @@ class BusinessRegistry:
         )
         logger.info("contract refreshed", extra={"context": {"id": business_id}})
         return audit_ref
+
+    async def record_refresh_decline(
+        self,
+        business_id: BusinessId,
+        *,
+        declined_version: str,
+        source_digest: str,
+        target_digest: str,
+    ) -> None:
+        """Persist that the operator declined a contract-refresh plan (D-030
+        Part 4.3; M8-F102/M9-4).
+
+        Upserted, not appended: one row per company answers "is the version
+        installed right now the one this company's operator already said no
+        to" — the only question `plan_refresh` asks of it — and the Decision
+        Log already holds the append-only record of every decline an operator
+        can read (`ContractRefreshService.decline_refresh`'s own write, spec
+        §11.5). A second decline before the version moves again replaces the
+        row rather than growing a history nothing reads.
+
+        Args:
+            business_id: The company whose operator declined.
+            declined_version: The installed type version the declined plan was
+                computed against — the suppression key (see
+                `declined_refresh_version`).
+            source_digest: Band B digest of the contract at decline time.
+            target_digest: Band B digest the declined plan would have written.
+                Both digests are audit context, not the suppression key.
+        """
+        row = await self._session.get(ContractRefreshDeclineRow, business_id)
+        if row is None:
+            self._session.add(
+                ContractRefreshDeclineRow(
+                    business_id=business_id,
+                    declined_version=declined_version,
+                    source_digest=source_digest,
+                    target_digest=target_digest,
+                )
+            )
+        else:
+            row.declined_version = declined_version
+            row.source_digest = source_digest
+            row.target_digest = target_digest
+            row.declined_at = datetime.now(UTC)
+        await self._session.flush()
+
+    async def declined_refresh_version(self, business_id: BusinessId) -> str | None:
+        """Return the installed type version this company's operator most
+        recently declined, or None if no decline is on file.
+
+        `plan_refresh` suppresses its offer exactly while the version it is
+        currently planning against equals this — deliberately a version
+        string comparison, not a digest match. See
+        `ContractRefreshDeclineRow`'s docstring (M8-F3) for why a content
+        digest cannot make that distinction safely.
+        """
+        row = await self._session.get(ContractRefreshDeclineRow, business_id)
+        return row.declined_version if row is not None else None
 
     async def get_state(self, business_id: BusinessId) -> LifecycleState:
         """Return the current lifecycle state of ``business_id``."""
