@@ -26,13 +26,28 @@ roadmap proposals appear here or anywhere else until M10 is formally closed and 
 
 ## Product entries
 
-### Manus (2026-07-29, secondary sources — needs primary verification)
-- Autonomous multi-step task execution in its own secure cloud sandbox; positioned for
-  deep autonomous execution and professional-grade outputs.
-- **Now part of Meta** per site footer noted by comparison press
-  ([allaboutai](https://www.allaboutai.com/comparison/genspark-vs-manus-ai/),
-  [Flowith blog](https://flowith.io/blog/flowith-vs-manus-vs-genspark/) — competitor
-  source, weigh accordingly).
+### Manus (2026-07-29, PRIMARY-VERIFIED via CNBC)
+- **Meta acquisition confirmed:** announced 2025-12-29, closed early 2026, $2–3B
+  reported; Singapore-based ([CNBC](https://www.cnbc.com/2025/12/30/meta-acquires-singapore-ai-agent-firm-manus-china-butterfly-effect-monicai.html)).
+- **$100M ARR within 8 months of public launch.** Distinctives: "Manus Computer"
+  (watch sub-agents work in real time in spun-up virtual environments) and "Wide
+  Research" (100+ parallel sub-agents on subtasks)
+  ([aimagazine](https://aimagazine.com/news/how-manus-puts-meta-ahead-in-the-agentic-ai-economy)).
+- Meta intent per coverage: agentic across Facebook/Instagram/WhatsApp — platforms
+  becoming places agents act for users, not just feeds.
+
+### Genspark (2026-07-29, primary-adjacent: Yahoo Finance/Sacra)
+- **$100M ARR in 9 months; ~$250M ARR around month 12; $300M Series B; ~2M MAU,
+  ~100k paying seats** ([Yahoo Finance](https://finance.yahoo.com/news/genspark-launches-ai-workspace-2-150000379.html),
+  [Sacra](https://sacra.com/c/genspark/)).
+- Pricing: freemium; Plus $24.99/mo, Pro $249.99/mo, team $30/seat, credit packs.
+- **Autopilot**: agents get their own cloud computers, run in the background while the
+  user is away — browsing, form-filling, multi-step workflows; 80+ tools, multi-model
+  routing; AI Slides, video/image gen, real phone calls
+  ([lindy blog](https://www.lindy.ai/blog/genspark-ai-features), [felloai](https://felloai.com/what-is-genspark-ai/)).
+- **Category datum:** Manus and Genspark each cleared $100M ARR inside a year — the
+  cloud agentic "watch it work / runs while you're away" platform is the
+  fastest-monetizing genre in this file. The revenue is subscriptions (Layer A).
 
 ### Genspark (2026-07-29, secondary sources — needs primary verification)
 - "Mixture of Agents": blends outputs from ChatGPT, Claude, Gemini with fact-checking.
@@ -131,6 +146,30 @@ Market sizing claims: micro-SaaS $15.7B→$59.6B by 2030; AI agents market $7.6B
 Next passes: primary-source practitioner evidence (Reddit/X income threads with receipts,
 open P&Ls), the SEO/content-site economics post-AI-search, marketplace/freelance agent
 automation, ad arbitrage risk profile.
+
+### Content/SEO economics after AI search (2026-07-29) — affiliate-module-relevant
+- **68.01% of US Google searches ended without a click** in early 2026 (SparkToro; was
+  60.45% in 2024, ~45% a decade ago) ([SparkToro](https://sparktoro.com/blog/in-2026-less-than-one-third-of-google-searches-still-send-a-click/)).
+- **71% of affiliate sites saw ranking declines** in Google's 2026-03 core update;
+  publisher extremes near −90% on some query classes (DMG Media)
+  ([affiliyo](https://affiliyo.com/blog/is-ai-killing-affiliate-marketing-2026),
+  [SEJ](https://www.searchenginejournal.com/impact-of-ai-overviews-how-publishers-need-to-adapt/556843/)).
+- Countervailing: US affiliate ad spend UP 11.3% to $13.81B (2026); **AI-search
+  referred visitors convert at ~23× traditional search visitors**; niche publishers
+  growing revenue on falling traffic — volume game → quality game
+  ([affiliyo](https://affiliyo.com/blog/is-ai-killing-affiliate-marketing-2026),
+  [digitalapplied](https://www.digitalapplied.com/blog/60-percent-searches-zero-click-crisis-2026-seo-strategy)).
+
+### Orchestration-framework layer (2026-07-29, practitioner comparisons)
+- **Durable execution + checkpointing is the production dividing line**: LangGraph leads
+  (graph state checkpointed per transition, replay, HITL); CrewAI added scheduling
+  2026-03, wins prototyping; **AutoGen in maintenance mode**; complex-task completion
+  benchmarks ~62/54/58% respectively
+  ([medium/Sharma](https://medium.com/@copybyroshan/langgraph-vs-crewai-vs-autogen-which-multi-agent-framework-survives-production-in-2026-1a2773382c48),
+  [openagents](https://openagents.org/blog/posts/2026-02-23-open-source-ai-agent-frameworks-compared)).
+- Evidence-level note: the properties these frameworks compete on (durability,
+  checkpoint/replay, scheduling, HITL) are the properties Jarvis sources from Temporal
+  plus its own approval layer — same category, different substrate.
 
 ### The "$10k+/mo cloud AI business OS" genre, decoded (2026-07-29)
 
