@@ -2369,3 +2369,21 @@ standing recovery mechanism; owner gates unchanged (constitutional) plus two mec
 decision batching at the keyboard, deferred-decision protocol around open gates.
 Orchestrator hierarchies rejected again with evidence. Soak checkpoints run on scheduled
 wakeups.
+
+## P0-F merged — deployment artifacts complete; M10-F33 recorded
+
+NSSM install/uninstall scripts to design 6.1 values exactly; compose gains restart:
+unless-stopped on all four services plus the jarvis service (jarvis-run, /api/ready
+healthcheck, JARVIS_HEADLESS=1, env_file required:false — a real fresh-checkout parse
+defect caught by parse-only verification); DEPLOYMENT.md is the one topology authority
+(NSSM 2.24 pinned, SHA-256 recorded at install, Task Scheduler fallback with limits told
+honestly, secrets rule, M10-F11 ruling verbatim); README/SETUP/GETTING_STARTED re-pointed.
+Live stack untouched. Gates exit 0 at 1441 both in-lane and post-merge.
+
+**M10-F33 (new, deferred):** the compose jarvis service declares build:. but no Dockerfile
+exists — container mode is documented and parseable, not yet buildable. Flagged inside
+DEPLOYMENT.md by the lane rather than papered over. Rides the next-phase deployment-
+architecture evaluation per the M10-F11 owner ruling; closeout lists it as deferred work.
+
+Phase 0 implementation is COMPLETE (A through F). P0-G Manager campaign begins: preflight,
+service install (announced; elevation expected), V2/V4/V5/V6/V7 with artifacts, soak.
