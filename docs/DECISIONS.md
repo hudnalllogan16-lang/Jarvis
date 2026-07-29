@@ -2343,3 +2343,29 @@ copy flagged for the next surface pass. A/B/C/D/E done: REMAINING = P0-F (NSSM d
 F11 owner question gates container validation only) and P0-G (end-to-end validation +
 ~24h soak per the owner''s demonstrate-don''t-infer mandate) → nine deliverables →
 readiness assessment → the Trading gate.
+
+## M10-F11 owner ruling + P0-F/P0-G cut + D-062 process review (2026-07-28)
+
+**M10-F11 resolved by owner ruling:** full unattended cold-boot recovery without user
+login is an INFRASTRUCTURE DECISION, not an engineering deficiency. The deployment-
+architecture evaluation (Windows native services, WSL2, dedicated server, NAS, cloud VM)
+is next-phase scope; M10 is not expanded for it. V1/V3 recorded as out-of-M10-scope by
+this ruling; the in-scope engineering obligation (boot-surviving service, WAIT posture,
+attach-on-appearance) is validated in P0-G. Owner directive: complete every remaining
+aspect of M10, perform all validation, close the milestone.
+
+**Packets cut:** P0-F (deployment artifacts — NSSM install/uninstall scripts, compose
+restart policy + jarvis service with /api/ready healthcheck per M10-F14, DEPLOYMENT.md as
+the one topology authority, README/SETUP/GETTING_STARTED re-pointed) dispatches to
+lane/p0-f. P0-G (validation V2/V4/V5/V6/V7 + ~24h soak + closeout inputs) runs as a
+MANAGER CAMPAIGN on the real host, not a lane — it needs elevation and the live stack and
+produces artifacts, not code; defects it finds bounce to lanes.
+
+**D-062 — first-principles process review under expanded capabilities** (owner-directed;
+record: docs/reports/PROCESS-REVIEW-M10.md). Verdict: packet/lane/gates core RETAINED on
+evidence (19 merges/3 conflicts/0 post-merge failures in M9; queue never the constraint);
+dominant bottleneck is session mortality, addressed by scheduled-wakeup continuity as the
+standing recovery mechanism; owner gates unchanged (constitutional) plus two mechanisms —
+decision batching at the keyboard, deferred-decision protocol around open gates.
+Orchestrator hierarchies rejected again with evidence. Soak checkpoints run on scheduled
+wakeups.
