@@ -39,6 +39,30 @@ roadmap proposals appear here or anywhere else until M10 is formally closed and 
 - "Call for Me" agent places real phone calls to businesses (appointments, inventory) —
   an out-of-band action surface ([allaboutai](https://www.allaboutai.com/comparison/genspark-vs-manus-ai/)).
 
+### OpenAI agent surface (2026-07-29, official + secondary)
+- Lineage: Operator (Jan 2025, Pro-only CUA browser agent) → folded into **ChatGPT
+  Agent** (Jul 2025): VM with visual browser, text browser, terminal, API access;
+  connected services (Gmail, GitHub) ([OpenAI](https://openai.com/index/introducing-chatgpt-agent/),
+  [Wikipedia](https://en.wikipedia.org/wiki/OpenAI_Operator)).
+- **ChatGPT Work launched 2026-07-09**: outcome-oriented agent that "stays with complex
+  projects for hours," decomposing and completing steps independently
+  ([digitalapplied](https://www.digitalapplied.com/blog/chatgpt-work-openai-agent-launch-2026),
+  [theagencyjournal](https://theagencyjournal.com/openais-chatgpt-work-lands-as-a-long-running-ai-agent-for-busy-teams/)).
+- **Workspace Agents** (enterprise): scheduling, 60+ integrations, custom MCP servers,
+  admin controls, long-running tasks
+  ([OpenAI](https://openai.com/index/introducing-workspace-agents-in-chatgpt/)).
+- **Tasks**: scheduled one-time/recurring execution (reminders, recurring research,
+  scheduled reports) while the user is away ([Suprmind](https://suprmind.ai/hub/chatgpt/features/)).
+
+### Devin / OpenHands (2026-07-29, secondary)
+- Devin (Cognition): GA late 2024 at $500/mo team tier; strongest on bounded tasks with
+  clear acceptance criteria; **Goldman Sachs pilot alongside 12,000 developers** targeting
+  ~20% efficiency ("hybrid workforce") ([sitepoint](https://www.sitepoint.com/devin-ai-engineers-production-realities/),
+  [zenml](https://www.zenml.io/llmops-database/autonomous-software-development-agent-for-production-code-generation)).
+- OpenHands: open-source twin; 2026 claims benchmark parity, any-LLM, self-hosted free,
+  ~66k users; **teams run it in CI/CD triggered by GitHub issue labels with no human in
+  the loop** ([amplifilabs](https://amplifilabs.com/post/devin-ai-vs-openhands-open-source-vs-proprietary-agentic-development)).
+
 ### To research (queue)
 Primary docs + demos for: Manus, Genspark, ChatGPT Agent/Operator, Devin, Cursor,
 Windsurf, OpenHands, CrewAI, LangGraph, AutoGen, AnythingLLM, Open WebUI, Perplexity
