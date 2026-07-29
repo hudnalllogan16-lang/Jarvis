@@ -146,22 +146,51 @@ def summarise_runtime_health(
 ) -> tuple[str, str]:
     """Reduce heartbeat rows to `/api/health`'s `runtime` component (design 3.4).
 
-    Every ``part_name`` is reduced to its freshest row first — a restart
-    mints a new ``runtime_id``, so an old runtime's rows are simply the ones
-    a newer runtime's writes have outrun, never a second opinion to
-    reconcile against the current one. The reduction then folds to one of
-    the four states Part 3.4's table names for this component:
+    Scoped to the **newest runtime generation** (packet M10-F39): rows are
+    grouped by ``runtime_id`` first, and only the group with the latest
+    ``started_at`` (tie-broken by its own latest ``last_beat_at``) is read at
+    all. A restart mints a new ``runtime_id`` (design 3.2); every row a
+    superseded generation ever wrote — however stale, however it ended
+    (clean stop or disappearance, D-060) — is excluded outright rather than
+    reduced-and-compared against the current generation's. History is not
+    touched, only not read here: the rows themselves remain in
+    `runtime_heartbeat` for whatever renders past gaps (design 3.5).
 
-    - **down** — no row exists at all, or nothing recorded is fresh and the
-      newest state was not a clean stop. A platform that has never reported
-      a heartbeat is exactly as invisible as one that has gone silent.
-    - **stopped** — every part's freshest row records :data:`STOPPED_STATE`.
-      D-060's distinction made literal: this is not "down", it is a
-      recorded fact that nothing is running on purpose.
-    - **ok** — every part's freshest row is fresh and ``running``.
+    Earlier this function reduced every ``part_name`` to its single freshest
+    row *across all generations*, on the theory that a live generation's
+    beats always outrun a dead one's by wall-clock time alone. That held for
+    the four Supervisor-beaten parts (``api``/``worker``/``scheduler``/
+    ``executive``, beaten every `heartbeat_interval_seconds`) but not for the
+    synthetic ``'runtime'`` marker row: it is written only while
+    `bootstrap`'s `WAIT` posture retries (:data:`WAITING_STATE`) and once
+    more at a clean stop (:data:`STOPPED_STATE`) — a generation that starts
+    cleanly never writes one at all. Reading "every generation" for that one
+    part_name meant a smoothly-started current generation, having no
+    ``'runtime'`` row of its own, fell back to whatever stale or
+    stopped ``'runtime'`` row an old, superseded generation last left behind
+    — degrading the verdict forever after any restart. Scoping to one
+    generation's own rows removes the marker row from every other
+    generation's business entirely.
+
+    Within the chosen generation, this folds to one of the four states
+    Part 3.4's table names for this component:
+
+    - **down** — no generation has ever reported a row, or the newest
+      generation's own recorded parts are not fresh and it did not stop
+      cleanly. A platform that has never reported a heartbeat is exactly as
+      invisible as one that has gone silent.
+    - **stopped** — the newest generation's own ``'runtime'`` row records
+      :data:`STOPPED_STATE`. D-060's distinction made literal: even the
+      newest generation, once it has recorded its own clean stop, reads as
+      "stopped on purpose", never "degraded" — packet M10-F39 item 3. A
+      generation's ``'runtime'`` row is never itself compared for freshness
+      or folded into the ok/degraded reduction below: it is a one-shot
+      marker, not a beat, and its own state is read only for this check.
+    - **ok** — every one of the newest generation's real parts is fresh and
+      ``running``.
     - **degraded** — anything short of the two clean cases above: one part
       restarting, one part's beat stale while another's is fresh, or the
-      process still starting.
+      generation still starting (has recorded parts, not yet all fresh).
 
     This function never calls `datetime.now` itself — `now` is a parameter,
     the same discipline `run_preflight`'s callers already keep, so a caller
@@ -192,24 +221,37 @@ def summarise_runtime_health(
         """
         return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
 
-    latest: dict[str, RuntimeHeartbeatRow] = {}
-    latest_beat_at: dict[str, datetime] = {}
-    for row in rows:
-        beat_at = _aware(row.last_beat_at)
-        if row.part_name not in latest_beat_at or beat_at > latest_beat_at[row.part_name]:
-            latest[row.part_name] = row
-            latest_beat_at[row.part_name] = beat_at
-
-    if not latest:
+    if not rows:
         return "down", "Jarvis hasn't reported in yet."
 
-    if all(row.state == STOPPED_STATE for row in latest.values()):
+    generations: dict[str, list[RuntimeHeartbeatRow]] = {}
+    for row in rows:
+        generations.setdefault(row.runtime_id, []).append(row)
+
+    def _generation_key(runtime_id: str) -> tuple[datetime, datetime]:
+        """``(started_at, newest own last_beat_at)`` — the mandate's own
+        tie-break, read per generation rather than per row."""
+        members = generations[runtime_id]
+        started_at = _aware(members[0].started_at)
+        newest_beat = max(_aware(member.last_beat_at) for member in members)
+        return (started_at, newest_beat)
+
+    current_generation = max(generations, key=_generation_key)
+    current_rows = generations[current_generation]
+
+    runtime_marker = next((row for row in current_rows if row.part_name == "runtime"), None)
+    if runtime_marker is not None and runtime_marker.state == STOPPED_STATE:
         return "stopped", "Jarvis is stopped."
 
+    parts = {row.part_name: row for row in current_rows if row.part_name != "runtime"}
+    if not parts:
+        return "down", "Jarvis hasn't reported in yet."
+
     fresh = {
-        name: (now - latest_beat_at[name]).total_seconds() <= stale_after_seconds for name in latest
+        name: (now - _aware(row.last_beat_at)).total_seconds() <= stale_after_seconds
+        for name, row in parts.items()
     }
-    if all(fresh.values()) and all(row.state == "running" for row in latest.values()):
+    if all(fresh.values()) and all(row.state == "running" for row in parts.values()):
         return "ok", "Jarvis is running."
 
     if not any(fresh.values()):

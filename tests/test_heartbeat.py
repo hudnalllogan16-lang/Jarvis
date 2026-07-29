@@ -176,6 +176,80 @@ def test_a_beat_exactly_at_the_threshold_still_counts_as_fresh() -> None:
     assert status == "ok"
 
 
+# ── generation scoping (packet M10-F39): superseded generations never
+#    degrade the current verdict, and a newest-generation clean stop reads
+#    "stopped", not "degraded" ──────────────────────────────────────────────
+
+
+def test_a_restart_with_a_stale_predecessor_reads_as_ok() -> None:
+    """A superseded generation's parts, however stale, never drag the newest
+    generation — beating fine on its own — down to degraded."""
+    rows = [
+        _row(part_name="api", state="running", age_seconds=999, runtime_id="old"),
+        _row(part_name="worker", state="running", age_seconds=999, runtime_id="old"),
+        _row(part_name="api", state="running", age_seconds=0, runtime_id="new"),
+        _row(part_name="worker", state="running", age_seconds=0, runtime_id="new"),
+    ]
+    status, _ = summarise_runtime_health(rows, now=NOW, stale_after_seconds=45)
+    assert status == "ok"
+
+
+def test_a_taskkilled_predecessor_does_not_degrade_the_successor() -> None:
+    """D-060: a predecessor that vanished (never marked `stopped`, correctly
+    left `state=running`) is exactly as excluded as one that stopped
+    cleanly — both are simply a superseded generation now."""
+    rows = [
+        _row(part_name="api", state="running", age_seconds=999, runtime_id="taskkilled"),
+        _row(part_name="worker", state="running", age_seconds=999, runtime_id="taskkilled"),
+        _row(part_name="runtime", state="running", age_seconds=999, runtime_id="taskkilled"),
+        _row(part_name="api", state="running", age_seconds=0, runtime_id="new"),
+        _row(part_name="worker", state="running", age_seconds=0, runtime_id="new"),
+    ]
+    status, _ = summarise_runtime_health(rows, now=NOW, stale_after_seconds=45)
+    assert status == "ok"
+
+
+def test_the_current_generations_own_stale_part_still_degrades() -> None:
+    """Scoping to the newest generation must not paper over a genuine
+    problem in that same generation."""
+    rows = [
+        _row(part_name="api", state="running", age_seconds=0, runtime_id="new"),
+        _row(part_name="worker", state="running", age_seconds=999, runtime_id="new"),
+    ]
+    status, _ = summarise_runtime_health(rows, now=NOW, stale_after_seconds=45)
+    assert status == "degraded"
+
+
+def test_a_newest_generation_clean_stop_reads_as_stopped_not_degraded() -> None:
+    """packet M10-F39 item 3: the newest generation's own `runtime` row
+    saying `stopped` closes it, even though its other parts' rows are
+    necessarily stale by the time anyone reads them (no more beats after
+    a clean shutdown)."""
+    rows = [
+        _row(part_name="api", state="running", age_seconds=999, runtime_id="new"),
+        _row(part_name="worker", state="running", age_seconds=999, runtime_id="new"),
+        _row(part_name="runtime", state=STOPPED_STATE, age_seconds=1, runtime_id="new"),
+    ]
+    status, _ = summarise_runtime_health(rows, now=NOW, stale_after_seconds=45)
+    assert status == "stopped"
+
+
+def test_a_smoothly_started_generation_with_no_runtime_marker_row_reads_as_ok() -> None:
+    """The defect this packet fixes: a generation that never needed
+    `bootstrap`'s `WAIT` posture and has not yet stopped never writes a
+    `'runtime'` marker row at all — its absence must not be filled in by a
+    superseded generation's stale or stopped one."""
+    rows = [
+        _row(part_name="runtime", state=STOPPED_STATE, age_seconds=99999, runtime_id="ancient"),
+        _row(part_name="api", state="running", age_seconds=0, runtime_id="new"),
+        _row(part_name="worker", state="running", age_seconds=0, runtime_id="new"),
+        _row(part_name="scheduler", state="running", age_seconds=0, runtime_id="new"),
+        _row(part_name="executive", state="running", age_seconds=0, runtime_id="new"),
+    ]
+    status, _ = summarise_runtime_health(rows, now=NOW, stale_after_seconds=45)
+    assert status == "ok"
+
+
 def test_summary_text_carries_no_technical_vocabulary() -> None:
     """spec §12.5: this feeds /api/health directly, so its prose is bound by
     the same rule the dashboard's own copy is, even though this specific
