@@ -2503,3 +2503,14 @@ its next restart; soak signal integrity unaffected (workers + parts columns carr
 Probe budget note: half consumed by 17:00Z; cap-halt expected mid-soak — recorded as a
 live circuit-breaker demonstration, not an anomaly; owner may top up on return if
 continued hourly fires are preferred.
+
+## m10-f39 merged at 1457 — generation scoping (2026-07-29 ~22:00Z)
+
+Health assessment now reads only the newest runtime generation (latest started_at,
+beat tie-break); superseded generations excluded outright; a newest-generation clean
+stop reads "stopped," never "degraded." Root cause went deeper than the packet: the
+runtime marker row exists only on WAIT/clean-stop — a healthy generation never writes
+one, so the old per-part reduction fell through to dead generations'' markers.
+assess_runtime_liveness verified immune (reduces worker only) with a regression test
+rather than an assumption. Teardown-after-green restored per the M10-F36 process slip.
+Running service carries the fix at next restart; closeout restart will verify ok:true.
