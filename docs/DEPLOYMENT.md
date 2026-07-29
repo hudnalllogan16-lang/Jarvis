@@ -59,7 +59,10 @@ Record the hash of the exact file you downloaded:
 Get-FileHash .\nssm.exe -Algorithm SHA256
 ```
 
-**NSSM 2.24 SHA-256:** `<RECORD SHA-256 AT INSTALL>`
+**NSSM 2.24 SHA-256** (recorded at install, 2026-07-29): distribution zip
+`727d1e42275c605e0f04aba98095c38a8e1e46def453cdffce42869428aa6743`; win64 binary
+`f689ee9af94b00e9e3f0bb072b34caaf207f32dcb4f5782fc9ca351df9a06c97`; installed on this host
+at `C:\Tools\nssm-2.24\win64\nssm.exe`.
 
 ### 2. Deploy the code
 

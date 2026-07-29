@@ -2387,3 +2387,16 @@ architecture evaluation per the M10-F11 owner ruling; closeout lists it as defer
 
 Phase 0 implementation is COMPLETE (A through F). P0-G Manager campaign begins: preflight,
 service install (announced; elevation expected), V2/V4/V5/V6/V7 with artifacts, soak.
+
+## P0-G campaign opened — service live, V0/V2 measured (2026-07-29)
+
+NSSM 2.24 downloaded with owner approval (hashes recorded in DEPLOYMENT.md), service
+JarvisRun installed by the P0-F script unmodified via owner-approved elevation, Running
+with Automatic (Delayed) start. Compose restart policy applied to all four dependency
+containers 07-28 (M10-F14 closed on-host; data volume verified first). Evidence so far in
+docs/reports/M10-VALIDATION.md: V0 — first fully headless run, then ~12.5h unattended
+overnight continuity, all components ok throughout; V2 PASS — elevated taskkill, NSSM
+respawn in 6 seconds, far inside the throttle window. One tooling lesson recorded: PS 5.1
+Invoke-WebRequest keep-alive caching mis-reports recovery; curl.exe is the probe of
+record. Remaining: V4 (scripted outage capture), V5 (test company on */5), V6 (evening —
+elevated stop/start), V7, then the 24h soak on the service runtime.
