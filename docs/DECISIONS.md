@@ -2421,3 +2421,12 @@ deferred to log-routing pass unless trivial in-lane.
 V5 in flight: probe workflow terminated (test artifact, recorded reason) after the
 owner-approved */5 schedule write (provenance: approved_config, owner-chat-approval-
 2026-07-29); sweep re-dispatch + three-fire capture running.
+
+## V5 PASS at zero deviation (2026-07-29)
+
+Five consecutive wall-clock fires at the exact second of each 5-minute UTC boundary
+(criterion ±30s); anchor immobile across drifting cycle completions — D-059 demonstrated
+live in the platform''s own Temporal event history. Sweep reconcile re-dispatched the
+terminated probe unassisted in <4 min (recovery ladder exercised). Probe throttled to
+hourly (owner-approved) for the soak. Record: M10-VALIDATION.md §V5. Remaining: merge
+lane m10-f34, V6 tonight (elevated stop/start), 24h soak, closeout package.

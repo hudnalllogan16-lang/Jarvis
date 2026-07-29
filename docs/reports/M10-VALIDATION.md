@@ -73,7 +73,21 @@ Measured, against the design's criteria:
   lines into the otherwise-JSON service log during outages (poller retries). Cosmetic,
   real: log consumers must tolerate mixed formats until routed.
 
-## V5 — wall-clock cron accuracy: pending (dedicated test company; parked companies untouched)
+## V5 — wall-clock cron accuracy: **PASS at 0-second deviation** (criterion: ±30s)
+
+Dedicated probe company "V5 Wall-Clock Probe" (`biz_660bdcdd…`, finance-tracking, $5
+budget / $0.50 per round); schedule set to `*/5 * * * *` UTC by owner-approved contract
+write (provenance recorded: `approved_config`, `owner-chat-approval-2026-07-29`); stale
+pre-change execution terminated with recorded reason; sweep reconcile re-dispatched a
+fresh execution unassisted in under 4 minutes.
+
+Workflow history (Temporal event log, the platform's own record):
+`TimerFired` at 13:35:00, 13:40:00, 13:45:00, 13:50:00, 13:55:00Z — **five consecutive
+fires, each at the exact second of its 5-minute boundary**. Cycle work dispatched 9–12s
+after each fire. **The anchor never moved:** cycles completed at +21s/+22s/+21s/+26s
+offsets, and every next fire computed back to the absolute boundary — D-059's
+next-fire-as-absolute-instant behavior, the property M10-F4 found missing, now measured
+present. Probe throttled to `0 * * * *` (hourly, owner-approved) for the soak.
 
 ## V6 — late-wake honesty: pending (requires elevated service stop/start — evening window)
 
