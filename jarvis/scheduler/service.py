@@ -20,6 +20,7 @@ and §3 reserve that layer for things that reason.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -110,6 +111,11 @@ class Scheduler:
         self._unreachable_streak = 0
         """Consecutive sweeps Temporal has been unreachable, for the periodic
         outage heartbeat (design 5.2 point 2)."""
+        self._sweep_deadline_exceeded = False
+        """Set within the current `sweep()` call when a bounded Temporal RPC
+        (M10-F34) exceeds `sweep_rpc_timeout_seconds`. Reset at the top of
+        every sweep and folded into that sweep's one connectivity verdict —
+        see `sweep` and `_record_connectivity`."""
 
     async def sweep(self, *, now: datetime | None = None) -> SweepReport:
         """Run one full pass: re-notify, expire, pause, reconcile, wake.
@@ -131,9 +137,26 @@ class Scheduler:
         Returns:
             A report of what changed. A step that raised reports as having
             done nothing this pass; the next sweep tries it again.
+
+        Connectivity (M10-F34): `client is not None` only proves a client
+        object was obtainable, not that Temporal is answering calls right
+        now — the V4 drill's own gap, where a cached client sat beneath the
+        SDK's unbounded retry of `Unavailable` and the sweep never observed
+        the outage. `managers_started`/`events` bound every Temporal RPC
+        they make to `sweep_rpc_timeout_seconds` and report a deadline
+        expiry back as `self._sweep_deadline_exceeded` rather than logging
+        it themselves. This sweep's one connectivity verdict — client
+        obtained *and* nothing timed out — is recorded exactly once, after
+        both steps have had their chance to disprove it; recording it
+        before they run (the original design) would let an optimistic
+        "client present" reading log a spurious recovery every failing
+        sweep, immediately contradicted by the timeout that follows it in
+        the same pass.
         """
         moment = now or datetime.now(UTC)
-        reachable = await self._observe_temporal_connectivity()
+        client = await self._kernel.temporal_client()
+        attempt = client is not None
+        self._sweep_deadline_exceeded = False
 
         renotified, expired, paused = await self._run_step(
             "timers", self._timers_step, moment, default=(0, 0, ())
@@ -147,9 +170,12 @@ class Scheduler:
         # each failed connection attempt logs on its own, and this sweep
         # already knows the answer.
         started = await self._run_step(
-            "managers_started", self._managers_started_step, reachable, default=0
+            "managers_started", self._managers_started_step, attempt, default=0
         )
-        woken = await self._run_step("events", self._events_step, reachable, default=0)
+        woken = await self._run_step("events", self._events_step, attempt, default=0)
+
+        self._record_connectivity(attempt and not self._sweep_deadline_exceeded)
+
         return SweepReport(
             renotified=renotified,
             expired=expired,
@@ -199,37 +225,99 @@ class Scheduler:
             return await self._reconcile_reservations(svc, moment)
 
     async def _managers_started_step(self, reachable: bool) -> int:
-        """Start any ACTIVE business with no running Manager (§2.1)."""
+        """Start any ACTIVE business with no running Manager (§2.1), bounded
+        by `sweep_rpc_timeout_seconds` (M10-F34) so an outage that leaves the
+        cached client object non-`None` but its calls hanging cannot stall
+        the sweep past its deadline — exactly the V4 drill's own failure
+        mode (docs/reports/M10-VALIDATION.md §V4): the SDK retries
+        `Unavailable` beneath `client.start_workflow` with no deadline of
+        its own.
+
+        `start_workflow` does expose the SDK's own per-call deadline
+        (confirmed against the installed temporalio:
+        ``start_workflow(..., rpc_timeout: timedelta | None = None)``),
+        which the packet mandate prefers over an ad-hoc wrapper. That call
+        site is `ManagerLifecycle._start` in `jarvis/manager/lifecycle.py`,
+        outside this packet's stated file boundary (`jarvis/scheduler/`,
+        Settings, the register, tests only) — `jarvis/manager/` is exactly
+        the "workflow code" the boundary excludes, and its own docstring is
+        titled "Manager *workflow* lifecycle". Rather than reach past the
+        boundary, the deadline is enforced here, around the whole call; see
+        `_events_step` below for the case where the SDK mechanism *is*
+        reachable directly.
+
+        A timeout is reported to `sweep` via `self._sweep_deadline_exceeded`
+        rather than logged here — `sweep` folds it into the one
+        transition-deduped connectivity verdict it already records once per
+        pass, so this failure mode uses the same WARNING vocabulary a
+        `None` client already produces, not a new one.
+        """
         if not reachable:
             return 0
-        return await ManagerLifecycle(self._kernel).reconcile()
+        timeout = self._kernel.settings.scheduler.sweep_rpc_timeout_seconds
+        try:
+            return await asyncio.wait_for(
+                ManagerLifecycle(self._kernel).reconcile(), timeout=timeout
+            )
+        except TimeoutError:
+            self._sweep_deadline_exceeded = True
+            return 0
 
     async def _events_step(self, reachable: bool) -> int:
-        """Deliver claimed bus events to the Managers that subscribed."""
+        """Deliver claimed bus events to the Managers that subscribed,
+        bounded by `sweep_rpc_timeout_seconds` (M10-F34) via the SDK's own
+        `rpc_timeout` on `WorkflowHandle.signal` — `dispatch_events` lives in
+        this module, so unlike `ManagerLifecycle.reconcile` the preferred
+        per-call mechanism is reachable directly, no wrapper needed.
+
+        A deadline expiry surfaces as `temporalio.service.RPCError` with
+        status `DEADLINE_EXCEEDED`; caught here and folded into `sweep`'s one
+        connectivity verdict via `self._sweep_deadline_exceeded`, the same
+        path a `None` client already uses. Any other `RPCError` (e.g. the
+        signalled workflow genuinely not found) is a real failure, not a
+        connectivity question, and is left to `_run_step`'s existing
+        containment.
+        """
         if not reachable:
             return 0
-        return await self.dispatch_events()
+        from temporalio.service import RPCError, RPCStatusCode
 
-    async def _observe_temporal_connectivity(self) -> bool:
-        """Return whether Temporal is reachable this sweep, logging only
+        try:
+            return await self.dispatch_events()
+        except RPCError as exc:
+            if exc.status == RPCStatusCode.DEADLINE_EXCEEDED:
+                self._sweep_deadline_exceeded = True
+                return 0
+            raise
+
+    def _record_connectivity(self, reachable: bool) -> None:
+        """Record this sweep's one connectivity verdict, logging only
         transitions plus a periodic heartbeat while an outage continues
         (design 5.2 points 1-2, M10-F9; states not alerts, D-046 family).
 
-        Before this, `ManagerLifecycle.reconcile` and `dispatch_events` each
-        called `kernel.temporal_client()` independently and logged nothing
-        themselves when it returned `None` — a thirteen-hour outage produced
-        either silence (nothing here said the outage was still happening) or,
-        at the client's own connect-retry layer, one line per failed attempt
-        per step per sweep. This makes the sweep say it once per transition
-        and once an hour thereafter, and remembers the answer so the two
-        steps that need it (`_managers_started_step`, `_events_step`) do not
-        each pay for and log their own failed connection attempt.
+        Before M10-F9, `ManagerLifecycle.reconcile` and `dispatch_events`
+        each called `kernel.temporal_client()` independently and logged
+        nothing themselves when it returned `None` — a thirteen-hour outage
+        produced either silence or, at the client's own connect-retry layer,
+        one line per failed attempt per step per sweep. This makes the
+        sweep say it once per transition and once an hour thereafter.
 
-        Returns:
-            True if Temporal answered this sweep, False otherwise.
+        Called exactly once per sweep (M10-F34), by `sweep` itself, after
+        both Temporal-touching steps have run — not, as originally built,
+        from a client-presence check alone before they run. `client is not
+        None` proves a client object was obtainable, not that it is
+        answering calls; recording the verdict before giving the bounded
+        steps a chance to disprove it would log a spurious "reachable
+        again" at the top of every sweep in an outage where the client
+        stays cached-but-hanging (V4's own shape), immediately followed by
+        "became unreachable" once the deadline caught up with it — two
+        lines every failing sweep instead of the one this design promises.
+
+        Args:
+            reachable: `client is not None` for this sweep, AND-ed with
+                "nothing this sweep hit its RPC deadline" — the sweep's one
+                fact about Temporal, not two.
         """
-        client = await self._kernel.temporal_client()
-        reachable = client is not None
         was_reachable = self._temporal_reachable
         self._temporal_reachable = reachable
 
@@ -240,7 +328,7 @@ class Scheduler:
             self._unreachable_streak = 1 if not reachable else 0
             if not reachable:
                 logger.warning("workflow runtime unreachable")
-            return reachable
+            return
 
         if reachable == was_reachable:
             if not reachable:
@@ -250,7 +338,7 @@ class Scheduler:
                         "workflow runtime still unreachable",
                         extra={"context": {"consecutive_sweeps": self._unreachable_streak}},
                     )
-            return reachable
+            return
 
         # A real transition, in either direction.
         if reachable:
@@ -262,7 +350,6 @@ class Scheduler:
         else:
             self._unreachable_streak = 1
             logger.warning("workflow runtime became unreachable")
-        return reachable
 
     async def _reconcile_reservations(self, svc: KernelServices, now: datetime) -> int:
         """Release orphaned budget holds and audit every one (D-034.3, M6-F18).
@@ -457,6 +544,14 @@ class Scheduler:
         the event bus deduplicates per consumer (A-002), so a redelivered event
         cannot produce a second wake.
 
+        Every `signal` call carries `rpc_timeout=sweep_rpc_timeout_seconds`
+        (M10-F34) — the SDK's own per-call deadline, reachable directly here
+        unlike `ManagerLifecycle.reconcile`'s `start_workflow` (see
+        `_events_step`). A `RPCError(DEADLINE_EXCEEDED)` propagates to the
+        caller uncaught; `_events_step` is what treats it as a connectivity
+        failure rather than a real one, so this method's own contract is
+        unchanged for every caller that never sees an outage.
+
         Returns:
             How many Managers were signalled.
         """
@@ -464,6 +559,7 @@ class Scheduler:
         if client is None:
             return 0
 
+        rpc_timeout = timedelta(seconds=self._kernel.settings.scheduler.sweep_rpc_timeout_seconds)
         woken = 0
         async with self._kernel.services() as svc:
             bus = self._kernel.build_bus(svc)
@@ -491,6 +587,6 @@ class Scheduler:
                         if signal == "approval_decided"
                         else event.event_type
                     )
-                    await handle.signal(signal, payload)
+                    await handle.signal(signal, payload, rpc_timeout=rpc_timeout)
                     woken += 1
         return woken

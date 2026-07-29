@@ -222,6 +222,16 @@ class SchedulerSettings(BaseModel):
     `run_scheduler`'s signature (`interval_seconds: int = 300`); owner-
     adjustable now, like every other cadence and ceiling here."""
 
+    sweep_rpc_timeout_seconds: int = Field(default=30, gt=0)
+    """Deadline on every Temporal client call the sweep makes (M10-F34, design
+    Part 4.6/5.2). The V4 outage drill measured the gap this closes: the SDK
+    retries `Unavailable` beneath the sweep with no deadline of its own, so a
+    real 10-minute outage produced zero scheduler log lines — the sweep
+    never observed a failure for P0-E's transition-dedup connectivity
+    logging to report. A deadline expiry is treated as a connectivity
+    failure and fed through that same path, not a new one; owner-adjustable
+    like every other cadence and ceiling here."""
+
 
 def _lowercase_keys(raw: Mapping[str, Any]) -> dict[str, Any]:
     """Return ``raw`` with lowercased keys.

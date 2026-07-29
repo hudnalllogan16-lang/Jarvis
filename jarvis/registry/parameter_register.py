@@ -312,6 +312,21 @@ PARAMETER_ENTRIES: tuple[ParameterEntry, ...] = (
             "A cadence, not a gate."
         ),
     ),
+    # ── ANNOUNCING — design OPERATIONAL-RUNTIME.md Part 4.6/5.2 (M10-F34) ──
+    ParameterEntry(
+        name="settings.scheduler.sweep_rpc_timeout_seconds",
+        param_class=ParameterClass.ANNOUNCING,
+        origin=Origin.APPROVED_CONFIG,
+        current_source="approved config (Settings; owner-adjustable)",
+        location="jarvis.kernel.config:SchedulerSettings.sweep_rpc_timeout_seconds",
+        note=(
+            "The V4 drill (docs/reports/M10-VALIDATION.md) measured a real outage "
+            "the sweep never observed: the SDK retried Unavailable beneath it with "
+            "no deadline, so P0-E's transition-dedup connectivity logging could not "
+            "fire. Bounds every Temporal call the sweep makes; paces recovery "
+            "detection, gates nothing."
+        ),
+    ),
 )
 """Every row, in registration order. The source of truth; :data:`PARAMETER_REGISTER`
 is a lookup view over it."""
