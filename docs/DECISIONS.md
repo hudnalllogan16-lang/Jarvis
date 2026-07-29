@@ -2485,3 +2485,21 @@ soak.csv; checkpoints at 6h/15h; analysis diffs audit vs notifications for silen
 failures; probe on owner-approved hourly cron throughout. Closeout package follows the
 soak. Validation matrix now: V0/V2/V4/V5/V6/V7 measured; V1/V3 out of scope by owner
 ruling (infrastructure); skip-branch drill optional residual.
+
+## Soak checkpoint 1 (6h) — core solid; M10-F39 found and cut (2026-07-29 ~21:20Z)
+
+72/72 samples ready=200, workers ok, ONE PID all six hours, service Running, memory
+147.5 -> 149.7MB (noise-level), six hourly fires all lateness=0, spending notices firing
+(half-budget at 17:00Z, one unfinished round at 20:00Z announced loudly per D-053).
+
+**M10-F39 (implementation, found BY the soak):** /api/health reads ok:false with
+runtime=degraded on every sample — superseded runtime generations'' stale part rows
+pollute the current verdict; any restart leaves the platform permanently self-degraded.
+Write side verified correct per D-060 (clean stops marked, kills unmarked). Fix packet
+cut (assessment scopes to newest generation; history untouched; liveness path verified
+per its own logic), lane dispatched. Running service keeps the cosmetic ok:false until
+its next restart; soak signal integrity unaffected (workers + parts columns carry it).
+
+Probe budget note: half consumed by 17:00Z; cap-halt expected mid-soak — recorded as a
+live circuit-breaker demonstration, not an anomaly; owner may top up on return if
+continued hourly fires are preferred.
