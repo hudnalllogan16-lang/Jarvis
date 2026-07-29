@@ -15,7 +15,9 @@ can: no database means it stops and tells you; no workflow runtime means the das
 a banner saying companies can't act, and the worker attaches by itself when the runtime comes up.
 
 Everything below is the long version — useful when the short one hits a snag, and for running the
-pieces separately the way production does.
+pieces separately to see what each one does. This document covers local development only; for
+running Jarvis unattended (a Windows service or a container), see
+[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) — the one authority on deployment topology.
 
 
 Target: a working local install where the test suite passes, migrations apply, and the Temporal
@@ -234,8 +236,11 @@ shows spending against your daily limit.
 
 Note this step runs `jarvis.api.server` on its own: API and dashboard only, no worker, no
 scheduler, no Executive. A company created here reaches "running" but nothing will ever wake it
-up — that requires Step 7 below, or (the supported way to run Jarvis day to day) `uv run python
--m jarvis` in place of Steps 6 and 7 combined, which supervises all of it in one process.
+up — that requires Step 7 below, or `uv run python -m jarvis` in place of Steps 6 and 7 combined,
+which supervises all of it in one process for local development. (For running Jarvis unattended
+— a Windows service or a container, staying up without this terminal open — see
+[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md); that is the supported topology for that case, not
+this step.)
 
 The API is browsable at <http://localhost:8000/api/docs> if you want to poke at it directly.
 
@@ -260,8 +265,10 @@ from the same part table under the same supervisor, with no window whose close e
 (design `docs/design/OPERATIONAL-RUNTIME.md`, packet P0-A). The old
 `python -m jarvis.runtime.worker` — worker, scheduler and Executive as a bare `asyncio.gather`
 with no supervision at all, which `docs/reports/RUNTIME-AUDIT.md` M10-F6/F7 found was never a
-supported topology — is **deleted**. Running `jarvis-run` unattended under a service manager is
-packet P0-F's; until that lands, run it in a terminal as above.
+supported topology — is **deleted**. Running `jarvis-run` unattended under a service manager
+(Windows service via NSSM, or a container) is documented once, in
+[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) — this step is the manual/foreground way to run it
+while developing.
 
 Confirm it registered at http://localhost:8233 under the `jarvis-platform` task queue.
 

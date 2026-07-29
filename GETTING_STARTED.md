@@ -117,5 +117,9 @@ A yellow or red strip under the header is Jarvis telling you something, always w
   up, approvals still work end to end and the delivery step will tell you what's missing.
 - **First launch is the slowest** — Docker downloads its services once. Every launch after
   that is quick.
+- **This guide covers running Jarvis while you're at the computer**, in its own window or a
+  terminal — closing that window stops it. Want your companies to keep running when you're
+  signed out or the machine reboots unattended? That's a different setup (a background service),
+  covered for the technically-minded in `docs/DEPLOYMENT.md`, not here.
 
 That's everything. Open it, make a company, and answer when it asks.
