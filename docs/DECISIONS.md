@@ -2461,3 +2461,27 @@ account-risk posture, external-integration owner gates (YouTube Data API, TikTok
 restrictions, commerce APIs), e-commerce monetary actions in L2/L3 territory with the
 evaluation-harness precondition. Phase 2 research targets expanded accordingly. M10
 completion order unchanged (owner: do not blend phases).
+
+## V6 PASS (served-late branch); V4 record corrected; SOAK RUNNING (2026-07-29)
+
+V6: stop held across the 15:00Z fire; wake served once, 722s late, lateness in the
+decision record to the second, zero replays, anchor to 16:00Z; recovery notice carries
+the duration; auto-restart by owner-approved one-shot SYSTEM task with nobody present.
+Late-wake NOTICE correctly absent — it belongs to the skip branch (period wholly
+missed), unit-fixture-covered, live drill recorded as optional residual. Manager
+sequencing error (premature 14:26Z restart, clock misread) recorded; cost two owner
+elevations; both stop windows proved operator-stop-stays-stopped.
+
+V4 record CORRECTED: the liveness pair first credited to the drill was the prior
+evening''s boot catch-up (timestamps); during a Temporal-only outage no notification
+fires BY DESIGN (unknown-never-zero; console shows workers=unknown; post-F34 the
+scheduler logs the WARNING). Sustained-unknown escalation recorded as a post-M10
+surface question. The verdict''s outage/recovery pair demonstrated twice in V6''s stop
+windows instead (design 9.1 past-outage honesty).
+
+**24h SOAK STARTED ~15:20Z** on the service runtime (current main, 1451 tests):
+5-minute sampler (ready, health ok, workers, PID, working set, service status) to
+soak.csv; checkpoints at 6h/15h; analysis diffs audit vs notifications for silent
+failures; probe on owner-approved hourly cron throughout. Closeout package follows the
+soak. Validation matrix now: V0/V2/V4/V5/V6/V7 measured; V1/V3 out of scope by owner
+ruling (infrastructure); skip-branch drill optional residual.

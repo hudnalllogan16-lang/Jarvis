@@ -57,9 +57,18 @@ Measured, against the design's criteria:
   PID 844 identical before/during/after.
 - **Recovery:** SDK pollers reconnected unassisted; health fully `ok` within ~2 minutes of
   the container returning; `workers` back to ok.
-- **The Executive announced both transitions, once each:** notification "Nothing has been
-  running your companies" during the outage, "Jarvis is running again" after — P0-C's
-  `runtime.liveness_verdict` doing precisely the anti-M9-F118 job, no spam.
+- **CORRECTED (2026-07-29, second pass):** the notification pair first attributed to this
+  drill actually timestamps to the previous evening's boot — a misreading of an API view
+  that omitted timestamps. During V4's Temporal-only outage **no liveness notification
+  fired, and that is the designed behavior**: heartbeats stayed fresh (the runtime was
+  up), pollers read *unknown*, and the verdict refuses to call "blind" an outage
+  (unknown-never-zero, D-046). The operator's surfaces during a pure dependency outage
+  are the console (`workers=unknown` with honest copy — verified in all 20 samples) and,
+  post-M10-F34, the scheduler's WARNING transition line. Whether a *sustained* unknown
+  should eventually escalate to a notification is recorded as a post-M10 operator-surface
+  question, not a defect. The verdict's outage/recovery pair was instead demonstrated
+  live twice during V6's stop windows (14:26Z, 15:12Z — both announced on the first
+  executive pass after restart, per design 9.1's "past outage reliably").
 - `/api/ready` stayed 200 throughout: by design — ready gates what a restart would fix
   (migrations/config/DB); a dependency outage is the WAIT posture, and restarting the
   runtime would not help. The truth lived in `/api/health`, where it belongs.
@@ -89,7 +98,26 @@ offsets, and every next fire computed back to the absolute boundary — D-059's
 next-fire-as-absolute-instant behavior, the property M10-F4 found missing, now measured
 present. Probe throttled to `0 * * * *` (hourly, owner-approved) for the soak.
 
-## V6 — late-wake honesty: pending (requires elevated service stop/start — evening window)
+## V6 — late-wake honesty: **PASS (served-late branch)**
+
+Service stopped 14:27:28Z (owner-approved elevation), held across the probe's 15:00:00Z
+fire, auto-restarted 15:12:09Z by an owner-approved one-shot SYSTEM task — the restart
+itself ran with nobody at the machine. (An earlier 14:14–14:26Z stop/start was a
+sequencing error by the Manager — clock misread — recorded as an unplanned but clean
+operator stop/start drill; NSSM honored operator-stop-stays-stopped in both windows.)
+
+Measured:
+- **The missed fire was served once, 722 seconds late** — `wake_lateness_seconds=722`
+  in the cycle's decision record, matching the outage duration to the second; every
+  on-time cycle records an explicit `0` (the trendable-every-round promise, kept).
+- **Zero replayed cycles**; next park computed back to the absolute boundary (16:00Z).
+- **The outage rendered afterwards with a duration**: the recovery notification's body
+  carries it, and the audit transition rows hold start and end.
+- **No late-wake notice — correct**: the notice is the *skip* branch's (design 4.4: a
+  wake still unserved when its **next** fire passes). A 45-minute stop against an hourly
+  period exercises the *served-late* branch. The skip branch remains demonstrated by
+  P0-D's replay fixtures only; a live skip drill would need a stop longer than one full
+  period and is recorded as optional residual, not a gap in behavior.
 
 ## V7 — console no-op over running service: **PASS** (the headline)
 
