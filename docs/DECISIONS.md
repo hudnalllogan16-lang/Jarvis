@@ -2400,3 +2400,24 @@ respawn in 6 seconds, far inside the throttle window. One tooling lesson recorde
 Invoke-WebRequest keep-alive caching mis-reports recovery; curl.exe is the probe of
 record. Remaining: V4 (scripted outage capture), V5 (test company on */5), V6 (evening —
 elevated stop/start), V7, then the 24h soak on the service runtime.
+
+## V4 measured; M10-F34/F35 recorded; fix lane cut (2026-07-29)
+
+V4 (10m02s real Temporal outage): resilience and alerting PASS — workers unknown-never-
+zero with honest copy across all samples, no crash loop, PID stable, clean unassisted
+recovery, and the Executive announced outage and recovery exactly once each (P0-C verdict
+working as designed; the anti-M9-F118 behavior demonstrated live). /api/ready stayed 200
+by design (ready gates what restart fixes; outage is the WAIT posture). Full record in
+M10-VALIDATION.md.
+
+**M10-F34 (implementation):** scheduler emitted zero log lines during the outage — its
+Temporal calls retry Unavailable inside the SDK unbounded, so P0-E transition logging
+can never fire for this mode. Fix packet docs/packets/M10-F34-sweep-timeout.md dispatched
+to lane/m10-f34: bounded sweep_rpc_timeout_seconds (Settings, default 30), expiry feeds
+the existing transition-dedup, register row, hang-fake tests. **M10-F35 (minor,
+operational):** SDK Rust core leaks raw ANSI ERROR lines into the JSON service log;
+deferred to log-routing pass unless trivial in-lane.
+
+V5 in flight: probe workflow terminated (test artifact, recorded reason) after the
+owner-approved */5 schedule write (provenance: approved_config, owner-chat-approval-
+2026-07-29); sweep re-dispatch + three-fire capture running.

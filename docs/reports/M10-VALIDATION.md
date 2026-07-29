@@ -44,12 +44,46 @@ deliberately at 05:54 to hand the port to the service.
   keep-alive connection and mis-reported the recovery window; server-side logs are the
   evidence of record, and all further probing uses `curl.exe`.
 
-## V4 — Temporal outage drill: pending (scripted background capture)
+## V4 — Temporal outage drill: **PASS on resilience and alerting; one log-discipline finding**
+
+2026-07-29 06:10:11 `docker stop jarvis-temporal-1`; restarted 06:20:13 (10m02s outage).
+Scripted 30s sampling throughout (`v4-capture.log`, 20 outage + 9 recovery samples).
+
+Measured, against the design's criteria:
+- **`workers` read `unknown`, never zero**, all 20 outage samples, with the honest operator
+  copy ("Jarvis can't tell whether anything is picking up work right now"). Overall health
+  `ok:false` while `can_serve:true` — the surface told the truth and kept serving.
+- **No crash loop, process never exited:** all four parts `running`, restarts 0, runtime
+  PID 844 identical before/during/after.
+- **Recovery:** SDK pollers reconnected unassisted; health fully `ok` within ~2 minutes of
+  the container returning; `workers` back to ok.
+- **The Executive announced both transitions, once each:** notification "Nothing has been
+  running your companies" during the outage, "Jarvis is running again" after — P0-C's
+  `runtime.liveness_verdict` doing precisely the anti-M9-F118 job, no spam.
+- `/api/ready` stayed 200 throughout: by design — ready gates what a restart would fix
+  (migrations/config/DB); a dependency outage is the WAIT posture, and restarting the
+  runtime would not help. The truth lived in `/api/health`, where it belongs.
+- **M10-F34 (implementation defect, fix dispatched):** the criterion's "exactly one
+  WARNING transition line" from the scheduler never appeared — zero structured log lines
+  during the window. Cause: the sweep's Temporal client calls retry `Unavailable` inside
+  the SDK with unbounded patience, so a 10-minute outage never surfaces to the sweep as a
+  failure and P0-E's transition-dedup logging cannot fire for this failure mode. The
+  alerting layer above it worked; the log layer beneath needs a bounded RPC deadline.
+- **M10-F35 (minor, operational):** temporalio's Rust core writes raw ANSI-colored ERROR
+  lines into the otherwise-JSON service log during outages (poller retries). Cosmetic,
+  real: log consumers must tolerate mixed formats until routed.
 
 ## V5 — wall-clock cron accuracy: pending (dedicated test company; parked companies untouched)
 
 ## V6 — late-wake honesty: pending (requires elevated service stop/start — evening window)
 
-## V7 — console no-op over running service: pending
+## V7 — console no-op over running service: **PASS** (the headline)
+
+2026-07-29 06:08–06:09. Baseline: all components ok, service runtime PID 844 holding
+port 8000. Desktop console opened (PID 7580), alive 20s over the service — service PID
+unchanged, all components ok, port never contested (attach, not compete — design 6.3).
+Console closed; service unchanged. Repeated (PID 42220): identical. After both rounds all
+four companies read exactly as before. Closing the desktop application does nothing to
+the platform — the criterion M10 exists to meet, measured.
 
 ## Soak (~24h): pending — starts on service runtime, sampler via curl.exe
