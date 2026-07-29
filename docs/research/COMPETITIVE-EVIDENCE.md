@@ -63,7 +63,15 @@ roadmap proposals appear here or anywhere else until M10 is formally closed and 
   ~66k users; **teams run it in CI/CD triggered by GitHub issue labels with no human in
   the loop** ([amplifilabs](https://amplifilabs.com/post/devin-ai-vs-openhands-open-source-vs-proprietary-agentic-development)).
 
-### To research (queue)
+### To research (queue — expanded per owner directive 2026-07-29)
+**Owner-directed module categories (priority):** YouTube automation/content agents
+(channel ops, Shorts pipelines, thumbnail/title optimization, scheduling APIs); TikTok
+content agents (API restrictions, posting automation ToS reality, creator tooling);
+E-commerce agents (Shopify AI ecosystem, product listing/pricing/fulfillment automation,
+customer-service agents); AI content-generation stacks feeding all three (script→voice→
+video assembly pipelines, brand-consistency controls, disclosure compliance).
+
+### To research (original queue)
 Primary docs + demos for: Manus, Genspark, ChatGPT Agent/Operator, Devin, Cursor,
 Windsurf, OpenHands, CrewAI, LangGraph, AutoGen, AnythingLLM, Open WebUI, Perplexity
 Comet, Flowith, Kimi (Claw), Claude Code/Cowork. Sources: official docs, GitHub, YouTube
