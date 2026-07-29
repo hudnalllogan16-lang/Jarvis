@@ -8,17 +8,21 @@ repository amends the specification.
 **Current state: Milestone 9 — Executive Layer + governance constitution, merged
 (`docs/reports/M9.md`).**
 
-`uv run python -m jarvis` is the one supported autonomous topology: it opens Jarvis like a
-desktop app, and every backend part — API, Temporal worker, scheduler, Executive tick — starts
-under one Supervisor in that same process (crashes restart with backoff and show as "restarting"
-in the health banner), subsystems toggle in Settings, and with the `desktop` extra the dashboard
-is a native window whose close button quits the app. Its lifetime is tied to that window or
-terminal; it is a development/single-operator topology, not a daemon (`docs/reports/RUNTIME-AUDIT.md`
-M10-F7).
+**Deployment topology is documented once:** [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) is the
+one authority on which process to run and how it stays running unattended (design
+`docs/design/OPERATIONAL-RUNTIME.md` Part 6); this file doesn't restate it. In short —
+`jarvis-run` is the platform and the supported unattended entrypoint (Windows service via NSSM,
+or a container; see DEPLOYMENT.md's four-mode matrix). `uv run python -m jarvis` opens the same
+parts — API, Temporal worker, scheduler, Executive tick — under the same Supervisor in that same
+process (crashes restart with backoff and show as "restarting" in the health banner), and with
+the `desktop` extra the dashboard is a native window whose close button quits the app; it's the
+development and operator console, tied to that window or terminal, and it attaches to an
+already-running `jarvis-run` instead of competing with it when one is serving the same port.
 
 Running `uv run python -m jarvis.api.server` on its own (below) starts the API and dashboard
 **only** — no worker, no scheduler, no Executive. It is a read-only surface: companies can be
-viewed but nothing wakes them up. Use the launcher above unless you specifically want that.
+viewed but nothing wakes them up. Use `jarvis-run` or the console above unless you specifically
+want that.
 
 **Picking up development?** [`KICKOFF.md`](KICKOFF.md) has the session prompt to paste;
 [`HANDOFF.md`](HANDOFF.md) has current state, what is and isn't verified, and the next work packets.
@@ -57,9 +61,9 @@ Affiliate Business a real test of §4's "configuration only" requirement.
 *As of M3 this was the only entrypoint, so it was started with*
 `uv run python -m jarvis.api.server` *and nothing called the 24h/7d timers on a schedule — that
 needed the scheduler, which arrived with the Business Manager in M4. Both sentences describe M3;
-neither is true today. As of M9, `uv run python -m jarvis` (above) is the supported way to run
-Jarvis, timers fire under its scheduler, and `jarvis.api.server` alone is a deliberately
-autonomy-free read surface, not the general-purpose way in.*
+neither is true today. Timers fire under the scheduler regardless of which supported entrypoint
+runs it (see [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)), and `jarvis.api.server` alone is still
+a deliberately autonomy-free read surface, not the general-purpose way in.*
 
 ## What Milestone 2 added
 
@@ -143,9 +147,11 @@ uv run alembic upgrade head
 uv run python -m jarvis       # migrations, API + dashboard, worker, scheduler, Executive — one process
 ```
 
-Temporal UI: <http://localhost:8233>. As of M9, `uv run python -m jarvis` also applies migrations
-and runs Executive/scheduler timers itself — the steps above are for manual/CI setups that skip
-the launcher.
+Temporal UI: <http://localhost:8233>. `uv run python -m jarvis` also applies migrations and runs
+Executive/scheduler timers itself — the steps above are for manual/CI setups that skip the
+console. For running Jarvis unattended (a service or a container, staying up without a terminal
+or a logged-in session), see [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) — this is the
+development quick-start, not the deployment procedure.
 
 ## Verification
 

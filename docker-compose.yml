@@ -1,6 +1,7 @@
 services:
   postgres:
     image: postgres:17-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_USER: jarvis
       POSTGRES_PASSWORD: jarvis
@@ -14,6 +15,7 @@ services:
 
   redis:
     image: redis:7-alpine
+    restart: unless-stopped
     ports: ["6379:6379"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -22,6 +24,7 @@ services:
 
   temporal:
     image: temporalio/auto-setup:1.25
+    restart: unless-stopped
     depends_on:
       postgres: { condition: service_healthy }
     environment:
@@ -34,10 +37,33 @@ services:
 
   temporal-ui:
     image: temporalio/ui:2.31.2
+    restart: unless-stopped
     depends_on: [temporal]
     environment:
       TEMPORAL_ADDRESS: temporal:7233
     ports: ["8233:8080"]
+
+  jarvis:
+    build: .
+    command: jarvis-run
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      JARVIS_HEADLESS: "1"
+      JARVIS_DATABASE_URL: postgresql+asyncpg://jarvis:jarvis@postgres:5432/jarvis
+      JARVIS_REDIS_URL: redis://redis:6379/0
+      JARVIS_TEMPORAL_HOST: temporal:7233
+    env_file:
+      - path: .env
+        required: false
+    ports: ["8000:8000"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/ready')"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
 
 volumes:
   jarvis-pg:
