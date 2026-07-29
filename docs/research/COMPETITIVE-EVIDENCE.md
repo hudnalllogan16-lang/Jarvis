@@ -63,6 +63,41 @@ roadmap proposals appear here or anywhere else until M10 is formally closed and 
   ~66k users; **teams run it in CI/CD triggered by GitHub issue labels with no human in
   the loop** ([amplifilabs](https://amplifilabs.com/post/devin-ai-vs-openhands-open-source-vs-proprietary-agentic-development)).
 
+### YouTube/TikTok content automation (2026-07-29, mixed sources)
+- **YouTube monetization policy (as of 2026-03):** AI voices allowed if clearly disclosed
+  and not impersonating real people; AI visuals allowed with training-data rights; manual
+  AI-content flagging required, penalties for repeated non-disclosure
+  ([virvid](https://virvid.ai/blog/ai-faceless-youtube-automation-stack-2026)).
+- **TikTok 2026: four-tier AI labeling with penalties** — unlabeled AI content gets
+  auto-labeled, distribution-reduced, or removed; repeat violations hit account standing
+  ([auditsocials](https://www.auditsocials.com/blog/tiktok-ai-content-disclosure-rules-2026),
+  [storrito](https://storrito.com/resources/tiktoks-2026-ai-labeling-rules-and-what-they-signal-for-platform-governance/)).
+- **TikTok API design fact:** posting via the official API without passing TikTok's app
+  audit renders every published video PRIVATE — the failure mode most automation
+  tutorials omit ([openhosst](https://openhosst.com/blog/tiktok-automation)). Engagement
+  bots/bulk accounts/scraping = ban class ([gen.pro](https://gen.pro/blog/tiktok-automation/)).
+- Compliance economics claim: proactive AI labeling trades a small reach cost for zero
+  distribution penalties and account risk — aligns with a disclosure-first module posture
+  ([darkroomagency](https://www.darkroomagency.com/observatory/what-brands-need-to-know-about-tiktok-new-rules-2026)).
+- Faceless-channel stack economics (marketing-flavored, treat skeptically): 30+ videos/mo
+  on $78–120/mo tooling; revenue claims $3k–15k/mo
+  ([autoadify](https://autoadify.com/blog/faceless-youtube-ai-automation-channel-2026)).
+  Common stack: script LLM → ElevenLabs voice → Pictory/CapCut assembly → scheduler.
+
+### E-commerce agents (2026-07-29, mixed sources)
+- Landscape: dozens of purpose-built platforms; categories = customer service, dynamic
+  pricing, inventory, listing management, cart recovery, autonomous shopping flows
+  ([Shopify](https://www.shopify.com/blog/ai-agents-retail),
+  [vortexiq](https://www.vortexiq.ai/resources/blog/best-ai-agents-for-ecommerce-2026)).
+- Cost anchors: basic CS/recommendation agent $5–15k build; mid-tier agentic commerce
+  $20–60k + $500–5k/mo run ([destilabs](https://www.destilabs.com/blog/ai-agent-development-cost-ecommerce-2026)) —
+  context for what a Jarvis e-comm module displaces.
+- **McKinsey projection: agentic commerce orchestrating up to $1T US B2C revenue by 2030**
+  ([theoperatorcollective](https://theoperatorcollective.org/blog/ai-agent-ecommerce-guide)).
+- "Agentic commerce readiness" is an emerging store-side posture (stores preparing to be
+  SHOPPED BY agents) — a distinct axis from store-operating agents
+  ([stormy](https://stormy.ai/blog/shopify-agentic-commerce-guide-2026)).
+
 ### To research (queue — expanded per owner directive 2026-07-29)
 **Owner-directed module categories (priority):** YouTube automation/content agents
 (channel ops, Shorts pipelines, thumbnail/title optimization, scheduling APIs); TikTok
