@@ -132,6 +132,43 @@ Next passes: primary-source practitioner evidence (Reddit/X income threads with 
 open P&Ls), the SEO/content-site economics post-AI-search, marketplace/freelance agent
 automation, ad arbitrage risk profile.
 
+### The "$10k+/mo cloud AI business OS" genre, decoded (2026-07-29)
+
+The claims circulating on YouTube/Instagram resolve into three distinct layers whose
+economics are routinely conflated by the content promoting them:
+
+**Layer A — the platforms ("AI employee" products, the real product tier):** Lindy
+(free→$200/mo; **$5.1M revenue 2024**, $15.3M valuation 2025 — real but modest),
+Relevance AI (free→$234/mo, GTM agent workforces), 11x (~$5k/mo, enterprise SDR),
+Artisan ($2–7k/mo, outbound sales), Beam AI
+([teamday](https://www.teamday.ai/blog/ai-employees-market-map-2026),
+[getlatka](https://getlatka.com/companies/lindyai),
+[cellcog](https://cellcog.ai/compare/ai-employee-platforms)). These earn subscriptions,
+not business profits — the platform tier Jarvis architecturally occupies.
+
+**Layer B — operators** using agents to run services: the Tier-2 practitioner claims
+above ($10–30k/mo agencies) — plausible for the top decile, per the Tier-3 base rates.
+
+**Layer C — narrators:** AI-influencer/persona businesses where the LARGEST documented
+revenue streams are audience monetization and selling the how-to: $97 challenge × 100
+enrollees = $9.7k/launch; Fanvue 85% / RM11 90% payout splits; tool stack <$100/mo;
+top profiles claim $20k–200k/mo across six stacked streams
+([aijourn](https://aijourn.com/6-ways-ai-influencers-make-money-in-2026-and-how-much-each-one-actually-pays/),
+[communipass](https://communipass.com/blog/ai-influencer-monetization-strategies-2026/)).
+A "$10k/mo AI business" video is very often Layer C revenue narrating a Layer B story
+built on Layer A tools.
+
+**The counterweight (highest evidence quality in this file):** a February 2026 **NBER
+study of 6,000 CEOs — ~90% of firms report zero measurable employment or productivity
+impact** from AI-employee implementations
+([teamday](https://www.teamday.ai/blog/ai-employees-market-map-2026), citing NBER).
+The gap between Layer C's claims and this base rate is the honest frame for every
+revenue figure in this file.
+
+Video watch-queue for deep review (soak-idle work): the $10k/mo influencer guides
+([1](https://www.youtube.com/watch?v=gQgXz5_yyso), [2](https://www.youtube.com/watch?v=ARRbBmXK7AA)),
+plus founder demos of Lindy/Relevance/Manus/Genspark from their channels.
+
 ### To research (queue — owner directive 2026-07-29, broadened same day)
 **Priority axis: how agentic AI demonstrably generates income via web services** —
 platform-agnostic. YouTube/TikTok/e-commerce remain examples, not the definition. Map
