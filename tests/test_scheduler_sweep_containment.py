@@ -27,8 +27,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from collections.abc import AsyncIterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -39,8 +40,12 @@ from sqlalchemy.pool import StaticPool
 import jarvis.runtime.worker as worker
 import jarvis.scheduler.service as scheduler_service
 from jarvis.budget.ledger import RESERVED
+from jarvis.businesses.affiliate import AFFILIATE
+from jarvis.events.bus import Event
+from jarvis.events.types import APPROVAL_DECIDED
 from jarvis.kernel.config import LLMSettings, Settings
 from jarvis.kernel.container import PlatformKernel
+from jarvis.kernel.ids import new_event_id
 from jarvis.persistence.models import Base, BudgetLedgerRow
 from jarvis.scheduler.service import (
     ORPHANED_RESERVATION_AGE,
@@ -357,6 +362,241 @@ async def test_a_healthy_platform_logs_nothing_about_connectivity(
     assert not [
         r for r in caplog.records if "unreachable" in r.message or "reachable again" in r.message
     ]
+
+
+# ── bounded RPC deadline on the sweep's Temporal calls (M10-F34) ────────────
+#
+# The V4 drill (docs/reports/M10-VALIDATION.md §V4) measured a real 10-minute
+# Temporal outage that produced zero scheduler log lines: the client object
+# stayed cached and non-`None` throughout, so `client is not None` alone (the
+# original connectivity read) never flipped, while the SDK retried
+# `Unavailable` beneath `start_workflow`/`signal` with no deadline of its own
+# and the sweep simply never returned. These tests use a *hanging* fake —
+# not the `_unreachable` (`client is None`) fixture above, which is a
+# different failure mode — to prove the deadline actually fires, the sweep
+# is contained rather than stalled, and the resulting failure is folded into
+# the SAME transition-deduped WARNING vocabulary P0-E already built, not a
+# new one.
+
+
+def test_sweep_rpc_timeout_defaults_to_30_seconds() -> None:
+    from jarvis.kernel.config import SchedulerSettings
+
+    assert SchedulerSettings().sweep_rpc_timeout_seconds == 30
+
+
+def test_sweep_rpc_timeout_is_configurable_from_the_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("JARVIS_SCHEDULER__SWEEP_RPC_TIMEOUT_SECONDS", "5")
+    settings = Settings(llm=LLMSettings(model="stub-model"), _env_file=None)  # type: ignore[call-arg]
+    assert settings.scheduler.sweep_rpc_timeout_seconds == 5
+
+
+class _HangingLifecycle:
+    """Stands in for `ManagerLifecycle`, simulating V4's own shape: the
+    Temporal client is present, but a call beneath it never returns on its
+    own because the SDK's retry of `Unavailable` has no deadline. `hang` is
+    a class attribute, not instance state, because `_managers_started_step`
+    constructs `ManagerLifecycle(self._kernel)` fresh every sweep — a test
+    flips it between `sweep()` calls to simulate the outage healing."""
+
+    hang = True
+
+    def __init__(self, _kernel: object) -> None:
+        pass
+
+    async def reconcile(self) -> int:
+        if type(self).hang:
+            await asyncio.sleep(3600)
+        return 1
+
+
+def _hanging(kernel: PlatformKernel, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A client that is never `None` (so the original `client is not None`
+    read stays `True` throughout) with a tiny configured deadline, and
+    `ManagerLifecycle` swapped for the hanging fake above."""
+    _reachable(kernel, monkeypatch)
+    monkeypatch.setattr(kernel.settings.scheduler, "sweep_rpc_timeout_seconds", 0.05)
+    monkeypatch.setattr(scheduler_service, "ManagerLifecycle", _HangingLifecycle)
+    _HangingLifecycle.hang = True
+
+
+async def test_managers_started_deadline_is_sourced_from_settings(
+    kernel: PlatformKernel, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The value bounding `ManagerLifecycle.reconcile` is read from
+    `Settings.scheduler.sweep_rpc_timeout_seconds`, not a hardcoded number —
+    proven by capturing what `asyncio.wait_for` was actually called with,
+    without waiting out a real timeout."""
+    _reachable(kernel, monkeypatch)
+    monkeypatch.setattr(kernel.settings.scheduler, "sweep_rpc_timeout_seconds", 17)
+    monkeypatch.setattr(scheduler_service, "ManagerLifecycle", _HangingLifecycle)
+    _HangingLifecycle.hang = False  # completes instantly; only the timeout kwarg matters
+
+    captured: dict[str, object] = {}
+    real_wait_for = asyncio.wait_for
+
+    async def _capturing_wait_for(coro: object, **kwargs: object) -> object:
+        captured["timeout"] = kwargs.get("timeout")
+        return await real_wait_for(coro, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(scheduler_service.asyncio, "wait_for", _capturing_wait_for)
+
+    await Scheduler(kernel).sweep(now=NOW)
+
+    assert captured["timeout"] == 17
+
+
+async def test_a_hanging_managers_started_call_is_contained_by_the_deadline(
+    kernel: PlatformKernel, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The core defect, reproduced and fixed: a Temporal call that never
+    returns on its own must not hang the sweep. A real hang against a real
+    (tiny) deadline — the outer `wait_for` is this test's own safety net,
+    not the mechanism under test, so a regression fails fast instead of
+    hanging the suite."""
+    _hanging(kernel, monkeypatch)
+    scheduler = Scheduler(kernel)
+
+    started_at = time.monotonic()
+    report = await asyncio.wait_for(scheduler.sweep(now=NOW), timeout=5)
+    elapsed = time.monotonic() - started_at
+
+    assert report.managers_started == 0
+    assert elapsed < 2, "the sweep waited far longer than its configured deadline"
+
+
+async def test_deadline_expiry_logs_unreachable_once_across_consecutive_failing_sweeps(
+    kernel: PlatformKernel, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Design 5.2 point 1, applied to the new failure mode: a deadline that
+    keeps expiring is a persisting state, announced once — not re-announced
+    every sweep just because `client is not None` says "reachable" again at
+    the top of each pass before the deadline corrects it."""
+    _hanging(kernel, monkeypatch)
+    scheduler = Scheduler(kernel)
+
+    caplog.set_level(logging.WARNING, logger=LOGGER_NAME)
+    for _ in range(3):
+        await asyncio.wait_for(scheduler.sweep(now=NOW), timeout=5)
+
+    unreachable_lines = [r for r in caplog.records if "unreachable" in r.message]
+    assert len(unreachable_lines) == 1
+
+
+async def test_recovery_after_a_managers_started_deadline_logs_once_when_the_fake_heals(
+    kernel: PlatformKernel, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    _hanging(kernel, monkeypatch)
+    scheduler = Scheduler(kernel)
+    await asyncio.wait_for(scheduler.sweep(now=NOW), timeout=5)  # down
+
+    _HangingLifecycle.hang = False
+    caplog.set_level(logging.WARNING, logger=LOGGER_NAME)
+    await asyncio.wait_for(scheduler.sweep(now=NOW), timeout=5)  # recovers
+
+    recovery_lines = [r for r in caplog.records if "reachable again" in r.message]
+    assert len(recovery_lines) == 1
+
+
+class _DeadlineExceededHandle:
+    """A workflow handle whose `signal` reports what the real SDK reports
+    when `rpc_timeout` (M10-F34) actually fires: `RPCError` at
+    `DEADLINE_EXCEEDED`, not a hang. Proves `_events_step`'s own handling of
+    that specific, well-defined outcome, in isolation from the wrapper-based
+    `managers_started` path above."""
+
+    async def signal(self, name: str, arg: str, *, rpc_timeout: object = None) -> None:
+        from temporalio.service import RPCError, RPCStatusCode
+
+        raise RPCError("deadline exceeded", RPCStatusCode.DEADLINE_EXCEEDED, b"")
+
+
+class _DeadlineExceededClient:
+    async def start_workflow(self, name: str, state: object, **kwargs: object) -> None:
+        return None
+
+    def get_workflow_handle(self, workflow_id: str) -> _DeadlineExceededHandle:
+        return _DeadlineExceededHandle()
+
+
+class _RecordingHandle:
+    """Records the `rpc_timeout` a real signal call would carry."""
+
+    def __init__(self, calls: list[object]) -> None:
+        self._calls = calls
+
+    async def signal(self, name: str, arg: str, *, rpc_timeout: object = None) -> None:
+        self._calls.append(rpc_timeout)
+
+
+class _RecordingClient:
+    def __init__(self) -> None:
+        self.calls: list[object] = []
+
+    def get_workflow_handle(self, workflow_id: str) -> _RecordingHandle:
+        return _RecordingHandle(self.calls)
+
+
+@pytest_asyncio.fixture
+async def event_company(kernel: PlatformKernel) -> object:
+    """One ACTIVE company subscribed to `APPROVAL_DECIDED` (AFFILIATE's own
+    `event_triggers`), with one claimable event already published — the
+    minimum `dispatch_events` needs to reach a real `handle.signal` call."""
+    async with kernel.services() as svc:
+        provisioning = kernel.build_provisioning(svc)
+        await provisioning.install(AFFILIATE)
+        company = await provisioning.create_company(
+            definition=AFFILIATE, display_name="Ridgeline Trail Reports"
+        )
+    async with kernel.services() as svc:
+        await kernel.build_bus(svc).publish(
+            Event(
+                event_id=new_event_id(),
+                event_type=APPROVAL_DECIDED,
+                business_id=company,
+                payload={"approval_id": "apr_1"},
+            )
+        )
+    return company
+
+
+async def test_dispatch_events_sources_its_rpc_timeout_from_settings(
+    kernel: PlatformKernel, monkeypatch: pytest.MonkeyPatch, event_company: object
+) -> None:
+    """`WorkflowHandle.signal`'s own `rpc_timeout` (the SDK's preferred,
+    per-call mechanism — reachable directly here, unlike `start_workflow`
+    inside `ManagerLifecycle`) carries `Settings.scheduler.
+    sweep_rpc_timeout_seconds`, not a hardcoded number."""
+    monkeypatch.setattr(kernel.settings.scheduler, "sweep_rpc_timeout_seconds", 12)
+    client = _RecordingClient()
+    kernel._temporal_client = client  # type: ignore[attr-defined]
+
+    woken = await Scheduler(kernel).dispatch_events()
+
+    assert woken == 1
+    assert client.calls == [timedelta(seconds=12)]
+
+
+async def test_a_deadline_exceeded_signal_is_contained_and_folds_into_connectivity(
+    kernel: PlatformKernel, caplog: pytest.LogCaptureFixture, event_company: object
+) -> None:
+    """The SDK's own well-defined outcome when `rpc_timeout` fires —
+    `RPCError(DEADLINE_EXCEEDED)`, not a hang — must be contained by
+    `_events_step` itself (no "sweep step failed" line, the generic
+    containment path `_run_step` would otherwise log) and folded into the
+    same transition-deduped connectivity WARNING a `None` client already
+    produces."""
+    kernel._temporal_client = _DeadlineExceededClient()  # type: ignore[attr-defined]
+
+    caplog.set_level(logging.WARNING, logger=LOGGER_NAME)
+    report = await Scheduler(kernel).sweep(now=NOW)
+
+    assert report.woken == 0
+    assert not [r for r in caplog.records if "sweep step failed" in r.message]
+    unreachable_lines = [r for r in caplog.records if "unreachable" in r.message]
+    assert len(unreachable_lines) == 1
 
 
 # ── run_scheduler: the timer loop, scripted (no real sleep, no live worker) ─

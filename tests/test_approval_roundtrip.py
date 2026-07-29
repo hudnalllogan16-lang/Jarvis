@@ -103,7 +103,11 @@ class _FakeHandle:
         self._workflow_id = workflow_id
         self._log = log
 
-    async def signal(self, name: str, arg: str) -> None:
+    async def signal(self, name: str, arg: str, *, rpc_timeout: object = None) -> None:
+        # rpc_timeout: M10-F34's bounded deadline on every signal call the
+        # sweep makes (Settings.scheduler.sweep_rpc_timeout_seconds). Accepted
+        # and ignored here — this double records what was signalled, not how
+        # it was bounded.
         self._log.append((self._workflow_id, name, arg))
 
 
