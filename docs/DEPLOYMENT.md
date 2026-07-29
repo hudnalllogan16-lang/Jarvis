@@ -64,6 +64,24 @@ Get-FileHash .\nssm.exe -Algorithm SHA256
 `f689ee9af94b00e9e3f0bb072b34caaf207f32dcb4f5782fc9ca351df9a06c97`; installed on this host
 at `C:\Tools\nssm-2.24\win64\nssm.exe`.
 
+### 1a. Application Control environments (M10-F36)
+
+Windows Smart App Control (or WDAC) in enforcement may block unsigned venv shim
+executables — including `pytest.exe` and, potentially, `jarvis-run.exe` — with os error
+4551, on a per-file reputation basis. Observed live on the development host 2026-07-29:
+enforcement began mid-day and blocked the pytest shim while sibling shims kept running;
+regenerated shims (new hashes, no reputation) were blocked too. If `jarvis-run.exe` is
+refused at service start, point the service at the signed interpreter instead — same
+process, no shim:
+
+```
+nssm set JarvisRun Application <install root>\.venv\Scripts\python.exe
+nssm set JarvisRun AppParameters "-c \"from jarvis.shell.service import serve_headless; serve_headless()\""
+```
+
+Do not weaken the machine's App Control policy to accommodate Jarvis; that is the
+operator's security posture, not the platform's to change.
+
 ### 2. Deploy the code
 
 Copy (or clone) the repository to its install root, then from that directory:

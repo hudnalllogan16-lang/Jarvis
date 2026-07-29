@@ -2430,3 +2430,21 @@ live in the platform''s own Temporal event history. Sweep reconcile re-dispatche
 terminated probe unassisted in <4 min (recovery ladder exercised). Probe throttled to
 hourly (owner-approved) for the soak. Record: M10-VALIDATION.md §V5. Remaining: merge
 lane m10-f34, V6 tonight (elevated stop/start), 24h soak, closeout package.
+
+## m10-f34 merged at 1451; M10-F36 host App Control finding (2026-07-29)
+
+Sweep RPC deadline merged: SDK-native rpc_timeout on the signal path, scheduler-side
+asyncio.wait_for on the lifecycle start call (boundary respected and the discrepancy
+reported rather than crossed); one connectivity verdict per sweep recorded AFTER both
+Temporal steps — the lane caught that recording before them would log a spurious
+recovery every failing pass. Lane gates and post-merge main gates both 1451.
+
+**M10-F36 (operational/environmental):** Windows Smart App Control began enforcing on
+this host mid-campaign (between the 05:45 and 07:10 gate runs), blocking the unsigned
+pytest.exe shim per-file (os error 4551); a regenerated shim was blocked too (new hash,
+no reputation). Sibling shims unaffected so far. Gate invocation moved to the signed
+interpreter (python -m pytest — behavior-identical; comment in gates.sh). Service risk
+noted: jarvis-run.exe is the same shim class — if refused at next start, DEPLOYMENT.md
+§1a records the signed-interpreter fallback for NSSM. Policy itself untouched: the
+host''s security posture is the owner''s, not the platform''s. Merge teardown before a
+verified main gate (this round) noted as a process slip; queue order restored.

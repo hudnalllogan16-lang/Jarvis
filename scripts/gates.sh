@@ -139,7 +139,10 @@ if ! uv run --frozen python -c "import sys" >"$LOG" 2>&1; then
   degrade "uv present but cannot run (offline, or interpreter unavailable)"
 fi
 
-uv run --frozen pytest -q >"$LOG" 2>&1 || fail "test suite" unit
+# python -m rather than the pytest.exe shim: Windows Smart App Control (enforcing on
+# this host since 2026-07-29) blocks unsigned venv shim executables without established
+# reputation; the signed interpreter path is behavior-identical (M10-F36).
+uv run --frozen python -m pytest -q >"$LOG" 2>&1 || fail "test suite" unit
 TESTS=$(grep -oE '[0-9]+ passed' "$LOG" | head -1 || echo "count unavailable")
 TESTS_TOTAL="${TESTS}"
 record_gate "unit" "passed"
