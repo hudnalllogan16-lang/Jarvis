@@ -98,13 +98,49 @@ roadmap proposals appear here or anywhere else until M10 is formally closed and 
   SHOPPED BY agents) — a distinct axis from store-operating agents
   ([stormy](https://stormy.ai/blog/shopify-agentic-commerce-guide-2026)).
 
-### To research (queue — expanded per owner directive 2026-07-29)
-**Owner-directed module categories (priority):** YouTube automation/content agents
-(channel ops, Shorts pipelines, thumbnail/title optimization, scheduling APIs); TikTok
-content agents (API restrictions, posting automation ToS reality, creator tooling);
-E-commerce agents (Shopify AI ecosystem, product listing/pricing/fulfillment automation,
-customer-service agents); AI content-generation stacks feeding all three (script→voice→
-video assembly pipelines, brand-consistency controls, disclosure compliance).
+### Agentic income via web services — first mechanism map (2026-07-29)
+
+Evidence quality varies sharply by tier; tiers labeled. The income-report genre is
+itself monetized content — survivorship bias assumed until primary P&L evidence lands.
+
+**Tier 1 — enterprise-verified (cost-savings class, not web-service income):** General
+Mills' agentic supply-chain system, $20M+ documented savings since FY2024; invoice
+processing cost reductions up to 76% ([sparkeighteen](https://sparkeighteen.com/blog/the-ai-agents-making-it-to-production-12-agentic-ai-case-studies-with-measurable-roi-from-2025-2026/),
+[sema4](https://sema4.ai/blog/ai-agent-use-cases/)). Proves agent reliability at volume;
+different economics than owner-operated web income.
+
+**Tier 2 — practitioner-claimed revenue (the Jarvis-relevant class):**
+- Solo operators running AI-powered agencies: $10k–30k/mo at ~80% automation across 20+
+  clients ([betterlaunch](https://www.betterlaunch.co/blog/indie-hacker)); recurring
+  productized services, 10–15 clients, $15k–30k/mo
+  ([almcorp](https://almcorp.com/blog/make-money-ai-digital-agencies-2026/)).
+- Productized pricing anchors: email sequences $800–2.5k or $2–5k/mo retainers; support
+  agents $0.50–2.00/resolved ticket or $2–10k/mo subscriptions; enterprise retainers
+  $10–15k/mo ([almcorp](https://almcorp.com/blog/make-money-ai-digital-agencies-2026/),
+  [hakunamatata](https://www.hakunamatatatech.com/our-resources/blog/ai-agents-in-b2b)).
+- Mechanism consensus: buyers pay for pipeline, booked calls, and time saved — outcomes,
+  never "AI" ([like2byte](https://like2byte.com/ai-agent-agency-lead-gen-guide/)).
+
+**Tier 3 — base rates (the honesty anchor):** 50% of active indie hackers earn <$1k/mo;
+20% $1–10k; 10% $10–100k; <5% $100k+ ([betterlaunch](https://www.betterlaunch.co/blog/indie-hacker)).
+Production SaaS run-cost floor ~$85–200/mo ([indieis.land](https://indieis.land/blog/indie-hacker-tools-trends-2026)).
+Market sizing claims: micro-SaaS $15.7B→$59.6B by 2030; AI agents market $7.6B (2025)
+→ $183B (2033) projection ([nxcode](https://www.nxcode.io/resources/news/micro-saas-ideas-2026),
+[instaclaw](https://instaclaw.io/blog/make-money-ai-agent)).
+
+Next passes: primary-source practitioner evidence (Reddit/X income threads with receipts,
+open P&Ls), the SEO/content-site economics post-AI-search, marketplace/freelance agent
+automation, ad arbitrage risk profile.
+
+### To research (queue — owner directive 2026-07-29, broadened same day)
+**Priority axis: how agentic AI demonstrably generates income via web services** —
+platform-agnostic. YouTube/TikTok/e-commerce remain examples, not the definition. Map
+the monetization mechanisms with evidence of real revenue (not tutorials): content/
+affiliate/SEO engines, e-commerce operations, productized services and micro-SaaS run by
+agents, lead generation and outreach, marketplace/freelance automation, paid research
+and reporting, ad/traffic arbitrage, API productization, agent-run agencies. For each:
+revenue evidence quality, operating cost, autonomy level, ToS/legal posture, failure
+modes — the inputs a Jarvis business-type portfolio decision needs.
 
 ### To research (original queue)
 Primary docs + demos for: Manus, Genspark, ChatGPT Agent/Operator, Devin, Cursor,
