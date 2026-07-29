@@ -171,6 +171,29 @@ automation, ad arbitrage risk profile.
   checkpoint/replay, scheduling, HITL) are the properties Jarvis sources from Temporal
   plus its own approval layer — same category, different substrate.
 
+### Primary income-receipt hunt, pass 1 (2026-07-29) — the thinness IS the finding
+- Searching for receipts surfaces sellers of guides: results dominated by Gumroad
+  courses on "profitable AI side projects" — Layer C self-confirmation.
+- Best concrete public datum found: an agent ("Wiz") with **$400 in API/compute costs
+  against $355 trackable revenue — a negative margin**, framed by its own founder as
+  proof the "agent earns its own income" thing is real "with product sales and content
+  monetization" ([mindstudio](https://www.mindstudio.ai/blog/creator-economy-ai-monetizing-agent-apps)).
+- Practitioner skepticism in the wild: "what does the distribution of outcomes look
+  like for these agent businesses after 90 days" — unanswered.
+- Standing conclusion for this pass: public, verifiable P&L evidence of autonomous-agent
+  web income is **scarce**; claims abundant. Deeper Reddit/X thread archaeology queued.
+
+### Perplexity Comet (2026-07-29, review consensus)
+- **Free on macOS/Windows/Android/iOS since 2026-04, no account required; #3 US App
+  Store at launch** — agentic browsing as a mass-market free surface
+  ([efficient.app](https://efficient.app/apps/comet), [switchtools](https://www.switchtools.io/blog/perplexity-comet-ai-agent-browser)).
+- Assistant drives the browser (tabs, clicks, multi-step); voice mode (GPT Realtime
+  1.5); **Email Assistant works by being CC'd on a thread** (Max tier) — an interaction
+  pattern worth noting ([seraphicsecurity](https://seraphicsecurity.com/learn/ai-browser/perplexity-comet-browser-key-features-reviews-and-security-tips/)).
+- Consensus: fast on simple tasks, strong on research, **"rougher than expected on
+  agentic flows"** — even well-funded agentic UX is unfinished at the edges
+  ([toolsstackai](https://toolsstackai.com/perplexity-comet-browser-review-2026/)).
+
 ### The "$10k+/mo cloud AI business OS" genre, decoded (2026-07-29)
 
 The claims circulating on YouTube/Instagram resolve into three distinct layers whose
