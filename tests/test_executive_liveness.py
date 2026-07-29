@@ -178,6 +178,61 @@ def test_only_the_freshest_worker_row_counts() -> None:
     assert verdict.outage is False
 
 
+def test_a_stopped_predecessors_runtime_marker_never_reaches_this_verdict() -> None:
+    """Regression for packet M10-F39 item 4.
+
+    `assess_runtime_liveness` never inspects `part_name == "runtime"` at
+    all — it only ever reduces `"worker"` to its freshest row via
+    `_freshest`, which is a straight max over every row sharing that
+    `part_name`. A superseded generation's `worker` row can never win that
+    max once the current generation has beaten even once (wall-clock time
+    only moves forward, so an older generation's frozen timestamp cannot
+    exceed a live one's), and the synthetic `'runtime'` marker row — the
+    one `jarvis.observability.heartbeat.summarise_runtime_health` had to
+    learn to scope past, since a smoothly-started generation never writes
+    one at all — is simply never read here. This is why the soak's four
+    superseded generations (two clean-stopped, two taskkilled) never made
+    `assess_runtime_liveness` false-alarm even though they did make
+    `/api/health`'s `runtime` component false-alarm: this function was
+    already, by construction, scoped to what matters."""
+
+    def _row(
+        *, runtime_id: str, part_name: str, state: str, age_seconds: float
+    ) -> RuntimeHeartbeatRow:
+        return RuntimeHeartbeatRow(
+            runtime_id=runtime_id,
+            part_name=part_name,
+            hostname="h",
+            pid=1,
+            started_at=NOW - timedelta(seconds=age_seconds),
+            last_beat_at=NOW - timedelta(seconds=age_seconds),
+            state=state,
+            consecutive_crashes=0,
+            last_error="",
+        )
+
+    beats = [
+        # A generation that stopped cleanly: its own `runtime` marker row
+        # is `stopped`, ancient, and would corrupt an `all(...)`-shaped
+        # check the way it used to corrupt `summarise_runtime_health`.
+        _row(runtime_id="clean-stopped", part_name="runtime", state="stopped", age_seconds=99999),
+        _row(runtime_id="clean-stopped", part_name="worker", state="running", age_seconds=99999),
+        # A generation that vanished under taskkill: never marked stopped,
+        # `state=running` frozen forever at the moment it died (D-060).
+        _row(runtime_id="taskkilled", part_name="worker", state="running", age_seconds=50000),
+        # The current, live generation: fresh and serving.
+        _row(runtime_id="current", part_name="worker", state="running", age_seconds=0),
+    ]
+    verdict = assess_runtime_liveness(
+        beats,
+        FRESH_POLLER,
+        now=NOW,
+        heartbeat_stale_after_seconds=45,
+        poller_stale_after_seconds=300,
+    )
+    assert verdict.outage is False
+
+
 # ── failing_parts: pure ──────────────────────────────────────────────────────
 
 
