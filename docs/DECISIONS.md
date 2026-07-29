@@ -2448,3 +2448,16 @@ noted: jarvis-run.exe is the same shim class — if refused at next start, DEPLO
 §1a records the signed-interpreter fallback for NSSM. Policy itself untouched: the
 host''s security posture is the owner''s, not the platform''s. Merge teardown before a
 verified main gate (this round) noted as a process slip; queue order restored.
+
+## Owner product directive (2026-07-29): YouTube, TikTok, E-commerce modules
+
+The owner directs incorporation of YouTube, TikTok, and E-commerce agent modules with
+content generation. Recorded as first-class candidates for the post-M10 roadmap,
+prioritized by the Phase 2 strategic review alongside Trading Intelligence. Architecture
+fit: three new business-type definitions on the M7 types-as-data engine; the affiliate
+module''s approval-gated publish flow is the inherited pattern (§15: audience publishing
+and commerce actions are approval-class). Design-time flags recorded: platform ToS /
+account-risk posture, external-integration owner gates (YouTube Data API, TikTok API
+restrictions, commerce APIs), e-commerce monetary actions in L2/L3 territory with the
+evaluation-harness precondition. Phase 2 research targets expanded accordingly. M10
+completion order unchanged (owner: do not blend phases).
