@@ -8,6 +8,17 @@ traces; one that starts degraded and shows a banner teaches them where to look.
 Diagnoses are written in the same register as the rest of the operator surface
 (§12.5): what it means and what to do, not which exception fired. The exception
 text is kept as `detail` for the drill-down.
+
+The checks themselves (`Status`, `ComponentHealth`, `check_database`,
+`check_temporal`, `check_llm`) now live in `jarvis/observability/checks.py`
+(M6-F44, M9-F155, packet DEBT-1): `jarvis/api/app.py`'s `/api/health` route
+asks the same three questions and, being M3, can never import this M5 module
+without violating `tests/test_layering.py` — so the one shared implementation
+had to move down to `jarvis.observability` (M1), reachable from both. Imported
+back here so every existing caller of `jarvis.shell.preflight` keeps working
+unchanged; `Posture`, `HealthReport`, and `run_preflight` stay in this module
+because they are preflight's own aggregation and posture, not a question
+either surface asks twice.
 """
 
 from __future__ import annotations
@@ -16,20 +27,17 @@ import asyncio
 from dataclasses import dataclass, field
 from enum import StrEnum
 
-from sqlalchemy import text
-
 from jarvis.kernel.container import PlatformKernel
 from jarvis.kernel.logging import get_logger
+from jarvis.observability.checks import (
+    ComponentHealth,
+    Status,
+    check_database,
+    check_llm,
+    check_temporal,
+)
 
 logger = get_logger(__name__)
-
-
-class Status(StrEnum):
-    """Health of one component."""
-
-    OK = "ok"
-    DEGRADED = "degraded"
-    DOWN = "down"
 
 
 class Posture(StrEnum):
@@ -55,22 +63,6 @@ class Posture(StrEnum):
     WAIT = "wait"
     """Retry preflight indefinitely; a dependency that is still starting is not
     a reason to give up. The service (`jarvis-run`)."""
-
-
-@dataclass(frozen=True, slots=True)
-class ComponentHealth:
-    """One component's status with a plain-language diagnosis."""
-
-    name: str
-    status: Status
-    summary: str
-    """What this means for the developer, one sentence."""
-
-    remedy: str = ""
-    """What to do about it, when there is something to do."""
-
-    detail: str = ""
-    """The underlying error text. Drill-down only."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,105 +100,6 @@ class HealthReport:
                 for c in self.components
             ],
         }
-
-
-async def check_database(kernel: PlatformKernel) -> ComponentHealth:
-    """Check the database is reachable, and separately, whether it's migrated.
-
-    These are two different failures and must be distinguished by what was
-    being attempted, never by matching an exception's message or class name.
-
-    A prior version tried to recognise "table doesn't exist yet" by checking
-    for ``"UndefinedTable"`` in the exception's class name and ``"no such
-    table"`` in its text. Both are SQLite-shaped assumptions: on Postgres,
-    SQLAlchemy wraps the driver error in ``ProgrammingError`` (so the class
-    name never matches) and the message reads "relation ... does not exist"
-    (so the text never matches either). The result was every fresh Postgres
-    database — the normal state on a first-ever launch, before migrations
-    have run — being reported DOWN instead of DEGRADED. The launcher then
-    retried a check that could never pass, silently, for two minutes, and
-    exited without ever starting the dashboard.
-
-    Fixed by structure instead of string-matching: a failure on ``SELECT 1``
-    is a real connectivity problem (DOWN, whatever the underlying error says).
-    A failure on the schema probe — reached only after connectivity already
-    succeeded — can only mean "reachable, not migrated yet" (DEGRADED), and
-    that is true regardless of which driver, wrapper, or wording produced it.
-    """
-    try:
-        async with kernel.session_factory() as session:
-            await session.execute(text("SELECT 1"))
-    except Exception as exc:
-        return ComponentHealth(
-            "database",
-            Status.DOWN,
-            "Jarvis can't reach its database.",
-            remedy="Is Docker running? `docker compose up -d` starts everything.",
-            detail=str(exc)[:300],
-        )
-
-    try:
-        async with kernel.session_factory() as session:
-            result = await session.execute(text("SELECT count(*) FROM business_instances"))
-            result.scalar()
-    except Exception as exc:
-        return ComponentHealth(
-            "database",
-            Status.DEGRADED,
-            "The database is reachable but not set up yet.",
-            remedy="Migrations will be applied automatically.",
-            detail=str(exc)[:300],
-        )
-    return ComponentHealth("database", Status.OK, "Database is ready.")
-
-
-async def check_temporal(kernel: PlatformKernel) -> ComponentHealth:
-    """Check the workflow runtime is reachable.
-
-    Down Temporal is DEGRADED, not DOWN: the dashboard, approvals, and company
-    management all work without it — companies just can't wake up and act, and
-    the shell must say exactly that.
-    """
-    client = await kernel.temporal_client()
-    if client is None:
-        return ComponentHealth(
-            "workflows",
-            Status.DEGRADED,
-            "Companies can't act right now — the part that runs them isn't reachable.",
-            remedy="Check `docker compose ps`; the temporal service may still be starting.",
-        )
-    return ComponentHealth("workflows", Status.OK, "Companies can run.")
-
-
-def check_llm(kernel: PlatformKernel) -> ComponentHealth:
-    """Check LLM configuration without spending a token, or leaving the process.
-
-    Shape only: is there a key, is a model named. Whether the named model is one
-    the provider actually serves is M9-F118's question and is deliberately *not*
-    asked here — this function runs on every `/api/health` poll, and a live
-    catalog read per poll would put an outbound request behind the one surface
-    an operator watches while the provider is down. That check belongs to
-    startup, runs once, and lives in `jarvis/llm/validation.py`; the worker
-    (`jarvis/runtime/worker.py`) is what acts on its verdict.
-    """
-    try:
-        kernel.settings.llm.require_api_key()
-    except Exception as exc:
-        return ComponentHealth(
-            "thinking",
-            Status.DEGRADED,
-            "Companies can't think yet — no model key is configured.",
-            remedy="Set JARVIS_LLM__API_KEY in .env, or use ollama for local-only.",
-            detail=str(exc)[:300],
-        )
-    if not kernel.settings.llm.model:
-        return ComponentHealth(
-            "thinking",
-            Status.DEGRADED,
-            "No model is configured.",
-            remedy="Set JARVIS_LLM__MODEL in .env.",
-        )
-    return ComponentHealth("thinking", Status.OK, "Model is configured.")
 
 
 async def run_preflight(kernel: PlatformKernel) -> HealthReport:
