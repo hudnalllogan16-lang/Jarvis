@@ -26,10 +26,12 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import httpx
+from pydantic import SecretStr
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import StaticPool
 
 from jarvis.api.app import create_app
+from jarvis.approvals.rendering import contains_technical_language
 from jarvis.kernel.config import LLMSettings, Settings
 from jarvis.kernel.container import PlatformKernel
 from jarvis.observability.heartbeat import HeartbeatStore, RuntimeIdentity
@@ -116,6 +118,76 @@ async def test_health_route_reports_supervisor_parts_under_the_launcher_topology
         assert response.status_code == 200
         body = response.json()
         assert body["parts"] == supplied_parts
+    finally:
+        await kernel.aclose()
+
+
+async def test_health_components_carry_no_internal_vocabulary() -> None:
+    """§12.5 static guard, scoped to `/api/health` (P0-H).
+
+    Nothing previously scanned this route's *assembled* response — which is
+    exactly how the "temporal service" leak in `workflows_component`'s
+    remedy (`jarvis/observability/checks.py`) shipped unnoticed until this
+    packet flagged and fixed it. `contains_technical_language` reuses the
+    one FORBIDDEN list every other surface is already checked against
+    (`test_executive_liveness.py`, `test_operator_language.py`) — "temporal"
+    is already on it, so this closes the gap by pointing the same guard at
+    a surface it never reached, rather than inventing a second list.
+
+    "postgres"/"redis" are backend datastore names in the same class as
+    "temporal" but nothing currently emits them, so they are not added to
+    the shared FORBIDDEN list (that would widen every other surface's scan
+    for a term with no live occurrence) — checked directly here instead,
+    where a health route is exactly the place such a name would leak from
+    next. "docker" is deliberately not checked: `docker compose up -d`/`ps`
+    are the operator's own deployment commands on a self-hosted product,
+    already shipped in the database remedy (checks.py) — user-facing
+    tooling, not an internal mechanism name.
+    """
+    kernel = await _kernel()
+    try:
+        transport = httpx.ASGITransport(app=create_app(kernel))
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get("/api/health")
+        body = response.json()
+        assert body["components"], "nothing to check — the route's shape changed"
+        for component in body["components"]:
+            for field in ("summary", "remedy"):
+                text = component[field]
+                assert not contains_technical_language(text), (
+                    f"{component['name']}.{field} leaks forbidden vocabulary: {text!r}"
+                )
+                lowered = text.lower()
+                for term in ("postgres", "redis"):
+                    assert term not in lowered, (
+                        f"{component['name']}.{field} names a backend datastore: {text!r}"
+                    )
+    finally:
+        await kernel.aclose()
+
+
+async def test_thinking_check_names_the_model_remedy_not_the_key_remedy() -> None:
+    """M10-F40: a key set but no model named must remedy the model, not the
+    key — the api's inline copy (`jarvis/api/app.py`) had drifted onto the
+    key remedy for this case, which `jarvis/observability/checks.py::
+    check_llm` (the DEBT-1 unification's reference implementation) already
+    had right. Pins the corrected text so the two cannot drift again
+    unnoticed; the two checks stay hand-kept duplicates for now (DEBT-1's
+    flagged, not-yet-decided fold)."""
+    kernel = await _kernel()
+    kernel.settings.llm.api_key = SecretStr("fake-key")
+    kernel.settings.llm.model = ""
+    try:
+        transport = httpx.ASGITransport(app=create_app(kernel))
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get("/api/health")
+        body = response.json()
+        thinking = next(c for c in body["components"] if c["name"] == "thinking")
+        assert thinking["status"] == "degraded"
+        assert thinking["summary"] == "No model is configured."
+        assert thinking["remedy"] == "Set JARVIS_LLM__MODEL in .env.", (
+            "the model-missing case must not print the API-key remedy (M10-F40)"
+        )
     finally:
         await kernel.aclose()
 

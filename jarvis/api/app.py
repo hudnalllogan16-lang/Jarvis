@@ -1082,13 +1082,15 @@ def create_app(
         already closed by the parts-provider fix above).
 
         The model-configuration ("thinking") check stays a hand-kept inline
-        duplicate for now: `jarvis/shell/preflight.py::check_llm` and this
-        route's inline copy have already drifted (the inline copy prints
-        the API-key remedy in the "key set, no model named" case, not the
-        model remedy) — moving to the shared implementation would correct
-        that message, which is an observable behaviour change packet
-        DEBT-1 requires flagging rather than shipping silently. Recorded for
-        a follow-up decision; not fixed here.
+        duplicate for now: DEBT-1 found `jarvis/observability/checks.py::
+        check_llm` and this route's inline copy had drifted (the inline
+        copy printed the API-key remedy in the "key set, no model named"
+        case, not the model remedy) and flagged rather than folding it into
+        the shared implementation silently, since that fold is itself an
+        observable behaviour change. **M10-F40 (P0-H):** the drift is fixed
+        here, text-only — the three-branch remedy below now matches
+        `check_llm`'s verbatim. Whether this check moves onto the shared
+        implementation is still a separate, undecided follow-up.
         """
         components: list[dict[str, object]] = []
         down = await check_database_reachable(kernel)
@@ -1121,17 +1123,19 @@ def create_app(
             kernel.settings.llm.require_api_key()
             thinking_ok = bool(kernel.settings.llm.model)
             thinking_summary = "Model is configured." if thinking_ok else "No model is configured."
+            # M10-F40: a key without a named model needs the model remedy,
+            # not the key remedy — the two cases were sharing one message.
+            thinking_remedy = "" if thinking_ok else "Set JARVIS_LLM__MODEL in .env."
         except Exception:
             thinking_ok = False
             thinking_summary = "Companies can't think yet — no model key is configured."
+            thinking_remedy = "Set JARVIS_LLM__API_KEY in .env, or use ollama for local-only."
         components.append(
             {
                 "name": "thinking",
                 "status": "ok" if thinking_ok else "degraded",
                 "summary": thinking_summary,
-                "remedy": ""
-                if thinking_ok
-                else "Set JARVIS_LLM__API_KEY in .env, or use ollama for local-only.",
+                "remedy": thinking_remedy,
             }
         )
 

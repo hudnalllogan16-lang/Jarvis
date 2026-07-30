@@ -143,7 +143,12 @@ def workflows_component(client: object | None) -> ComponentHealth:
             "workflows",
             Status.DEGRADED,
             "Companies can't act right now — the part that runs them isn't reachable.",
-            remedy="Check `docker compose ps`; the temporal service may still be starting.",
+            # §12.5: never the runtime's own name (P0-H flag) — "background
+            # service" is the same plain phrase `jarvis.executive.liveness`
+            # uses for the identical fact ("Start Jarvis's background
+            # service"), so an operator meets one term for one thing on
+            # every surface that says it.
+            remedy="Check `docker compose ps`; a background service may still be starting.",
         )
     return ComponentHealth("workflows", Status.OK, "Companies can run.")
 
