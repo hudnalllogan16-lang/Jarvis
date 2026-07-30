@@ -2514,3 +2514,14 @@ one, so the old per-part reduction fell through to dead generations'' markers.
 assess_runtime_liveness verified immune (reduces worker only) with a regression test
 rather than an assumption. Teardown-after-green restored per the M10-F36 process slip.
 Running service carries the fix at next restart; closeout restart will verify ok:true.
+
+## debt-1 merged at 1458 — M8-F44/M9-F155 closed; M10-F40 recorded (2026-07-29)
+
+Preflight/health questions unified into jarvis/observability/checks.py — the one
+package both surfaces may import under the milestone layering (the layering constraint
+IS why the duplication existed). Renderings byte-identical; preflight''s own
+aggregation (Posture/HealthReport) stays its own. The stop-and-report clause fired:
+**M10-F40 (minor, implementation)** — the api copy of the thinking check has drifted
+remedy text ("key set, no model named" case), so unifying it would change /api/health
+output; left duplicated + flagged in the route docstring. Fix rides after p0-h merges
+(that lane owns app.py operator strings right now — no cross-lane collision).
