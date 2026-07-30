@@ -47,6 +47,7 @@ from jarvis.kernel.ids import BusinessId, BusinessTypeName, DecisionId, new_deci
 from jarvis.kernel.logging import get_logger
 from jarvis.kpi.engine import KpiEngine
 from jarvis.notifications.service import NotificationService
+from jarvis.observability.checks import check_database_reachable, workflows_component
 from jarvis.observability.heartbeat import HeartbeatStore, summarise_runtime_health
 from jarvis.observability.poller import UNREACHABLE_POLLER_READING, summarise_worker_health
 from jarvis.persistence.models import DeadLetterRow
@@ -1070,29 +1071,34 @@ def create_app(
         rather than 404ing as it did pre-M6-5a.
 
         `jarvis.shell` is milestone 5 and this package is milestone 3
-        (`tests/test_layering.py`), so the checks below intentionally do not
-        import `jarvis.shell.preflight` — that would be a forward import
-        outside a composition root. They are the same three checks
-        (database, workflow runtime, model configuration) against the same
-        `PlatformKernel`, kept in sync by hand; genuinely sharing one
-        implementation across both milestones is an architecture question
-        (moving the check or exempting this file), not a small fix, so it
-        remains flagged rather than decided here (M8-F44/M9-F155) — this fix
-        advances that unification by collapsing the *route* duplication that
-        was blocking the parts wiring; the *check-logic* duplication is
-        untouched.
+        (`tests/test_layering.py`), so this route can never import
+        `jarvis.shell.preflight` directly — that would be a forward import
+        outside a composition root. The database-reachable and workflow-
+        runtime questions below now share their one implementation with
+        `jarvis/shell/preflight.py` via `jarvis/observability/checks.py`
+        (M1 — reachable from both M3 and M5 without violating layering),
+        closing the *check-logic* half of M6-F44/M9-F155's flagged
+        duplication for those two checks (the *route* duplication was
+        already closed by the parts-provider fix above).
+
+        The model-configuration ("thinking") check stays a hand-kept inline
+        duplicate for now: `jarvis/shell/preflight.py::check_llm` and this
+        route's inline copy have already drifted (the inline copy prints
+        the API-key remedy in the "key set, no model named" case, not the
+        model remedy) — moving to the shared implementation would correct
+        that message, which is an observable behaviour change packet
+        DEBT-1 requires flagging rather than shipping silently. Recorded for
+        a follow-up decision; not fixed here.
         """
         components: list[dict[str, object]] = []
-        try:
-            async with kernel.services() as svc:
-                await svc.session.execute(text("SELECT 1"))
-        except Exception:
+        down = await check_database_reachable(kernel)
+        if down is not None:
             components.append(
                 {
-                    "name": "database",
-                    "status": "down",
-                    "summary": "Jarvis can't reach its database.",
-                    "remedy": "Is Docker running? `docker compose up -d` starts everything.",
+                    "name": down.name,
+                    "status": down.status.value,
+                    "summary": down.summary,
+                    "remedy": down.remedy,
                 }
             )
         else:
@@ -1101,22 +1107,15 @@ def create_app(
             )
 
         client = await kernel.temporal_client()
-        if client is None:
-            components.append(
-                {
-                    "name": "workflows",
-                    "status": "degraded",
-                    "summary": (
-                        "Companies can't act right now — the part that runs them isn't reachable."
-                    ),
-                    "remedy": "Check `docker compose ps`; the temporal service may still "
-                    "be starting.",
-                }
-            )
-        else:
-            components.append(
-                {"name": "workflows", "status": "ok", "summary": "Companies can run.", "remedy": ""}
-            )
+        workflows = workflows_component(client)
+        components.append(
+            {
+                "name": workflows.name,
+                "status": workflows.status.value,
+                "summary": workflows.summary,
+                "remedy": workflows.remedy,
+            }
+        )
 
         try:
             kernel.settings.llm.require_api_key()
