@@ -194,6 +194,37 @@ automation, ad arbitrage risk profile.
   agentic flows"** — even well-funded agentic UX is unfinished at the edges
   ([toolsstackai](https://toolsstackai.com/perplexity-comet-browser-review-2026/)).
 
+### Workflow-agent platforms (2026-07-29) — where operator income is actually built
+- Positioning per 2026 comparisons: **Zapier** = enterprise scale (9,000+ integrations,
+  81B tasks lifetime, "governance that will pass a security review"); **Gumloop** =
+  AI-native, unstructured data, from $37/mo; **Relay.app** = **approval-based
+  human-in-loop workflows as the selling point**, from $19/mo; n8n = developer control
+  ([zapier](https://zapier.com/blog/best-ai-agent-builder/),
+  [relay](https://www.relay.app/blog/best-ai-agent-builders),
+  [gosearch](https://www.gosearch.ai/blog/gumloop-pricing-and-alternatives/)).
+- Evidence-level note: two of the four leaders sell *oversight* (Zapier governance,
+  Relay approvals) as the differentiator — the market prices human-in-loop as a
+  feature, not a limitation.
+- Receipt-hunt pass 2 (site:reddit income proof): again surfaced course-sellers and
+  vendor content, zero public P&Ls. The scarcity finding hardens.
+
+### Agentic commerce protocol stack (2026-07-29) — e-commerce module integration path
+- **ACP** (OpenAI+Stripe, open standard on GitHub): agent checkout. First major deploy:
+  ChatGPT Instant Checkout with US Etsy sellers (2026-02); **OpenAI scaled back in-chat
+  purchasing 2026-03** toward an app model — consumer agentic buying is not yet a
+  solved behavior. Backers: Stripe, Salesforce, Shopify, PayPal
+  ([github/ACP](https://github.com/agentic-commerce-protocol/agentic-commerce-protocol),
+  [digitalapplied](https://www.digitalapplied.com/blog/agentic-commerce-standards-ucp-acp-ap2-2026-merchant-guide)).
+- **AP2** (Google → FIDO Alliance, v0.2 donated 2026-04-28): **cryptographic mandates
+  proving an agent acted with the user's consent** — verifiable credentials, tamper-
+  evident. The industry standardizing exactly the problem Jarvis's §15 approval model
+  solves internally ([crossmint](https://www.crossmint.com/learn/agentic-payments-protocols-compared)).
+- Rails: MPP mainnet 2026-03-18 (100+ services; Stripe/Visa/**Anthropic**/OpenAI/
+  Shopify/Mastercard partnerships); Visa Intelligent Commerce Connect (protocol-
+  agnostic, 2026-04-08); Mastercard Agent Pay
+  ([appliedtechnologyindex](https://appliedtechnologyindex.com/research/2026-comparative-analysis-agentic-commerce-payment-protocols/)).
+- The stack is designed to compose: ACP = the checkout, AP2 = the consent proof.
+
 ### Self-hosted stack (2026-07-29) — the free-tier competitor
 - Canonical 2026 homelab stack: **Ollama + Open WebUI + n8n** (+Qdrant/ComfyUI);
   production-ready per practitioner consensus; claimed 60–80% cheaper than API pricing
