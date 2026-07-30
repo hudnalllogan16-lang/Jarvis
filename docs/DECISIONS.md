@@ -2547,3 +2547,13 @@ decision — the drift that blocked DEBT-1 is gone, the decision is not presumed
 /api/health copy test reuses the single-sourced FORBIDDEN vocabulary list + direct
 postgres/redis checks; "docker" deliberately excluded — it is the operator''s own
 deployment command. Lane torn down after green. Surface work for M10: COMPLETE.
+
+## Soak checkpoint 2 (15h, 2026-07-30 06:20Z) — pristine
+
+180/180 samples nominal (single PID 46668, ready 200, workers ok, service Running;
+the ok:false cosmetic remains explained by M10-F39, fix merged, awaiting restart).
+Memory 62.3-150.5MB with last=72 — healthy OS-trimmed sawtooth, no leak signature.
+Nine more hourly fires, every lateness 0, dispatch latency IMPROVED overnight
+(18s -> 6.5s steady). One notification: the graduated spending ladder''s "close to
+its spending limit" — third rung firing in order (half -> close -> cap pending).
+Zero anomalies. ~9h remain.
