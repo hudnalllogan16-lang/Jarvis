@@ -2537,3 +2537,13 @@ repeat; and P0-C''s provisional OUTAGE_BODY brought from mechanism-flavored copy
 consequence+instruction voice. New flag: the workflows remedy leaks "temporal service"
 vocabulary. Warm follow-up round dispatched on the same lane: M10-F40 remedy-drift fix
 + the vocabulary leak + a static no-internal-vocabulary copy test.
+
+## p0-h round 2 merged at 1460 — M10-F40 closed; vocabulary ban now a test (2026-07-29)
+
+Thinking-check remedy now branches per case, verbatim-matched to checks.py::check_llm
+and pinned by test (the two stay deliberately duplicated pending a separate unification
+decision — the drift that blocked DEBT-1 is gone, the decision is not presumed).
+"temporal service" leak fixed to the established "a background service" phrase. Static
+/api/health copy test reuses the single-sourced FORBIDDEN vocabulary list + direct
+postgres/redis checks; "docker" deliberately excluded — it is the operator''s own
+deployment command. Lane torn down after green. Surface work for M10: COMPLETE.
