@@ -98,11 +98,19 @@ export function tileRow(summary, approvals, companies) {
 
   return (
     tile({
+      // `0 of 0` is a zero that means nothing (design 06-components.md's own
+      // tile rule, already kept by the company workspace's Goals tile below)
+      // — a fresh install with no companies yet gets `—`, never a duplicated
+      // zero, and "all running" (true of an empty set by accident) gives way
+      // to the same "no companies yet" the roster grid already says
+      // (M9-9 minors, P0-H).
       label: 'Companies',
-      value: `${summary.running} of ${summary.companies}`,
-      context: paused
-        ? `${esc(paused)} ${plural(paused, 'paused', 'paused')}`
-        : 'all running',
+      value: summary.companies ? `${summary.running} of ${summary.companies}` : '—',
+      context: !summary.companies
+        ? 'no companies yet'
+        : paused
+          ? `${esc(paused)} ${plural(paused, 'paused', 'paused')}`
+          : 'all running',
     }) +
     tile({
       label: 'Needs your OK',
@@ -124,17 +132,23 @@ export function tileRow(summary, approvals, companies) {
     }) +
     tile({
       label: 'Needs a look',
-      value: needLook,
+      // A roster of zero companies is not evidence that zero need a look —
+      // it is no evidence at all, the same "genuinely has no value" case the
+      // Companies tile above now renders `—` for, rather than the confident
+      // "all companies healthy" a portfolio with no companies in it cannot
+      // actually claim (M9-9 minors, P0-H).
+      value: summary.companies ? needLook : '—',
       // Never-measured is reported even when nothing needs a look (D-039:
       // its own count, folded into neither `healthy` nor a look-worthy band)
       // — a portfolio can be "nothing wrong" and "one company unmeasured" at
       // once, and the second fact must not go silent just because the first
       // one is good news.
-      context:
-        needLook || census.never_measured
+      context: !summary.companies
+        ? 'no companies yet'
+        : needLook || census.never_measured
           ? censusContext(census, companies)
           : 'all companies healthy',
-      tone: needLook ? (anyAtRisk ? 'attention' : 'watch') : 'healthy',
+      tone: !summary.companies ? '' : needLook ? (anyAtRisk ? 'attention' : 'watch') : 'healthy',
     })
   );
 }

@@ -234,8 +234,8 @@ def failing_parts(beats: Any, *, part_failing_after_crashes: int) -> tuple[str, 
     )
 
 
-# ── operator copy (illustrative shape per design 3.5; §12.5 gated by
-#    operator-surface-engineer — provisional pending that review) ───────────
+# ── operator copy (illustrative shape per design 3.5; §12.5 pass landed
+#    packet P0-H — operator-surface-engineer) ───────────────────────────────
 
 PART_LABELS: Final[dict[str, str]] = {
     "api": "Jarvis's dashboard",
@@ -251,15 +251,22 @@ FORBIDDEN`), and every one of these values is checked against it
 
 OUTAGE_TITLE: Final[str] = "Nothing has been running your companies"
 OUTAGE_BODY: Final[str] = (
-    "The part of Jarvis that runs your companies has stopped responding. Start "
-    "Jarvis's background service, and your companies will pick up where they "
-    "left off."
+    "Your companies are waiting on it. Start Jarvis's background service, and "
+    "they'll pick up where they left off."
 )
 """Mirrors design 3.5's own illustration as closely as an implementation can:
-"Nothing has been running your companies for 13 hours... Start Jarvis's
-background service, and they will pick up where they left off." No duration
-in the *start* notice — the platform cannot yet know how long this will
-last; the duration belongs to the recovery notice below, once it is a fact."""
+"Nothing has been running your companies for 13 hours... Three companies are
+waiting to work. Start Jarvis's background service, and they will pick up
+where they left off." No duration and no company count in the *start*
+notice — the platform cannot yet know how long this will last, and naming a
+count here is a figure `_recovered_body` already owns once it is a fact
+(D-011: never a number the caller did not read). §12.5 pass (P0-H): the
+title already states what happened (nothing has been running); the body
+does not repeat it in mechanism language ("stopped responding" read as a
+diagnosis, not a state — the same register `_recovered_body` and
+`LATE_WAKE_BODY` avoid with "wasn't running") — it states the consequence
+and the one thing to do, same shape as design's own illustration with the
+company count dropped for the reason above."""
 
 RECOVERED_TITLE: Final[str] = "Jarvis is running again"
 

@@ -506,7 +506,7 @@ async def test_a_crash_looping_part_is_announced_again_after_being_read(session)
     assert len([n for n in await notifications.unread() if "isn't recovering" in n.title]) == 1
 
 
-# ── copy: §12.5 (provisional pending operator-surface-engineer review) ──────
+# ── copy: §12.5 (voice pass landed packet P0-H — operator-surface-engineer) ─
 
 
 def test_outage_copy_carries_no_technical_vocabulary() -> None:
