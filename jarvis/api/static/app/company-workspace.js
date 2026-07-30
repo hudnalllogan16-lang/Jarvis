@@ -55,10 +55,15 @@ function goalLine(g) {
   // `measurement()` rounds to a size that reads as a reading rather than raw
   // float noise (M9-3 surface backlog, M9-F46: "0.0005 hours since last
   // check" for data freshness) — applied to every goal, not just freshness's.
+  //
+  // `unit` is stated once, on the measured reading, not a second time on the
+  // target — "3 reports · goal is at least 4 reports" stutters over a word
+  // that cannot differ between the two halves of the same line (M9-9
+  // minors, P0-H).
   return `<div class="entry"><p>${esc(g.label)}</p>
      <p class="entry__why">${esc(measurement(g.measured))} ${esc(g.unit)} &middot; goal is ${goal} ${esc(
        measurement(g.target),
-     )} ${esc(g.unit)}</p>${trendMark(g)}</div>`;
+     )}</p>${trendMark(g)}</div>`;
 }
 
 // When every target is still unmeasured, one clean sentence replaces what
