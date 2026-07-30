@@ -194,6 +194,43 @@ automation, ad arbitrage risk profile.
   agentic flows"** — even well-funded agentic UX is unfinished at the edges
   ([toolsstackai](https://toolsstackai.com/perplexity-comet-browser-review-2026/)).
 
+### Self-hosted stack (2026-07-29) — the free-tier competitor
+- Canonical 2026 homelab stack: **Ollama + Open WebUI + n8n** (+Qdrant/ComfyUI);
+  production-ready per practitioner consensus; claimed 60–80% cheaper than API pricing
+  at scale, "replaces $200+/mo of SaaS"
+  ([jameskilby](https://jameskilby.co.uk/2026/03/my-self-hosted-ai-stack-a-technical-deep-dive/),
+  [meshworld](https://meshworld.in/blog/ai/self-hosted-ai-stack-2026/)).
+- **n8n: 160k+ GitHub stars**, adopted in fintech/healthcare/legal for compliance
+  control; challenges Zapier/Make with enterprise capability at SMB cost
+  ([dev.to](https://dev.to/signal-weekly/the-homelab-ai-stack-in-2026-what-self-hosters-are-actually-running-2d58)).
+  The workflow-automation layer most "AI agency" operators actually sell on.
+
+### Agentic UX patterns (2026-07-29) — the trust literature
+- **NN/g: "trust, not capability, is the bottleneck" — named the central AI design
+  problem of 2026.** The designer's job shifts to "designing trust, control, and
+  recovery" ([procreator](https://medium.com/procreator-design/what-are-the-must-know-agentive-design-patterns-for-2026-21cf34839a01)).
+- Five patterns cited for every enterprise agent: **planning visibility, tool-use
+  disclosure, memory surfacing, multi-step workflow tracking, recovery routing**
+  ([mantlr](https://mantlr.com/blog/designing-for-ai-agents-ux-patterns-2026)).
+- Explainability-on-demand (clarity without bombardment); **sandbox mode** for
+  consequence-free trials in regulated domains; the golden rule: "users should always
+  feel like they're driving, even when the agent does the work"
+  ([eleken](https://www.eleken.co/blog-posts/agentic-ux-examples),
+  [studiomaydit](https://studiomaydit.com/blog/agentic-ux-design-guide)).
+
+### Agent memory layer (2026-07-29)
+- Category leaders: **Letta (MemGPT)** — three-tier memory (core in-context / recall
+  searchable / archival vector), agent-managed via explicit calls, "OS-inspired agent
+  runtime"; **Mem0** — extraction-based memory across vector + KV + graph backends,
+  framework-agnostic, user/session/agent hierarchy
+  ([vectorize](https://vectorize.io/articles/mem0-vs-letta),
+  [atlan](https://atlan.com/know/best-ai-agent-memory-frameworks-2026/)).
+- Production benchmark spread: five patterns trading 72.9% accuracy @ 17.1s p95 against
+  66.9% @ 1.4s — memory quality vs latency is a real product axis
+  ([mem0 report](https://mem0.ai/blog/state-of-ai-agent-memory-2026)).
+- Research edge: persona drift detection, memory sycophancy benchmarks (arXiv 2605/2607)
+  — memory failure modes are becoming measurable.
+
 ### The "$10k+/mo cloud AI business OS" genre, decoded (2026-07-29)
 
 The claims circulating on YouTube/Instagram resolve into three distinct layers whose
