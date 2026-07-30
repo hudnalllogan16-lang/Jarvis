@@ -1,11 +1,23 @@
 # M10 Closeout Report — Operational Readiness
 
-**STATUS: DRAFT — soak in progress; sections marked ⏳ complete after soak analysis
-(~2026-07-30 15:20Z). Nothing in this document is asserted until the draft marker is
-removed.**
+Closed 2026-07-30. Every claim in this document cites a measurement; the evidence
+record is docs/reports/M10-VALIDATION.md + M10-SOAK.md.
 
-## Executive Summary ⏳
-(Written last, from evidence only.)
+## Executive Summary
+
+M10 asked one question: can Jarvis run without anyone watching? The answer is now a
+measurement, not an argument. The platform ran as a Windows service for 24 unattended
+hours on a single PID: 288/288 health samples nominal, 24/24 wall-clock fires at a
+cumulative zero seconds of lateness, no leak, no restarts, and a silent-failure diff
+that closes at exactly zero — the one failed round produced its operator notification
+in the same second. Before the soak, the validation matrix demonstrated 6-second
+kill-recovery, honest degradation through a real 10-minute dependency outage, a missed
+fire served once with its lateness recorded, and the owner's headline criterion:
+opening and closing the desktop console does nothing, because the desktop application
+is now an operator console and the platform is a service. Validation found five
+defects; four were root-caused and merged the same day they were found; the fifth is
+recorded with a deferral reason. Tests grew 975 → 1460. The milestone is recommended
+for ratification.
 
 ## Objectives Completed
 
@@ -42,10 +54,12 @@ V1/V3 out of M10 scope by owner ruling 2026-07-29 (cold-boot recovery without us
 login is an infrastructure decision for the next-phase deployment evaluation, not an
 engineering deficiency); late-wake SKIP branch fixture-covered, live drill optional.
 
-## Soak Test Results ⏳
-(24h record: docs/reports/M10-SOAK.md — written from soak.csv + audit/notification
-diff after completion. Checkpoint 1 at 6h: single PID, flat memory, six fires at 0s
-lateness, spending notices correct; M10-F39 found and fixed same-day.)
+## Soak Test Results
+
+**docs/reports/M10-SOAK.md — 288/288 nominal, one PID, 24 fires at 0s total lateness,
+zero silent failures, zero anomalies.** The soak's one finding (M10-F39) was caught at
+checkpoint 1, root-caused, fixed, and merged mid-soak without touching the running
+process.
 
 ## Defects Found by Validation (all same-day root-caused)
 
@@ -57,13 +71,27 @@ lateness, spending notices correct; M10-F39 found and fixed same-day.)
 | M10-F39 health reads superseded heartbeat generations | implementation | fixed, merged 1457 |
 | Manager clock misread (premature V6 restart) | operational (process) | recorded; cost 2 elevations; teardown-after-green restored |
 
-## Performance Observations ⏳
-(Memory slope, fire dispatch latencies, recovery timings — from soak.csv.)
+## Performance Observations
 
-## Remaining Risks ⏳
-(Drafted after soak; known now: in-band alerting cannot report its own host's death
-(design 9.1 — external notifier is M11 scope); single-runtime assumption (9.3); V1/V3
-unmeasured pending infrastructure decision; sustained-unknown escalation question.)
+Memory: 62–150 MB working set, mean 104, no growth trend across 24h. Fire dispatch:
+6–19s after the boundary, improving as caches warmed. Kill-to-recovery: 6s (NSSM
+AppRestartDelay 5000 + spawn). Dependency-outage recovery: pollers reconnected within
+~2 minutes of Temporal's return, unassisted. Suite runtime ~3.5 min at 1460 tests.
+
+## Remaining Risks
+
+1. **In-band alerting cannot report its own host's death** (design 9.1, accepted):
+   a dead runtime is loudly visible *afterwards* with a duration; a *present* outage
+   is visible only to an operator who looks. External notifier is next-phase scope.
+2. **Single-runtime assumption** (design 9.3): schema records enough to detect a
+   second instance; nothing coordinates one.
+3. **V1/V3 unmeasured** on this host — cold-boot recovery without login awaits the
+   deployment-architecture decision (owner ruling: infrastructure, not engineering).
+4. **Sustained-unknown escalation** open question: a long dependency blindness never
+   notifies (by design); whether it eventually should is a recorded surface question.
+5. **Host environmental drift is real** (M10-F36): the OS changed its execution policy
+   mid-campaign. DEPLOYMENT.md carries the fallback; the next-phase deployment
+   evaluation should weigh managed environments partly on this evidence.
 
 ## Deferred Work & Technical Debt Update
 
@@ -77,13 +105,64 @@ runner/build tooling retrospective; L3 actor attribution (owner-acknowledged).
 Closed this milestone from the register: M8-F44/M9-F155 (DEBT-1), M9-F92, M10-F2/F3/
 F4/F5/F7/F14, consent labels + copy minors (P0-H).
 
-## Lessons Learned ⏳
-(Includes: the soak found what no test found; validation instruments need the same
-rigor as code (Invoke-WebRequest, clock misread); environmental drift (App Control)
-is a real mid-campaign actor.)
+## Lessons Learned
 
-## Readiness Assessment vs the Owner's Six Criteria ⏳
+1. **The soak found what 1457 tests did not.** M10-F39 is invisible to any single-run
+   test — it requires a *history* of runtime generations. Long-window validation is
+   now a proven tool, not a formality.
+2. **Validation instruments need the same rigor as the code.** Two instrument failures
+   this campaign (a keep-alive-cached HTTP probe that mis-reported a 6-second recovery
+   as 90+ seconds; a Manager clock misread that wasted two elevations) — both recorded,
+   both now protocol: curl for probes, timestamps checked against the actual clock.
+3. **The environment is an actor.** Smart App Control began enforcing mid-campaign and
+   blocked the test runner's shim. Deployment docs now treat OS policy drift as a
+   first-class failure mode.
+4. **Dedup is not silence.** The notification diff only closes because the design
+   distinguishes "one unanswered notice per company" from "a notice per event" — and
+   records the count where counts belong. This distinction is what made "zero silent
+   failures" *provable*.
 
-## Trading / Modules Gate Recommendation ⏳
+## Readiness Assessment vs the Owner's Criteria
 
-## Ratification Recommendation ⏳
+The owner's criterion (M9 ratification directive): launch yields runtime init, worker,
+scheduler, executive, business activation, Manager orchestration, dispatch, autonomous
+scheduling, continuous health monitoring — without the desktop app remaining open; the
+desktop becomes an operator console.
+
+| Element | Evidence |
+|---|---|
+| Runtime init, worker, scheduler, executive | Service preflight + parts running (V0, soak: 288/288) |
+| Business activation | V5 probe created via API against the headless service; activated; scheduled; ran 24+ cycles |
+| Manager orchestration + dispatch | 24/24 fires dispatched to cycles (decision log) |
+| Autonomous scheduling | Wall-clock cron at 0s cumulative lateness (V5 + soak) |
+| Continuous health monitoring | Heartbeats, poller verdict, spending ladder, failure notices — all firing unattended |
+| Desktop app not required | The service ran 24h with no console; V7: console open/close has zero effect |
+
+**Assessment: operationally ready, with the three recorded boundaries** (host-death
+out-of-band alerting, single-runtime, cold-boot pending infrastructure). Readiness is
+asserted for exactly what was measured: unattended operation on a logged-in Windows
+host under NSSM.
+
+## Trading / Modules Gate Recommendation
+
+**Phase 0's gate on Trading Intelligence is satisfied: operational readiness is
+demonstrated and no longer blocks it.** What remains in front of Trading are its own
+preconditions, unchanged from the M9 record: the evaluation sub-ceiling before any
+judgment model call, lineage shipping with its first producer, and prioritization —
+the owner has since directed YouTube/TikTok/e-commerce/content module candidates,
+and the Phase 2 review exists to rank them against Trading on evidence. Recommendation:
+ratify M10, run Phase 2, and let the roadmap decision be made there — with the gate
+now open on operational grounds.
+
+## Ratification Recommendation
+
+**RECOMMEND: ratify M10 and tag m10-baseline.** All Phase 0 objectives met and
+demonstrated; validation matrix measured; soak clean; five defects found, four fixed
+same-day, one deferred with record; debt register reduced (M8-F44, M9-F92, M9-F155,
+M10-F2/F3/F4/F5/F7/F14/F40 closed); tests 975 → 1460; gates green at every merge.
+Post-ratification mechanics: one elevated service restart (deploys the five merged
+post-install fixes; verifies ok:true — the F39 check), tag, push per owner
+authorization. The nine owner deliverables are indexed by this document: readiness
+report (this + VALIDATION + SOAK), implementation summary (§Objectives), architecture
+delta (§Architecture), validation results, soak results, remaining risks, debt update
+(§Deferred), readiness assessment, gate recommendation — all committed.

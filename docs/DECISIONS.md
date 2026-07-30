@@ -2557,3 +2557,15 @@ Nine more hourly fires, every lateness 0, dispatch latency IMPROVED overnight
 (18s -> 6.5s steady). One notification: the graduated spending ladder''s "close to
 its spending limit" — third rung firing in order (half -> close -> cap pending).
 Zero anomalies. ~9h remain.
+
+## SOAK COMPLETE — M10 closeout package delivered (2026-07-30)
+
+24h soak: 288/288 samples nominal, one PID, 24/24 fires at ZERO cumulative lateness,
+memory sawtooth no-leak, zero anomalies, silent-failure diff closes at zero (the one
+failed round notified the same second; dedup per §12.5 with counts in the decision
+log). M10-SOAK.md + the completed M10-CLOSEOUT.md are the record; the closeout indexes
+all nine owner deliverables. Assessment: operationally ready with three recorded
+boundaries. Trading gate: Phase 0 no longer blocks; remaining preconditions are
+Trading''s own + Phase 2 prioritization vs the owner''s module directive.
+**RECOMMENDATION TO OWNER: ratify M10, tag m10-baseline** (then: one elevated restart
+to deploy post-install fixes + verify ok:true, tag, push per authorization).
