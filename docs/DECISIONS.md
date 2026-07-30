@@ -2525,3 +2525,15 @@ aggregation (Posture/HealthReport) stays its own. The stop-and-report clause fir
 remedy text ("key set, no model named" case), so unifying it would change /api/health
 output; left duplicated + flagged in the route docstring. Fix rides after p0-h merges
 (that lane owns app.py operator strings right now — no cross-lane collision).
+
+## p0-h merged at 1458 — the owed M10 surface pass (2026-07-29)
+
+Two residuals verified ALREADY CLOSED against their records (consent labels ratified
+unchanged since M9-2; the 0.0005 phrasing fixed at M9-F101) — the lane refused to
+invent deltas. Three real fixes: the Companies/Needs-a-look tiles asserted "all
+running"/"all companies healthy" over a ZERO-company roster (violating the tile''s own
+documented null rule — now em-dash + "no companies yet"); the per-goal unit-word
+repeat; and P0-C''s provisional OUTAGE_BODY brought from mechanism-flavored copy to
+consequence+instruction voice. New flag: the workflows remedy leaks "temporal service"
+vocabulary. Warm follow-up round dispatched on the same lane: M10-F40 remedy-drift fix
++ the vocabulary leak + a static no-internal-vocabulary copy test.
