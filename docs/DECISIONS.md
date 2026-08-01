@@ -2569,3 +2569,24 @@ boundaries. Trading gate: Phase 0 no longer blocks; remaining preconditions are
 Trading''s own + Phase 2 prioritization vs the owner''s module directive.
 **RECOMMENDATION TO OWNER: ratify M10, tag m10-baseline** (then: one elevated restart
 to deploy post-install fixes + verify ok:true, tag, push per authorization).
+
+## V8 — unplanned 6h38m dependency outage survived and self-healed (2026-08-01)
+
+Docker Desktop stopped on the host 2026-07-31 (no user session — the M10-F11 scenario
+exactly), removing Postgres/Redis/Temporal. The service NEVER DIED: PID 26888 held, no
+NSSM respawn, WAIT posture logging "down: [database]" with a running counter every ~2
+minutes for 23,905 seconds, refusing to write heartbeats it could not honestly write
+and pausing event-based wakes with a stated reason. On dependency return: preflight and
+serving within THIRTEEN SECONDS, no restart, no human action beyond starting Docker.
+The DEPLOYMENT.md WAIT/attach claim is now measured, not asserted.
+
+**M10-F39 verified in production, unplanned:** six runtime generations now exist (five
+superseded) and health reads ok:true / runtime=ok — pre-fix code would read degraded
+forever. **Bonus:** the soak generation beat continuously 07-29 15:12Z -> 07-31 08:59Z
+= 41.8 hours, not merely the 24 measured.
+
+Consequence for ratification: the "one elevated restart" mechanic is SATISFIED (the
+environment restarted the service into the current code). Remaining: tag + push on
+owner authorization. The M10-F11 infrastructure question is now scoped to one sentence:
+the runtime is ready; its dependency stack needs to start without a login. Housekeeping:
+logs/ added to .gitignore (NSSM stdout target, was untracked).

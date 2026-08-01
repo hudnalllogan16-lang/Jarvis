@@ -160,9 +160,13 @@ now open on operational grounds.
 demonstrated; validation matrix measured; soak clean; five defects found, four fixed
 same-day, one deferred with record; debt register reduced (M8-F44, M9-F92, M9-F155,
 M10-F2/F3/F4/F5/F7/F14/F40 closed); tests 975 → 1460; gates green at every merge.
-Post-ratification mechanics: one elevated service restart (deploys the five merged
-post-install fixes; verifies ok:true — the F39 check), tag, push per owner
-authorization. The nine owner deliverables are indexed by this document: readiness
+
+**Post-closeout addendum (2026-08-01): the pending ratification mechanic completed
+itself.** The service was restarted by the environment on 2026-07-31, loading every
+post-install fix; a 6h38m dependency outage then demonstrated the WAIT posture and
+unassisted attach (V8), and `runtime = ok` across six heartbeat generations verifies
+M10-F39 in production. No elevated restart is required before tagging. Remaining
+mechanics: tag `m10-baseline`, push per owner authorization. The nine owner deliverables are indexed by this document: readiness
 report (this + VALIDATION + SOAK), implementation summary (§Objectives), architecture
 delta (§Architecture), validation results, soak results, remaining risks, debt update
 (§Deferred), readiness assessment, gate recommendation — all committed.

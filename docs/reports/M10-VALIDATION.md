@@ -128,4 +128,34 @@ Console closed; service unchanged. Repeated (PID 42220): identical. After both r
 four companies read exactly as before. Closing the desktop application does nothing to
 the platform — the criterion M10 exists to meet, measured.
 
-## Soak (~24h): pending — starts on service runtime, sampler via curl.exe
+## V8 (unplanned, post-closeout) — 6h38m dependency outage survived and self-healed
+
+Not a designed test. On 2026-07-31 the host's Docker Desktop stopped (per-user
+application, no user session — **the exact M10-F11 scenario**), taking Postgres, Redis
+and Temporal with it. Discovered 2026-08-01 08:30Z. What the platform had done:
+
+- **The service never died.** PID 26888 held throughout; NSSM recorded no respawn.
+- **It waited, and it said so, with a counter**: `still waiting for a dependency ·
+  down: ["database"] · waited_seconds: 23760 … 23880 …` at ~2-minute intervals for
+  **6 hours 38 minutes**, refusing to write heartbeats it could not honestly write
+  (`could not write a runtime heartbeat · state: waiting`) and pausing event-based
+  wakes with a stated reason. No crash loop. No silent pretending.
+- **It attached the moment dependencies returned**: Docker engine up 08:36:23Z →
+  `dependencies are available; starting · waited: 23905.0` at 08:36:26Z → serving
+  `/api/ready` 200 at 08:36:36Z. **Thirteen seconds, no restart, no human action
+  beyond starting Docker.** The WAIT-posture claim in DEPLOYMENT.md, measured.
+- **M10-F39's fix verified in production, unplanned.** The heartbeat table now holds
+  **six** runtime generations (five superseded). Health reads `ok: true` with
+  `runtime = ok` — under the pre-fix code those five stale generations would force
+  `degraded` forever. The fix merged mid-soak is confirmed working on the live host.
+- **Bonus continuity datum:** the soak generation (PID 46668) beat continuously from
+  2026-07-29 15:12Z to 2026-07-31 08:59Z — **41.8 hours**, not merely the 24 measured.
+
+**What this settles and what it doesn't.** Settled: the engineering half of unattended
+operation — survive a long dependency absence, stay honest about it, resume unassisted.
+Not settled, and unchanged by this: Docker Desktop still requires a user session to
+start, which is why V1/V3 remain out of M10 scope. The infrastructure decision is now
+precisely scoped to one sentence — *the runtime is ready; its dependency stack needs to
+start without a login.*
+
+## Soak (~24h): see docs/reports/M10-SOAK.md — 288/288 nominal, zero anomalies

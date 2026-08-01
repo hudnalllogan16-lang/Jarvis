@@ -2,6 +2,9 @@
 .env
 .env.local
 
+# Service runtime logs (NSSM AppStdout/AppStderr target — see docs/DEPLOYMENT.md)
+logs/
+
 # Python
 __pycache__/
 *.py[cod]
