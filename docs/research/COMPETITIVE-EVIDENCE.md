@@ -194,6 +194,23 @@ automation, ad arbitrage risk profile.
   agentic flows"** — even well-funded agentic UX is unfinished at the edges
   ([toolsstackai](https://toolsstackai.com/perplexity-comet-browser-review-2026/)).
 
+### Coding-agent IDEs (2026-08-01) — the background-execution convergence
+- **Both leaders shipped background/long-running agents.** Cursor 2.0: background
+  agents, cloud-hosted agent VMs, Bugbot PR auto-fixes. Windsurf Automations (late
+  2025): scheduled background agents, parallel subagents, cloud agents closing GitHub
+  issues "without keeping your laptop open"; Devin integration for multi-hour
+  autonomous work ([codeant](https://codeant.ai/blogs/best-ai-code-editor-cursor-vs-windsurf-vs-copilot),
+  [blink](https://blink.new/blog/cursor-background-agent),
+  [tech-insider](https://tech-insider.org/windsurf-vs-cursor-2026/)).
+- Pricing converged: Windsurf Pro $15 → **$20/mo in 2026-03 to match Cursor**; team
+  tiers $30–40/seat; Cursor Ultra $200/mo
+  ([uibakery](https://uibakery.io/blog/windsurf-vs-cursor-pricing)).
+- **Compliance is the enterprise differentiator**: Windsurf claims HIPAA + FedRAMP
+  (regulated/federal/healthcare); Cursor advertises SOC 2 Type II as of 2026-04
+  ([layer3labs](https://www.layer3labs.io/comparisons/cursor-vs-windsurf)). Third
+  independent instance in this file of *governance/compliance* — not capability —
+  deciding enterprise selection.
+
 ### Workflow-agent platforms (2026-07-29) — where operator income is actually built
 - Positioning per 2026 comparisons: **Zapier** = enterprise scale (9,000+ integrations,
   81B tasks lifetime, "governance that will pass a security review"); **Gumloop** =
