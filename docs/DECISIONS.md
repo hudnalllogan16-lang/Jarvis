@@ -2590,3 +2590,24 @@ environment restarted the service into the current code). Remaining: tag + push 
 owner authorization. The M10-F11 infrastructure question is now scoped to one sentence:
 the runtime is ready; its dependency stack needs to start without a login. Housekeeping:
 logs/ added to .gitignore (NSSM stdout target, was untracked).
+
+## M10 RATIFIED AND TAGGED; Phase 2 strategic review delivered (2026-08-01)
+
+m10-baseline tagged at 1460 tests, gates green, tree clean — per the owner''s closeout
+directive authorizing tag creation if ratification was determined appropriate. Push to
+origin awaits explicit owner authorization (outward-facing; M9 precedent).
+
+**Phase 2 review: docs/reports/STRATEGIC-REVIEW.md.** Findings: the market validated
+both the category (Manus/Genspark each $100M ARR inside a year selling background
+autonomy) and Jarvis''s thesis (NN/g — trust not capability is 2026''s central design
+problem; governance decides enterprise selection in three separate categories). Jarvis
+is not behind on strategy; it is behind on two specifics — the work is invisible while
+it runs, and it has never earned. Recommendation R1-R6 with roadmap M11 "Earn and See"
+(real distribution for an existing type + the Working View + out-of-band alerting),
+M12 "Modules" (content spine with disclosure as a contract primitive, then the first
+new type chosen on M11 data), M13 "Judgment" (evaluation harness, then Trading tactical
+L2). **Trading sequenced, not cancelled** — the evidence says start where the earning
+mechanism is proven. Rejections recorded with reasons (SaaS pivot, conversational
+multi-agent, faceless-volume content, computer-use as foundation, vector memory
+everywhere, Trading-first). ROADMAP.md unchanged pending owner direction — milestone
+sequencing is a product-vision decision, not an operational one.
